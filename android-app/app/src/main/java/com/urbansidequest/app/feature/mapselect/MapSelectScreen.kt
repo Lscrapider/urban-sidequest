@@ -1,10 +1,512 @@
 package com.urbansidequest.app.feature.mapselect
 
+import android.os.Bundle
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Directions
+import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.amap.api.maps.AMap
+import com.amap.api.maps.CameraUpdateFactory
+import com.amap.api.maps.MapView
+import com.amap.api.maps.model.LatLng
+import com.urbansidequest.app.ui.theme.AppBorder
+import com.urbansidequest.app.ui.theme.AppSurface
+import com.urbansidequest.app.ui.theme.AppSurfaceMuted
+import com.urbansidequest.app.ui.theme.AppText
+import com.urbansidequest.app.ui.theme.AppTextMuted
+import com.urbansidequest.app.ui.theme.DeepTeal
+import com.urbansidequest.app.ui.theme.DeepTealDark
+
+private val DefaultMapCenter = LatLng(39.908722, 116.397499)
+private val HorizontalScreenPadding = 16.dp
 
 @Composable
 fun MapSelectScreen() {
-    Text(text = "地图选区页")
+    var isSelectionExpanded by remember { mutableStateOf(false) }
+    var mapController by remember { mutableStateOf<AMap?>(null) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppSurfaceMuted)
+    ) {
+        AMapCanvas(
+            modifier = Modifier.fillMaxSize(),
+            onMapReady = { mapController = it }
+        )
+
+        CurrentLocationMarker(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = (-24).dp)
+        )
+
+        MapTopBar(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(start = 16.dp, top = 12.dp, end = 16.dp)
+        )
+
+        MapLocationButton(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(
+                    end = HorizontalScreenPadding,
+                    bottom = if (isSelectionExpanded) 318.dp else 234.dp
+                ),
+            onClick = {
+                mapController?.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(DefaultMapCenter, 14f)
+                )
+            }
+        )
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+        ) {
+            if (isSelectionExpanded) {
+                MapSelectionSheet(
+                    onNext = {},
+                    onManualSelect = {}
+                )
+            } else {
+                MapHomeActionSheet(
+                    onGenerateRoute = { isSelectionExpanded = true }
+                )
+            }
+            BottomNavigationBar()
+        }
+    }
 }
 
+@Composable
+private fun CurrentLocationMarker(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(46.dp)) {
+        drawCircle(
+            color = DeepTeal.copy(alpha = 0.16f),
+            radius = size.minDimension / 2f
+        )
+        drawCircle(
+            color = AppSurface,
+            radius = 13.dp.toPx()
+        )
+        drawCircle(
+            color = DeepTeal,
+            radius = 8.dp.toPx()
+        )
+        drawCircle(
+            color = AppSurface,
+            radius = 13.dp.toPx(),
+            style = Stroke(width = 2.dp.toPx())
+        )
+    }
+}
+
+@Composable
+private fun AMapCanvas(
+    modifier: Modifier = Modifier,
+    onMapReady: (AMap) -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val mapView = remember {
+        MapView(context).apply {
+            onCreate(Bundle())
+        }
+    }
+
+    DisposableEffect(lifecycle, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycle.removeObserver(observer)
+            mapView.onDestroy()
+        }
+    }
+
+    AndroidView(
+        modifier = modifier,
+        factory = {
+            mapView.apply {
+                val aMap = map
+                aMap.uiSettings.isZoomControlsEnabled = false
+                aMap.uiSettings.isCompassEnabled = false
+                aMap.uiSettings.isScaleControlsEnabled = true
+                aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(DefaultMapCenter, 14f))
+                onMapReady(aMap)
+            }
+        }
+    )
+}
+
+@Composable
+private fun MapTopBar(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "地图",
+                style = MaterialTheme.typography.titleMedium,
+                color = AppText,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                color = AppSurface,
+                border = BorderStroke(1.dp, AppBorder)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = "我的",
+                        tint = AppTextMuted
+                    )
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .shadow(6.dp, RoundedCornerShape(8.dp), clip = false),
+            shape = RoundedCornerShape(8.dp),
+            color = AppSurface,
+            border = BorderStroke(1.dp, AppBorder)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = "搜索",
+                    tint = AppTextMuted
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = "搜索城市、区县、酒店或地点",
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Box(
+                    modifier = Modifier
+                        .height(22.dp)
+                        .width(1.dp)
+                        .background(AppBorder)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Icon(
+                    imageVector = Icons.Filled.Tune,
+                    contentDescription = "筛选",
+                    tint = DeepTeal
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapLocationButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        modifier = modifier.size(48.dp),
+        onClick = onClick,
+        shape = CircleShape,
+        contentPadding = PaddingValues(0.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = AppSurface,
+            contentColor = DeepTeal
+        ),
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Icon(
+            modifier = Modifier.size(22.dp),
+            imageVector = Icons.Filled.GpsFixed,
+            contentDescription = "回到当前位置",
+            tint = DeepTeal
+        )
+    }
+}
+
+@Composable
+private fun MapHomeActionSheet(onGenerateRoute: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HorizontalScreenPadding, vertical = 12.dp)
+            .shadow(8.dp, RoundedCornerShape(12.dp), clip = false),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                onClick = onGenerateRoute,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DeepTeal,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(
+                    text = "生成路线",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = "选择区域后生成今天的城市副本",
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun MapSelectionSheet(
+    onNext: () -> Unit,
+    onManualSelect: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HorizontalScreenPadding, vertical = 12.dp)
+            .shadow(10.dp, RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp), clip = false),
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "天安门附近",
+                    color = AppText,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "当前范围适合 3-5 小时步行 + 地铁路线",
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MapChip(text = "半日路线")
+                MapChip(text = "地铁可达")
+                MapChip(text = "低绕路")
+            }
+
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                onClick = onNext,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DeepTeal,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(
+                    text = "下一步配置路线",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            OutlinedButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                onClick = onManualSelect,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = DeepTeal
+                ),
+                border = BorderStroke(1.dp, DeepTeal)
+            ) {
+                Text(
+                    text = "手动框选区域",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapChip(text: String) {
+    Surface(
+        shape = CircleShape,
+        color = AppSurfaceMuted,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Text(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            text = text,
+            color = AppTextMuted,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun BottomNavigationBar() {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(64.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BottomNavigationItem(
+                text = "地图",
+                icon = Icons.Filled.Map,
+                selected = true
+            )
+            BottomNavigationItem(
+                text = "路线",
+                icon = Icons.Filled.Directions,
+                selected = false
+            )
+            BottomNavigationItem(
+                text = "我的",
+                icon = Icons.Filled.Person,
+                selected = false
+            )
+        }
+    }
+}
+
+@Composable
+private fun BottomNavigationItem(
+    text: String,
+    icon: ImageVector,
+    selected: Boolean
+) {
+    val contentColor = if (selected) Color.White else AppTextMuted
+    val backgroundColor = if (selected) DeepTealDark else Color.Transparent
+
+    Column(
+        modifier = Modifier
+            .clickable { }
+            .border(
+                width = if (selected) 0.dp else 1.dp,
+                color = Color.Transparent,
+                shape = CircleShape
+            )
+            .background(backgroundColor, CircleShape)
+            .padding(horizontal = 18.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            modifier = Modifier.size(20.dp),
+            imageVector = icon,
+            contentDescription = text,
+            tint = contentColor
+        )
+        Text(
+            text = text,
+            color = contentColor,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}

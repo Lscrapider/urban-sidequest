@@ -47,6 +47,7 @@ android-app/**/build/
 # Product design / brainstorming runtime state
 .superpowers/
 .impeccable/live/
+.codegraph/
 
 # Temporary files
 tmp/
