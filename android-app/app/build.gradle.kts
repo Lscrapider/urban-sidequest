@@ -14,6 +14,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        val backendBaseUrl = providers.environmentVariable("BACKEND_BASE_URL")
+            .orElse("http://10.0.2.2:8080")
+            .get()
+        buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
     }
 
     buildFeatures {

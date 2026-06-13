@@ -26,7 +26,13 @@ docker compose up -d
 - 本地端口：`5432`
 - 坐标字段：统一保存 GCJ-02 经度、纬度，并用 `location_gcj02` 建 PostGIS 空间索引。
 
-## 迁移脚本
+## 初始化脚本
 
-迁移脚本放在 `database/migrations/`。Spring Boot 后端默认从该目录读取 Flyway 迁移。
+迁移脚本放在 `database/migrations/`。本项目不使用 Flyway 自动迁移，本地数据库启动后手动执行：
 
+```bash
+cd database
+python3 init_database.py
+```
+
+脚本默认通过 Docker Compose 的 `postgres` 服务执行 `psql`，不依赖宿主机安装 `psql` 或 Python 数据库驱动。脚本检测到 `users` 表存在时会跳过，避免重复执行初始化 SQL。

@@ -9,9 +9,6 @@ spring:
     redis:
       host: ${SPRING_REDIS_HOST:localhost}
       port: ${SPRING_REDIS_PORT:6379}
-  flyway:
-    enabled: true
-    locations: ${SPRING_FLYWAY_LOCATIONS:filesystem:../database/migrations}
 
 server:
   port: ${SERVER_PORT:8080}
@@ -27,3 +24,9 @@ amap:
     key: ${AMAP_WEB_KEY:}
     base-url: ${AMAP_WEB_BASE_URL:https://restapi.amap.com}
 
+auth:
+  jwt:
+    issuer: ${AUTH_JWT_ISSUER:urban-sidequest}
+    secret: ${AUTH_JWT_SECRET:urban-sidequest-local-dev-secret-change-me}
+    access-token-validity-seconds: ${AUTH_JWT_ACCESS_TOKEN_VALIDITY_SECONDS:86400}
+  dev-verification-code: ${AUTH_DEV_VERIFICATION_CODE:246810}
