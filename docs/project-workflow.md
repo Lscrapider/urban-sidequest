@@ -142,9 +142,10 @@ README 不替代详细文档，只作为项目导航。
 
 ## 8. 当前推荐下一步
 
-当前项目已经有产品设计、技术设计和 UI 启发文档。下一步建议：
+当前项目已经有产品设计、核心 UI 设计、页面设计和第一阶段技术选型。下一步建议：
 
-1. 编写 `docs/page-design.md`。
-2. 明确 Android App 核心页面的信息架构。
-3. 根据页面设计更新 `docs/product-design.md`。
-4. 再进入技术架构和选型。
+1. 定义 Android App 模块结构：Kotlin、Jetpack Compose、高德 Android SDK、页面 feature 边界。
+2. 定义 Spring Boot 后端模块结构：用户、路线生成任务、POI、路线结果、打卡反馈、后台管理。
+3. 设计 PostgreSQL + PostGIS 的核心数据表和坐标字段约束。
+4. 设计 App 与后端之间的 API 契约。
+5. 先跑通 mock 路线生成闭环，再逐步接入高德 Web 服务 API。

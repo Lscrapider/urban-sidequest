@@ -6,7 +6,7 @@
 
 ## 当前阶段
 
-当前处于产品设计和 UI 设计阶段。
+当前已完成产品设计、核心 UI 设计和第一阶段技术选型，下一步进入开发模块骨架和接口数据结构设计。
 
 推进顺序：
 
@@ -23,7 +23,7 @@
 - `docs/product-design.md`：当前产品设计基准。
 - `docs/ui-inspiration.md`：UI 启发、参考方向和探索图。
 - `docs/page-design.md`：Android App 页面信息架构、Stitch UI 方案和本地导出记录。
-- `docs/technical-design.md`：技术设计、并发、隔离和安全约束。
+- `docs/technical-design.md`：技术选型、路线生成链路、并发、隔离和安全约束。
 - `docs/project-workflow.md`：项目推进流程。
 
 ## 核心产品方向
@@ -44,4 +44,4 @@
 
 ## 下一步
 
-基于 `docs/page-design.md` 中确认的 Android App 核心页面，进入技术架构、地图 SDK、数据结构和页面开发拆分。
+基于 `docs/page-design.md` 和 `docs/technical-design.md` 中已确认的 Android UI 与技术选型，进入 Android App、Spring Boot 后端、数据结构和 API 契约的开发拆分。
