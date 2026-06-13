@@ -1,11 +1,16 @@
 package com.urbansidequest.app.feature.mapselect
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,22 +31,28 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +63,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -59,13 +71,20 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.amap.api.location.AMapLocationClient
+import com.amap.api.location.AMapLocationClientOption
 import com.amap.api.maps.AMap
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
 import com.amap.api.maps.model.BitmapDescriptor
 import com.amap.api.maps.model.BitmapDescriptorFactory
 import com.amap.api.maps.model.LatLng
+import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
+import com.amap.api.services.core.LatLonPoint
+import com.amap.api.services.help.Inputtips
+import com.amap.api.services.help.InputtipsQuery
+import com.amap.api.services.help.Tip
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
@@ -73,6 +92,7 @@ import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.DeepTeal
 import com.urbansidequest.app.ui.theme.DeepTealDark
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private val DefaultMapCenter = LatLng(39.908722, 116.397499)
@@ -80,8 +100,76 @@ private val HorizontalScreenPadding = 16.dp
 
 @Composable
 fun MapSelectScreen() {
+    val context = LocalContext.current
     var isSelectionExpanded by remember { mutableStateOf(false) }
     var mapController by remember { mutableStateOf<AMap?>(null) }
+    var currentLocation by remember { mutableStateOf(DefaultMapCenter) }
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchText by remember { mutableStateOf("") }
+    var searchSuggestions by remember { mutableStateOf<List<MapSearchSuggestion>>(emptyList()) }
+    var isSearching by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+
+    fun moveToLocation(location: LatLng, zoom: Float = 16f) {
+        currentLocation = location
+        mapController?.animateCamera(CameraUpdateFactory.newLatLngZoom(location, zoom))
+    }
+
+    fun requestCurrentLocation() {
+        startSingleAmapLocation(
+            context = context,
+            onLocated = ::moveToLocation
+        )
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            requestCurrentLocation()
+        }
+    }
+
+    fun locateWithPermission() {
+        if (context.hasLocationPermission()) {
+            requestCurrentLocation()
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        locateWithPermission()
+    }
+
+    LaunchedEffect(searchText, currentLocation) {
+        val keyword = searchText.trim()
+        if (!isSearchActive || keyword.length < 2) {
+            searchSuggestions = emptyList()
+            isSearching = false
+            return@LaunchedEffect
+        }
+        isSearching = true
+        delay(250)
+        searchAmapInputTips(
+            context = context,
+            keyword = keyword,
+            location = currentLocation,
+            onResult = { resultKeyword, suggestions ->
+                if (resultKeyword == searchText.trim()) {
+                    searchSuggestions = suggestions
+                    isSearching = false
+                }
+            }
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -90,6 +178,7 @@ fun MapSelectScreen() {
     ) {
         AMapCanvas(
             modifier = Modifier.fillMaxSize(),
+            currentLocation = currentLocation,
             onMapReady = { mapController = it }
         )
 
@@ -97,7 +186,27 @@ fun MapSelectScreen() {
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(start = 16.dp, top = 12.dp, end = 16.dp)
+                .padding(start = 16.dp, top = 12.dp, end = 16.dp),
+            isSearchActive = isSearchActive,
+            searchText = searchText,
+            suggestions = searchSuggestions,
+            isSearching = isSearching,
+            onSearchFocus = { isSearchActive = true },
+            onSearchTextChange = { searchText = it },
+            onCancelSearch = {
+                isSearchActive = false
+                searchText = ""
+                searchSuggestions = emptyList()
+                isSearching = false
+                focusManager.clearFocus()
+            },
+            onSelectSuggestion = { suggestion ->
+                moveToLocation(suggestion.location)
+                searchText = suggestion.name
+                searchSuggestions = emptyList()
+                isSearchActive = false
+                focusManager.clearFocus()
+            }
         )
 
         MapLocationButton(
@@ -107,11 +216,7 @@ fun MapSelectScreen() {
                     end = HorizontalScreenPadding,
                     bottom = if (isSelectionExpanded) 318.dp else 234.dp
                 ),
-            onClick = {
-                mapController?.animateCamera(
-                    CameraUpdateFactory.newLatLngZoom(DefaultMapCenter, 14f)
-                )
-            }
+            onClick = ::locateWithPermission
         )
 
         Column(
@@ -138,10 +243,12 @@ fun MapSelectScreen() {
 @Composable
 private fun AMapCanvas(
     modifier: Modifier = Modifier,
+    currentLocation: LatLng,
     onMapReady: (AMap) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var currentLocationMarker by remember { mutableStateOf<Marker?>(null) }
     val mapView = remember {
         MapView(context).apply {
             onCreate(Bundle())
@@ -172,17 +279,96 @@ private fun AMapCanvas(
                 aMap.uiSettings.isZoomControlsEnabled = false
                 aMap.uiSettings.isCompassEnabled = false
                 aMap.uiSettings.isScaleControlsEnabled = true
-                aMap.addMarker(
+                currentLocationMarker = aMap.addMarker(
                     MarkerOptions()
-                        .position(DefaultMapCenter)
+                        .position(currentLocation)
                         .anchor(0.5f, 0.5f)
                         .icon(createCurrentLocationIcon(context))
                         .zIndex(10f)
                 )
-                aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(DefaultMapCenter, 14f))
+                aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLocation, 14f))
                 onMapReady(aMap)
             }
+        },
+        update = {
+            currentLocationMarker?.position = currentLocation
         }
+    )
+}
+
+private fun Context.hasLocationPermission(): Boolean {
+    return ContextCompat.checkSelfPermission(
+        this,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun startSingleAmapLocation(
+    context: Context,
+    onLocated: (LatLng) -> Unit
+) {
+    val locationClient = AMapLocationClient(context.applicationContext)
+    val locationOption = AMapLocationClientOption().apply {
+        locationMode = AMapLocationClientOption.AMapLocationMode.Hight_Accuracy
+        isOnceLocation = true
+        isOnceLocationLatest = true
+        isNeedAddress = false
+        httpTimeOut = LOCATION_TIMEOUT_MILLIS
+    }
+
+    locationClient.setLocationOption(locationOption)
+    locationClient.setLocationListener { location ->
+        if (location != null && location.errorCode == 0) {
+            onLocated(LatLng(location.latitude, location.longitude))
+        }
+        locationClient.stopLocation()
+        locationClient.onDestroy()
+    }
+    locationClient.startLocation()
+}
+
+private fun searchAmapInputTips(
+    context: Context,
+    keyword: String,
+    location: LatLng,
+    onResult: (String, List<MapSearchSuggestion>) -> Unit
+) {
+    val query = InputtipsQuery(keyword, "").apply {
+        setLocation(LatLonPoint(location.latitude, location.longitude))
+        setCityLimit(false)
+    }
+    val inputTips = Inputtips(context.applicationContext, query)
+    inputTips.setInputtipsListener { tips, resultCode ->
+        val suggestions = if (resultCode == AMAP_SUCCESS_CODE) {
+            tips.orEmpty()
+                .mapNotNull(Tip::toMapSearchSuggestion)
+                .take(MAX_SEARCH_SUGGESTIONS)
+        } else {
+            emptyList()
+        }
+        onResult(keyword, suggestions)
+    }
+    inputTips.requestInputtipsAsyn()
+}
+
+private fun Tip.toMapSearchSuggestion(): MapSearchSuggestion? {
+    val point = point ?: return null
+    val name = name.orEmpty().ifBlank { return null }
+    val districtText = district.orEmpty()
+    val addressText = address.orEmpty()
+    val description = listOf(districtText, addressText)
+        .filter { it.isNotBlank() && it != "[]" }
+        .distinct()
+        .joinToString(" · ")
+
+    return MapSearchSuggestion(
+        name = name,
+        description = description,
+        location = LatLng(point.latitude, point.longitude)
     )
 }
 
@@ -217,41 +403,32 @@ private fun createCurrentLocationIcon(context: Context): BitmapDescriptor {
     return BitmapDescriptorFactory.fromBitmap(bitmap)
 }
 
+private const val LOCATION_TIMEOUT_MILLIS = 8_000L
+private const val AMAP_SUCCESS_CODE = 1000
+private const val MAX_SEARCH_SUGGESTIONS = 8
+
+private data class MapSearchSuggestion(
+    val name: String,
+    val description: String,
+    val location: LatLng
+)
+
 @Composable
-private fun MapTopBar(modifier: Modifier = Modifier) {
+private fun MapTopBar(
+    modifier: Modifier = Modifier,
+    isSearchActive: Boolean,
+    searchText: String,
+    suggestions: List<MapSearchSuggestion>,
+    isSearching: Boolean,
+    onSearchFocus: () -> Unit,
+    onSearchTextChange: (String) -> Unit,
+    onCancelSearch: () -> Unit,
+    onSelectSuggestion: (MapSearchSuggestion) -> Unit
+) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "地图",
-                style = MaterialTheme.typography.titleMedium,
-                color = AppText,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Surface(
-                modifier = Modifier.size(40.dp),
-                shape = CircleShape,
-                color = AppSurface,
-                border = BorderStroke(1.dp, AppBorder)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.Person,
-                        contentDescription = "我的",
-                        tint = AppTextMuted
-                    )
-                }
-            }
-        }
-
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -264,32 +441,156 @@ private fun MapTopBar(modifier: Modifier = Modifier) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 14.dp),
+                    .clickable(onClick = onSearchFocus)
+                    .padding(horizontal = if (isSearchActive) 4.dp else 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = "搜索",
-                    tint = AppTextMuted
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
+                if (isSearchActive) {
+                    IconButton(onClick = onCancelSearch) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "退出搜索",
+                            tint = AppTextMuted
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = "搜索",
+                        tint = AppTextMuted
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                }
+
+                BasicTextField(
                     modifier = Modifier.weight(1f),
-                    text = "搜索城市、区县、酒店或地点",
+                    value = searchText,
+                    onValueChange = {
+                        onSearchFocus()
+                        onSearchTextChange(it)
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = AppText),
+                    decorationBox = { innerTextField ->
+                        if (searchText.isBlank()) {
+                            Text(
+                                text = "搜索起点、区域或必去点",
+                                color = AppTextMuted,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+
+                if (isSearchActive && searchText.isNotBlank()) {
+                    IconButton(onClick = { onSearchTextChange("") }) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "清空搜索",
+                            tint = AppTextMuted
+                        )
+                    }
+                } else if (!isSearchActive) {
+                    Box(
+                        modifier = Modifier
+                            .height(22.dp)
+                            .width(1.dp)
+                            .background(AppBorder)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Icon(
+                        imageVector = Icons.Filled.Tune,
+                        contentDescription = "路线条件",
+                        tint = DeepTeal
+                    )
+                }
+            }
+        }
+
+        if (isSearchActive) {
+            SearchSuggestionsPanel(
+                searchText = searchText,
+                suggestions = suggestions,
+                isSearching = isSearching,
+                onSelectSuggestion = onSelectSuggestion
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchSuggestionsPanel(
+    searchText: String,
+    suggestions: List<MapSearchSuggestion>,
+    isSearching: Boolean,
+    onSelectSuggestion: (MapSearchSuggestion) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(6.dp, RoundedCornerShape(8.dp), clip = false),
+        shape = RoundedCornerShape(8.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(modifier = Modifier.padding(vertical = 6.dp)) {
+            when {
+                searchText.trim().length < 2 -> SearchPanelHint(text = "输入至少 2 个字搜索地点")
+                isSearching -> SearchPanelHint(text = "正在搜索")
+                suggestions.isEmpty() -> SearchPanelHint(text = "没有找到可定位的地点")
+                else -> suggestions.forEach { suggestion ->
+                    SearchSuggestionRow(
+                        suggestion = suggestion,
+                        onClick = { onSelectSuggestion(suggestion) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchPanelHint(text: String) {
+    Text(
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+        text = text,
+        color = AppTextMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+}
+
+@Composable
+private fun SearchSuggestionRow(
+    suggestion: MapSearchSuggestion,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            modifier = Modifier.size(20.dp),
+            imageVector = Icons.Filled.Place,
+            contentDescription = null,
+            tint = DeepTeal
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = suggestion.name,
+                color = AppText,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (suggestion.description.isNotBlank()) {
+                Text(
+                    text = suggestion.description,
                     color = AppTextMuted,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Box(
-                    modifier = Modifier
-                        .height(22.dp)
-                        .width(1.dp)
-                        .background(AppBorder)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Icon(
-                    imageVector = Icons.Filled.Tune,
-                    contentDescription = "筛选",
-                    tint = DeepTeal
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }
@@ -349,7 +650,7 @@ private fun MapHomeActionSheet(onGenerateRoute: () -> Unit) {
                 )
             ) {
                 Text(
-                    text = "生成路线",
+                    text = "生成副本",
                     fontWeight = FontWeight.Bold
                 )
             }
