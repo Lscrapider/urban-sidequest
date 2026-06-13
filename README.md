@@ -2,7 +2,7 @@
 
 城市副本是一个基于中国城市地图的路线生成产品。用户选择一个地图区域，补充基础出行条件后，系统生成一条可执行、可解释、可调整的主推路线 A，并提供两条额外路线作为备选。
 
-第一阶段以微信小程序承载核心体验，后续独立 App 承接长期资产，Web 负责产品介绍和后台维护。
+第一阶段直接以 Android APK 承载核心体验，后续预留 iOS App，Web 负责产品介绍和后台维护。
 
 ## 当前阶段
 
@@ -22,16 +22,17 @@
 - `docs/product-brief.md`：早期产品 brief。
 - `docs/product-design.md`：当前产品设计基准。
 - `docs/ui-inspiration.md`：UI 启发、参考方向和探索图。
+- `docs/page-design.md`：Android App 页面信息架构、Stitch UI 方案和本地导出记录。
 - `docs/technical-design.md`：技术设计、并发、隔离和安全约束。
 - `docs/project-workflow.md`：项目推进流程。
 
 ## 核心产品方向
 
 - 首要用户：旅游用户。
-- 第一阶段平台：微信小程序。
+- 第一阶段平台：Android APK。
 - 主体验：地图选区、条件输入、路线 A、两条额外路线、POI 解释卡、打卡反馈。
 - Web：产品介绍页和后台维护。
-- 后续：独立 App 承接用户长期资产。
+- 后续：iOS App 承接同等移动端能力。
 
 ## 开发约束
 
@@ -43,4 +44,4 @@
 
 ## 下一步
 
-编写 `docs/page-design.md`，先确定小程序核心页面和 Web 页面信息架构，再进入技术架构和选型。
+基于 `docs/page-design.md` 中确认的 Android App 核心页面，进入技术架构、地图 SDK、数据结构和页面开发拆分。

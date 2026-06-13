@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Urban Sidequest - Map Selection</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        /* Safe Area Padding for mobile */
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 20px); }
+        .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+    </style>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "on-primary-fixed-variant": "#104f4f",
+                "tertiary": "#412a00",
+                "on-tertiary-container": "#eda500",
+                "primary-fixed": "#b4edec",
+                "on-surface": "#191c1d",
+                "surface-tint": "#2e6767",
+                "on-background": "#191c1d",
+                "error-container": "#ffdad6",
+                "surface-container-lowest": "#ffffff",
+                "surface-variant": "#e1e3e4",
+                "secondary-container": "#c6e4f4",
+                "outline": "#707978",
+                "primary-fixed-dim": "#98d1d0",
+                "on-tertiary-fixed-variant": "#604100",
+                "tertiary-fixed": "#ffdeae",
+                "secondary-fixed": "#c9e7f7",
+                "surface": "#f8f9fa",
+                "surface-container-low": "#f3f4f5",
+                "inverse-surface": "#2e3132",
+                "surface-bright": "#f8f9fa",
+                "on-primary": "#ffffff",
+                "on-error-container": "#93000a",
+                "inverse-primary": "#98d1d0",
+                "background": "#f8f9fa",
+                "primary-container": "#0d4d4d",
+                "surface-container-highest": "#e1e3e4",
+                "tertiary-fixed-dim": "#ffba3f",
+                "on-tertiary": "#ffffff",
+                "primary": "#003535",
+                "surface-container-high": "#e7e8e9",
+                "error": "#ba1a1a",
+                "secondary": "#466270",
+                "outline-variant": "#bfc8c8",
+                "on-secondary-fixed-variant": "#2e4b57",
+                "on-primary-container": "#85bdbc",
+                "on-tertiary-fixed": "#281800",
+                "surface-container": "#edeeef",
+                "on-primary-fixed": "#002020",
+                "surface-dim": "#d9dadb",
+                "on-secondary-container": "#4a6774",
+                "secondary-fixed-dim": "#adcbda",
+                "inverse-on-surface": "#f0f1f2",
+                "on-surface-variant": "#404848",
+                "tertiary-container": "#5e3f00",
+                "on-secondary-fixed": "#001f2a",
+                "on-secondary": "#ffffff",
+                "on-error": "#ffffff"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.125rem",
+                "lg": "0.25rem",
+                "xl": "0.5rem",
+                "full": "0.75rem"
+        },
+        "spacing": {
+                "gutter": "16px",
+                "margin-mobile": "16px",
+                "md": "16px",
+                "margin-desktop": "32px",
+                "sm": "8px",
+                "unit": "4px",
+                "lg": "24px",
+                "xl": "32px",
+                "xs": "4px"
+        },
+        "fontFamily": {
+                "body-lg": [
+                        "Inter"
+                ],
+                "navigation-node": [
+                        "Hanken Grotesk"
+                ],
+                "body-sm": [
+                        "Inter"
+                ],
+                "headline-lg": [
+                        "Hanken Grotesk"
+                ],
+                "headline-lg-mobile": [
+                        "Hanken Grotesk"
+                ],
+                "label-caps": [
+                        "JetBrains Mono"
+                ],
+                "headline-md": [
+                        "Hanken Grotesk"
+                ]
+        },
+        "fontSize": {
+                "body-lg": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "navigation-node": [
+                        "14px",
+                        {
+                                "lineHeight": "14px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "body-sm": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "headline-lg": [
+                        "32px",
+                        {
+                                "lineHeight": "40px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "letterSpacing": "-0.01em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "label-caps": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-md": [
+                        "20px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "600"
+                        }
+                ]
+        }
+},
+    }
+  }
+</script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface h-[844px] w-[390px] mx-auto relative overflow-hidden flex flex-col font-body-md select-none">
+<!-- Map Canvas (Level 0) -->
+<div class="absolute inset-0 z-0 bg-surface-container-high" data-alt="A clean, high-contrast, modern satellite or street map view focusing on an urban river district. The map features a light theme aesthetic suitable for daylight viewing, using subtle grays, soft blues for water bodies, and crisp white roads. The visual style is highly utilitarian and precise, resembling professional navigation software, devoid of unnecessary decorative elements or excessive textures." data-location="Shanghai" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDUG0gqiEh0oD3Q_u-PtXFtDpnbibziTS7JN7nP6DTXKIrm7aYVdaCGKJBaOdIHoE69h4ag5MyBkkOk7h-qaS3WSoF1W4BSwZB7TzxK_8SLhlaTvrqfKX9qLN1k4wzdRL_6jxqm9P7Xwnr5N9RVK2tjbJjlwlrkuDB1w-oLvwZvfjC5JSChhprTmIsOAwT3r6T9PVsJryExifCbVXT4xO8N3LN828dZqe1VB8RWs8p2anshWXmxHGbBs8-x0H07-weMfauYMlYAH58-'); background-size: cover; background-position: center;">
+<!-- Scrim overlay to lighten the map slightly for UI contrast -->
+<div class="absolute inset-0 bg-surface/30 mix-blend-overlay"></div>
+<!-- Simulated Map Elements -->
+<!-- Dashed Boundary Box (District) -->
+<div class="absolute top-1/4 left-[15%] w-[70%] h-[30%] border-[3px] border-dashed border-primary/60 rounded-xl pointer-events-none"></div>
+<!-- User Location Pin -->
+<div class="absolute top-[40%] left-[35%] flex flex-col items-center transform -translate-x-1/2 -translate-y-full">
+<div class="w-6 h-6 bg-primary rounded-full flex items-center justify-center border-2 border-surface-container-lowest shadow-md">
+<span class="w-2 h-2 bg-surface-container-lowest rounded-full"></span>
+</div>
+<div class="w-1.5 h-6 bg-primary opacity-80 mt-[-2px] rounded-b-full"></div>
+</div>
+<!-- POI Nodes (Deep Teal border with white background) -->
+<div class="absolute top-[30%] left-[50%] w-3 h-3 bg-surface-container-lowest rounded-full border-2 border-primary shadow-sm"></div>
+<div class="absolute top-[45%] left-[70%] w-3 h-3 bg-surface-container-lowest rounded-full border-2 border-primary shadow-sm"></div>
+<div class="absolute top-[20%] left-[25%] w-3 h-3 bg-surface-container-lowest rounded-full border-2 border-primary shadow-sm"></div>
+</div>
+<!-- Top Navigation & Search (Level 1) -->
+<div class="absolute top-0 left-0 right-0 z-10 pt-safe px-margin mt-md">
+<!-- Re-using TopAppBar style logic, but customized for search -->
+<div class="bg-surface/90 backdrop-blur-md floating rounded-lg border border-outline-variant/30 shadow-sm flex items-center px-md py-sm w-full h-[56px]">
+<span class="material-symbols-outlined text-on-surface-variant mr-md" style="font-variation-settings: 'FILL' 0;">search</span>
+<input class="flex-1 bg-transparent border-none outline-none font-body-md text-on-surface placeholder:text-on-surface-variant/70 p-0 focus:ring-0" placeholder="搜索城市、区县、酒店或地点" readonly="" type="text"/>
+<div class="flex items-center gap-sm ml-sm pl-sm border-l border-outline-variant/30">
+<button class="text-on-surface-variant hover:bg-surface-variant/50 p-sm rounded-full transition-colors active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">tune</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Bottom Action Area Container -->
+<div class="absolute bottom-0 left-0 right-0 z-20 flex flex-col justify-end pointer-events-none">
+<!-- FAB: Current Location -->
+<div class="w-full px-margin mb-md flex justify-end pointer-events-auto">
+<button class="w-[48px] h-[48px] bg-primary rounded-full shadow-md flex items-center justify-center active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-surface-container-lowest" style="font-variation-settings: 'FILL' 1;">my_location</span>
+</button>
+</div>
+<!-- Bottom Sheet Drawer (Level 2) -->
+<div class="bg-surface rounded-t-[24px] shadow-[0_-4px_20px_rgba(0,0,0,0.08)] pointer-events-auto pb-safe flex flex-col h-[40%] min-h-[320px]">
+<!-- Drag Handle -->
+<div class="w-full flex justify-center py-sm">
+<div class="w-[40px] h-[4px] bg-outline-variant/50 rounded-full"></div>
+</div>
+<!-- Content -->
+<div class="px-margin pt-sm flex-1 flex flex-col">
+<!-- Title -->
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-xs">
+                    今天在苏州河附近走一圈
+                </h1>
+<!-- Summary Row -->
+<p class="font-body-md text-body-md text-on-surface-variant mb-md">
+                    可生成 3 条路线 · 适合 4-6 小时 · 步行+地铁友好
+                </p>
+<!-- Tags / Chips -->
+<div class="flex flex-wrap gap-sm mb-lg">
+<span class="px-md py-xs border border-outline-variant/40 rounded-full font-label-sm text-label-sm text-on-surface">静安寺</span>
+<span class="px-md py-xs border border-outline-variant/40 rounded-full font-label-sm text-label-sm text-on-surface">苏州河</span>
+<span class="px-md py-xs border border-outline-variant/40 rounded-full font-label-sm text-label-sm text-on-surface">愚园路</span>
+</div>
+<div class="flex-1"></div> <!-- Spacer -->
+<!-- Actions -->
+<div class="flex flex-col gap-sm pb-margin">
+<!-- Primary Action -->
+<button class="w-full bg-primary text-surface-container-lowest font-label-lg text-label-lg py-md rounded-lg flex items-center justify-center gap-xs active:scale-[0.98] transition-transform">
+                        下一步配置路线
+                        <span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 0;">arrow_forward</span>
+</button>
+<!-- Secondary Action -->
+<button class="w-full bg-transparent text-primary font-label-lg text-label-lg py-sm rounded-lg active:bg-surface-variant/50 transition-colors">
+                        手动框选区域
+                    </button>
+</div>
+</div>
+</div>
+</div>
+</body></html>

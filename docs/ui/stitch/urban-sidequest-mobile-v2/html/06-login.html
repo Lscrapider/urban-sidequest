@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>城市副本 - Urban Sidequest Login</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed-variant": "#104f4f",
+                        "tertiary": "#412a00",
+                        "on-tertiary-container": "#eda500",
+                        "primary-fixed": "#b4edec",
+                        "on-surface": "#191c1d",
+                        "surface-tint": "#2e6767",
+                        "on-background": "#191c1d",
+                        "error-container": "#ffdad6",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-variant": "#e1e3e4",
+                        "secondary-container": "#c6e4f4",
+                        "outline": "#707978",
+                        "primary-fixed-dim": "#98d1d0",
+                        "on-tertiary-fixed-variant": "#604100",
+                        "tertiary-fixed": "#ffdeae",
+                        "secondary-fixed": "#c9e7f7",
+                        "surface": "#f8f9fa",
+                        "surface-container-low": "#f3f4f5",
+                        "inverse-surface": "#2e3132",
+                        "surface-bright": "#f8f9fa",
+                        "on-primary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "inverse-primary": "#98d1d0",
+                        "background": "#f8f9fa",
+                        "primary-container": "#0d4d4d",
+                        "surface-container-highest": "#e1e3e4",
+                        "tertiary-fixed-dim": "#ffba3f",
+                        "on-tertiary": "#ffffff",
+                        "primary": "#003535",
+                        "surface-container-high": "#e7e8e9",
+                        "error": "#ba1a1a",
+                        "secondary": "#466270",
+                        "outline-variant": "#bfc8c8",
+                        "on-secondary-fixed-variant": "#2e4b57",
+                        "on-primary-container": "#85bdbc",
+                        "on-tertiary-fixed": "#281800",
+                        "surface-container": "#edeeef",
+                        "on-primary-fixed": "#002020",
+                        "surface-dim": "#d9dadb",
+                        "on-secondary-container": "#4a6774",
+                        "secondary-fixed-dim": "#adcbda",
+                        "inverse-on-surface": "#f0f1f2",
+                        "on-surface-variant": "#404848",
+                        "tertiary-container": "#5e3f00",
+                        "on-secondary-fixed": "#001f2a",
+                        "on-secondary": "#ffffff",
+                        "on-error": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "margin-mobile": "16px",
+                        "md": "16px",
+                        "margin-desktop": "32px",
+                        "sm": "8px",
+                        "unit": "4px",
+                        "lg": "24px",
+                        "xl": "32px",
+                        "xs": "4px",
+                        "margin": "20px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "navigation-node": ["Hanken Grotesk"],
+                        "body-sm": ["Inter"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "label-caps": ["JetBrains Mono"],
+                        "headline-md": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "navigation-node": ["14px", { "lineHeight": "14px", "fontWeight": "700" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-surface');
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .map-pattern {
+            background-image: radial-gradient(theme('colors.outline-variant/30') 1px, transparent 1px);
+            background-size: 16px 16px;
+        }
+
+        .route-line {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: drawRoute 2s ease-out forwards;
+        }
+
+        @keyframes drawRoute {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+    </style>
+<style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-surface-dim">
+<!-- Mobile Device Container -->
+<main class="relative w-full max-w-[390px] h-[844px] bg-background overflow-hidden shadow-2xl mx-auto flex flex-col">
+<!-- Android Status Bar Mockup -->
+<header class="flex justify-between items-center px-4 py-2 bg-transparent z-10">
+<span class="font-label-caps text-label-caps text-on-surface font-medium">09:41</span>
+<div class="flex items-center space-x-1">
+<span class="material-symbols-outlined text-[16px] text-on-surface" style="font-variation-settings: 'FILL' 1;">signal_cellular_4_bar</span>
+<span class="material-symbols-outlined text-[16px] text-on-surface" style="font-variation-settings: 'FILL' 1;">wifi</span>
+<span class="material-symbols-outlined text-[16px] text-on-surface" style="font-variation-settings: 'FILL' 1;">battery_full</span>
+</div>
+</header>
+<!-- Top Section: Branding & Map Graphic -->
+<div class="relative pt-xl px-margin pb-lg flex-shrink-0">
+<!-- Subtle Map Background Graphic -->
+<div class="absolute top-0 right-0 w-64 h-64 -mr-16 -mt-8 opacity-40 pointer-events-none">
+<div class="absolute inset-0 map-pattern rounded-full"></div>
+<svg class="absolute inset-0 w-full h-full transform rotate-12" viewbox="0 0 200 200">
+<path class="route-line" d="M 20 180 Q 60 140 100 150 T 160 80 T 180 20" fill="none" stroke="#0d4d4d" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"></path>
+<circle cx="20" cy="180" fill="#ffba3f" r="6" stroke="#0d4d4d" stroke-width="3"></circle>
+<circle cx="100" cy="150" fill="#ffffff" r="6" stroke="#0d4d4d" stroke-width="3"></circle>
+<circle cx="160" cy="80" fill="#ffffff" r="6" stroke="#0d4d4d" stroke-width="3"></circle>
+<circle cx="180" cy="20" fill="#0d4d4d" r="8" stroke="#ffffff" stroke-width="2"></circle>
+</svg>
+</div>
+<div class="relative z-10 mt-8">
+<h1 class="font-headline-lg text-headline-lg text-primary-container mb-2">城市副本</h1>
+<p class="font-body-sm text-body-sm text-on-surface-variant max-w-[200px]">把今天的城市走成一条可执行路线</p>
+</div>
+</div>
+<!-- Login Form Section -->
+<div class="flex-grow px-margin flex flex-col justify-center pb-xl z-10">
+<div class="space-y-6">
+<!-- Phone Input -->
+<div>
+<label class="block font-label-caps text-label-caps text-on-surface-variant mb-1" for="phone">手机号</label>
+<div class="relative">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="font-body-sm text-body-sm text-on-surface-variant">+86</span>
+<div class="h-4 w-px bg-outline-variant mx-2"></div>
+</div>
+<input class="block w-full pl-16 pr-3 py-3 border border-outline-variant rounded-lg bg-surface focus:ring-2 focus:ring-primary-container focus:border-primary-container font-body-lg text-body-lg text-on-surface transition-colors placeholder:text-outline/50" id="phone" placeholder="输入手机号" type="tel"/>
+</div>
+</div>
+<!-- Verification Code Input -->
+<div>
+<label class="block font-label-caps text-label-caps text-on-surface-variant mb-1" for="code">验证码</label>
+<div class="flex space-x-2">
+<input class="block w-full px-3 py-3 border border-outline-variant rounded-lg bg-surface focus:ring-2 focus:ring-primary-container focus:border-primary-container font-body-lg text-body-lg text-on-surface transition-colors placeholder:text-outline/50" id="code" placeholder="输入验证码" type="text"/>
+<button class="whitespace-nowrap px-4 py-3 border border-outline-variant rounded-lg bg-surface text-primary-container font-body-sm text-body-sm font-semibold hover:bg-surface-variant transition-colors" type="button">
+                            获取验证码
+                        </button>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="pt-4 space-y-4">
+<button class="w-full py-3 bg-primary-container text-on-primary rounded-lg font-body-sm text-body-sm font-semibold shadow-sm hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center">
+                        登录 / 注册
+                    </button>
+<button class="w-full py-3 bg-surface text-primary-container border border-primary-container rounded-lg font-body-sm text-body-sm font-semibold hover:bg-surface-container-low active:scale-[0.98] transition-all flex items-center justify-center space-x-2">
+<svg aria-hidden="true" class="w-5 h-5 text-primary-container" fill="currentColor" viewbox="0 0 24 24">
+<!-- Simplified WeChat icon representation -->
+<path d="M8.5 14C5.46 14 3 11.87 3 9.25C3 6.63 5.46 4.5 8.5 4.5C11.54 4.5 14 6.63 14 9.25C14 11.87 11.54 14 8.5 14ZM5.5 8C5.22 8 5 8.22 5 8.5C5 8.78 5.22 9 5.5 9C5.78 9 6 8.78 6 8.5C6 8.22 5.78 8 5.5 8ZM11.5 8C11.22 8 11 8.22 11 8.5C11 8.78 11.22 9 11.5 9C11.78 9 12 8.78 12 8.5C12 8.22 11.78 8 11.5 8Z"></path>
+<path d="M16 19.5C13.51 19.5 11.5 17.75 11.5 15.6C11.5 15.66 11.5 15.71 11.5 15.78C12.16 16.27 12.98 16.5 13.84 16.5C17.15 16.5 19.84 14.15 19.84 11.25C19.84 9.68 18.86 8.28 17.29 7.41C18.66 7.95 19.5 9.17 19.5 10.5C19.5 13.13 17.5 15.5 15 15.5C14.7 15.5 14.41 15.46 14.12 15.41C14.49 16.58 15.34 17.5 16 17.5C18.21 17.5 20 15.93 20 14C20 12.07 18.21 10.5 16 10.5C15.62 10.5 15.25 10.55 14.9 10.65C13.55 9.63 11.85 9 10 9C9.53 9 9.07 9.05 8.62 9.14C8.86 8.54 9.38 8 10 8C12.76 8 15 10.01 15 12.5C15 14.99 12.76 17 10 17C9.37 17 8.77 16.89 8.22 16.69C7.4 17.53 6.13 18 4.75 18C5.07 17.28 5.25 16.49 5.25 15.68C4.5 14.91 4 13.98 4 12.98C4 10.23 6.69 8 10 8C13.31 8 16 10.23 16 12.98C16 15.73 13.31 18 10 18C9.54 18 9.1 17.95 8.68 17.85C8.87 18.39 9.21 18.89 9.67 19.33C8.42 20.35 6.78 21 5 21C6.91 21 8.59 20.21 9.77 19.03C10.52 19.33 11.31 19.5 12.16 19.5C13.62 19.5 14.93 18.96 16 18.1C16.87 18.84 17.97 19.3 19.16 19.46C18.42 18.66 17.95 17.65 17.9 16.53C18.46 16.03 18.84 15.34 18.97 14.58C18.23 15.36 17.18 15.86 16 15.86V19.5Z" fill="none"></path>
+</svg>
+<span>微信登录</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Bottom Section: Hint & Legal -->
+<div class="px-margin pb-lg pt-4 text-center mt-auto relative z-10 bg-gradient-to-t from-background via-background to-transparent">
+<div class="flex items-center justify-center space-x-2 mb-4 text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">bookmark_added</span>
+<span class="font-body-sm text-body-sm">保存路线、打卡记录和你的私人城市地图</span>
+</div>
+<p class="font-label-caps text-label-caps text-outline">
+                登录即表示同意
+                <a class="text-primary-container hover:underline" href="#">《用户协议》</a>
+                和
+                <a class="text-primary-container hover:underline" href="#">《隐私政策》</a>
+</p>
+</div>
+</main>
+<script>
+        // Simple micro-interaction for input fields
+        const inputs = document.querySelectorAll('input');
+        inputs.forEach(input => {
+            input.addEventListener('focus', () => {
+                input.parentElement.classList.add('scale-[1.01]', 'transition-transform');
+            });
+            input.addEventListener('blur', () => {
+                input.parentElement.classList.remove('scale-[1.01]');
+            });
+        });
+    </script>
+</body></html>

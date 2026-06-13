@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>我的 - Urban Sidequest</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Mobile Safe Area Padding */
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 24px); }
+        .pt-safe { padding-top: env(safe-area-inset-top, 24px); }
+    </style>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                "on-primary-fixed-variant": "#104f4f",
+                "tertiary": "#412a00",
+                "on-tertiary-container": "#eda500",
+                "primary-fixed": "#b4edec",
+                "on-surface": "#191c1d",
+                "surface-tint": "#2e6767",
+                "on-background": "#191c1d",
+                "error-container": "#ffdad6",
+                "surface-container-lowest": "#ffffff",
+                "surface-variant": "#e1e3e4",
+                "secondary-container": "#c6e4f4",
+                "outline": "#707978",
+                "primary-fixed-dim": "#98d1d0",
+                "on-tertiary-fixed-variant": "#604100",
+                "tertiary-fixed": "#ffdeae",
+                "secondary-fixed": "#c9e7f7",
+                "surface": "#f8f9fa",
+                "surface-container-low": "#f3f4f5",
+                "inverse-surface": "#2e3132",
+                "surface-bright": "#f8f9fa",
+                "on-primary": "#ffffff",
+                "on-error-container": "#93000a",
+                "inverse-primary": "#98d1d0",
+                "background": "#f8f9fa",
+                "primary-container": "#0d4d4d",
+                "surface-container-highest": "#e1e3e4",
+                "tertiary-fixed-dim": "#ffba3f",
+                "on-tertiary": "#ffffff",
+                "primary": "#003535",
+                "surface-container-high": "#e7e8e9",
+                "error": "#ba1a1a",
+                "secondary": "#466270",
+                "outline-variant": "#bfc8c8",
+                "on-secondary-fixed-variant": "#2e4b57",
+                "on-primary-container": "#85bdbc",
+                "on-tertiary-fixed": "#281800",
+                "surface-container": "#edeeef",
+                "on-primary-fixed": "#002020",
+                "surface-dim": "#d9dadb",
+                "on-secondary-container": "#4a6774",
+                "secondary-fixed-dim": "#adcbda",
+                "inverse-on-surface": "#f0f1f2",
+                "on-surface-variant": "#404848",
+                "tertiary-container": "#5e3f00",
+                "on-secondary-fixed": "#001f2a",
+                "on-secondary": "#ffffff",
+                "on-error": "#ffffff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "xs": "4px",
+                    "unit": "4px",
+                    "sm": "8px",
+                    "gutter": "16px",
+                    "xl": "32px",
+                    "md": "16px",
+                    "margin": "16px",
+                    "lg": "24px"
+            },
+            "fontFamily": {
+                    "label-lg": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "label-sm": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "display-lg": ["Inter"],
+                    "body-md": ["Inter"],
+                    "body-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                    "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                    "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                    "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500" }],
+                    "headline-lg-mobile": ["22px", { "lineHeight": "28px", "fontWeight": "600" }],
+                    "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                    "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                    "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-sans antialiased min-h-screen w-full md:hidden">
+<!-- Top Navigation Area (Mobile Focus) -->
+<header class="pt-safe px-margin flex items-center justify-between h-16 bg-surface z-40 sticky top-0">
+<h1 class="font-headline-md text-headline-md font-bold text-primary">我的</h1>
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center p-sm rounded-full">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</header>
+<!-- Main Scrollable Content -->
+<main class="px-margin pb-32 space-y-lg">
+<!-- User Profile Header -->
+<section class="flex items-center gap-md py-sm">
+<div class="relative">
+<img alt="User Profile" class="w-16 h-16 rounded-full object-cover border border-outline-variant/30" data-alt="A professional headshot of a young urban professional, well-lit, neutral expression, clean background, conveying a modern and reliable aesthetic suitable for an app profile picture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDH_nKooA3sBU7EOLFNc2ekf21fKxojGNV-oTI7v1ZZJG8wOJMqnj35TDBVuWvQPP4qSqr3s-zC4lqoDoF40IeQ_f_ZOT305eMZxUAr0WsMyt5e7HPi9ljpfoTmh31eDRLqAufZTY867FuQlJwwh7CyojFzXaeo-L3B5WmSZXZTGiWN48LIwpCgfN70JfkOcJI-0Tw7eeV9tCqTgnHdoc53shzcJkpVNzOlxOe77fsO6AKM7ytb3kuGsqnLik7uumvcYo1p5cPFi2aF"/>
+</div>
+<div class="flex-1">
+<h2 class="font-headline-md text-headline-md text-on-surface font-semibold">陈同学</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mt-xs">138****5678</p>
+</div>
+<button class="font-label-sm text-label-sm text-primary flex items-center gap-xs px-sm py-xs rounded-full border border-primary/20 hover:bg-surface-variant/50 transition-colors">
+<span>编辑资料</span>
+<span class="material-symbols-outlined" style="font-size: 16px;">edit</span>
+</button>
+</section>
+<!-- Asset Summary (Metrics) -->
+<section class="flex justify-between items-center py-md border-y border-outline-variant/20">
+<div class="flex flex-col items-center">
+<span class="font-headline-md text-headline-md text-primary font-bold">8</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-xs">已完成路线</span>
+</div>
+<div class="w-px h-8 bg-outline-variant/30"></div>
+<div class="flex flex-col items-center">
+<span class="font-headline-md text-headline-md text-primary font-bold">12</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-xs">收藏路线</span>
+</div>
+<div class="w-px h-8 bg-outline-variant/30"></div>
+<div class="flex flex-col items-center">
+<span class="font-headline-md text-headline-md text-primary font-bold">26</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-xs">私人地点</span>
+</div>
+</section>
+<!-- My Urban Map Card -->
+<section>
+<h3 class="font-label-lg text-label-lg text-on-surface mb-sm">我的城市地图</h3>
+<div class="rounded-lg border border-outline-variant/30 overflow-hidden bg-surface-container-lowest flex flex-col">
+<div class="h-32 bg-surface-variant relative overflow-hidden flex items-center justify-center">
+<img alt="Map Thumbnail" class="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-multiply" data-alt="A clean, minimalist vector-style map thumbnail showing abstract city blocks and subtle route lines. The color palette is light and desaturated, with deep teal route highlights. It conveys a sense of precise urban navigation and personal exploration." data-location="Shanghai" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBzWPEhKQf7H_AO7f3VuuKqRP_HqgFpspwZG4OL6exw3sUrKSxNEr5gHXQLjBRxkRZW7qjzq69phfRdKkFs3n5PMGQ_-HY55rhyLDmnbFQGDHuKcZ_Sz-MsKBagXzFhAnGoM3_TjRJm9droptq5x1GIkf5poPGYPUUxYGMlgLnktrmqax73YEDakK9pjWaUo8sUJp_GUnCiNR23hGoIAXftuXXfXAjoMA4kM_InQbeFohpVIHEuZ4sk5R2vq-2tFP2ue7AR8swk0uNJ"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-lowest to-transparent"></div>
+<!-- Minimal Map Markers Overlay -->
+<span class="material-symbols-outlined text-primary fill absolute top-1/4 left-1/4 drop-shadow-sm" style="font-size: 20px;">location_on</span>
+<span class="material-symbols-outlined text-primary fill absolute top-1/2 right-1/3 drop-shadow-sm" style="font-size: 20px;">location_on</span>
+<span class="material-symbols-outlined text-primary fill absolute bottom-1/3 left-1/2 drop-shadow-sm" style="font-size: 20px;">location_on</span>
+</div>
+<div class="p-md flex items-center justify-between">
+<div>
+<p class="font-body-md text-body-md text-on-surface-variant">足迹覆盖</p>
+<p class="font-label-lg text-label-lg text-on-surface mt-xs font-semibold">上海 · 北京 · 苏州</p>
+</div>
+<button class="bg-primary text-on-primary font-label-lg text-label-lg px-gutter py-sm rounded-lg hover:bg-primary/90 transition-colors">
+                        查看私人地图
+                    </button>
+</div>
+</div>
+</section>
+<!-- Recent Routes List -->
+<section>
+<h3 class="font-label-lg text-label-lg text-on-surface mb-sm">最近路线</h3>
+<div class="flex flex-col border border-outline-variant/20 rounded-lg bg-surface-container-lowest overflow-hidden">
+<!-- Item 1 -->
+<div class="flex items-center justify-between p-md border-b border-outline-variant/20 active:bg-surface-variant/50 transition-colors">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">directions_walk</span>
+</div>
+<div>
+<h4 class="font-label-lg text-label-lg text-on-surface">苏州河半日走法</h4>
+<div class="flex items-center gap-sm mt-xs">
+<span class="font-label-sm text-label-sm text-primary bg-primary/10 px-sm py-0.5 rounded-full">已完成</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">4小时20分 · 10月12日</span>
+</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</div>
+<!-- Item 2 -->
+<div class="flex items-center justify-between p-md active:bg-surface-variant/50 transition-colors">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-surface-variant/50 flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">bookmark</span>
+</div>
+<div>
+<h4 class="font-label-lg text-label-lg text-on-surface">西湖轻松散步线</h4>
+<div class="flex items-center gap-sm mt-xs">
+<span class="font-label-sm text-label-sm text-on-surface-variant bg-surface-variant/50 px-sm py-0.5 rounded-full">已收藏</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">3小时30分 · 10月10日</span>
+</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</div>
+</div>
+</section>
+<!-- Preferences & Settings List Group -->
+<section class="space-y-md">
+<div>
+<h3 class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider mb-xs ml-xs">偏好设置</h3>
+<div class="flex flex-col border border-outline-variant/20 rounded-lg bg-surface-container-lowest overflow-hidden">
+<button class="flex items-center justify-between p-md border-b border-outline-variant/20 active:bg-surface-variant/50 transition-colors text-left w-full">
+<span class="font-body-md text-body-md text-on-surface">默认交通方式</span>
+<div class="flex items-center gap-xs">
+<span class="font-body-md text-body-md text-on-surface-variant">步行为主</span>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</div>
+</button>
+<button class="flex items-center justify-between p-md border-b border-outline-variant/20 active:bg-surface-variant/50 transition-colors text-left w-full">
+<span class="font-body-md text-body-md text-on-surface">路线目标</span>
+<div class="flex items-center gap-xs">
+<span class="font-body-md text-body-md text-on-surface-variant">深度探索</span>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</div>
+</button>
+<button class="flex items-center justify-between p-md active:bg-surface-variant/50 transition-colors text-left w-full">
+<span class="font-body-md text-body-md text-on-surface">兴趣偏好</span>
+<div class="flex items-center gap-xs">
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</div>
+</button>
+</div>
+</div>
+<div>
+<h3 class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider mb-xs ml-xs">反馈与数据</h3>
+<div class="flex flex-col border border-outline-variant/20 rounded-lg bg-surface-container-lowest overflow-hidden">
+<button class="flex items-center justify-between p-md border-b border-outline-variant/20 active:bg-surface-variant/50 transition-colors text-left w-full">
+<span class="font-body-md text-body-md text-on-surface">路线反馈</span>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</button>
+<button class="flex items-center justify-between p-md border-b border-outline-variant/20 active:bg-surface-variant/50 transition-colors text-left w-full">
+<span class="font-body-md text-body-md text-on-surface">问题上报</span>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</button>
+<button class="flex items-center justify-between p-md active:bg-surface-variant/50 transition-colors text-left w-full">
+<span class="font-body-md text-body-md text-on-surface">数据来源说明</span>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar (Shared Component) -->
+<nav class="fixed bottom-0 w-full z-50 flex justify-around items-center px-4 pb-safe bg-surface/95 backdrop-blur-lg border-t border-outline-variant/20 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] h-[80px]">
+<!-- Tab 1: Explore -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim w-16 group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform duration-200" data-icon="map">map</span>
+<span class="font-label-sm text-label-sm">Explore</span>
+</a>
+<!-- Tab 2: Routes -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim w-16 group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform duration-200" data-icon="directions_walk">directions_walk</span>
+<span class="font-label-sm text-label-sm">Routes</span>
+</a>
+<!-- Tab 3: Saved -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim w-16 group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform duration-200" data-icon="bookmark">bookmark</span>
+<span class="font-label-sm text-label-sm">Saved</span>
+</a>
+<!-- Tab 4: Profile (ACTIVE STATE) -->
+<a class="flex flex-col items-center justify-center text-primary dark:text-primary-fixed-dim font-bold w-16 scale-110 transition-transform duration-200" href="#">
+<span class="material-symbols-outlined mb-1 fill" data-icon="person">person</span>
+<span class="font-label-sm text-label-sm">Profile</span>
+</a>
+</nav>
+</body></html>

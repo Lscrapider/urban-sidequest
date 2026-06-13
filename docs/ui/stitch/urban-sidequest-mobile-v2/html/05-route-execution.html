@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
+<title>路线执行 - Urban Sidequest</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "on-primary-fixed-variant": "#104f4f",
+                "tertiary": "#412a00",
+                "on-tertiary-container": "#eda500",
+                "primary-fixed": "#b4edec",
+                "on-surface": "#191c1d",
+                "surface-tint": "#2e6767",
+                "on-background": "#191c1d",
+                "error-container": "#ffdad6",
+                "surface-container-lowest": "#ffffff",
+                "surface-variant": "#e1e3e4",
+                "secondary-container": "#c6e4f4",
+                "outline": "#707978",
+                "primary-fixed-dim": "#98d1d0",
+                "on-tertiary-fixed-variant": "#604100",
+                "tertiary-fixed": "#ffdeae",
+                "secondary-fixed": "#c9e7f7",
+                "surface": "#f8f9fa",
+                "surface-container-low": "#f3f4f5",
+                "inverse-surface": "#2e3132",
+                "surface-bright": "#f8f9fa",
+                "on-primary": "#ffffff",
+                "on-error-container": "#93000a",
+                "inverse-primary": "#98d1d0",
+                "background": "#f8f9fa",
+                "primary-container": "#0d4d4d",
+                "surface-container-highest": "#e1e3e4",
+                "tertiary-fixed-dim": "#ffba3f",
+                "on-tertiary": "#ffffff",
+                "primary": "#003535",
+                "surface-container-high": "#e7e8e9",
+                "error": "#ba1a1a",
+                "secondary": "#466270",
+                "outline-variant": "#bfc8c8",
+                "on-secondary-fixed-variant": "#2e4b57",
+                "on-primary-container": "#85bdbc",
+                "on-tertiary-fixed": "#281800",
+                "surface-container": "#edeeef",
+                "on-primary-fixed": "#002020",
+                "surface-dim": "#d9dadb",
+                "on-secondary-container": "#4a6774",
+                "secondary-fixed-dim": "#adcbda",
+                "inverse-on-surface": "#f0f1f2",
+                "on-surface-variant": "#404848",
+                "tertiary-container": "#5e3f00",
+                "on-secondary-fixed": "#001f2a",
+                "on-secondary": "#ffffff",
+                "on-error": "#ffffff"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.125rem",
+                "lg": "0.25rem",
+                "xl": "0.5rem",
+                "full": "0.75rem"
+        },
+        "spacing": {
+                "gutter": "16px",
+                "margin-mobile": "16px",
+                "md": "16px",
+                "margin-desktop": "32px",
+                "sm": "8px",
+                "unit": "4px",
+                "lg": "24px",
+                "xl": "32px",
+                "xs": "4px"
+        },
+        "fontFamily": {
+                "body-lg": [
+                        "Inter"
+                ],
+                "navigation-node": [
+                        "Hanken Grotesk"
+                ],
+                "body-sm": [
+                        "Inter"
+                ],
+                "headline-lg": [
+                        "Hanken Grotesk"
+                ],
+                "headline-lg-mobile": [
+                        "Hanken Grotesk"
+                ],
+                "label-caps": [
+                        "JetBrains Mono"
+                ],
+                "headline-md": [
+                        "Hanken Grotesk"
+                ]
+        },
+        "fontSize": {
+                "body-lg": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "navigation-node": [
+                        "14px",
+                        {
+                                "lineHeight": "14px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "body-sm": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "headline-lg": [
+                        "32px",
+                        {
+                                "lineHeight": "40px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "letterSpacing": "-0.01em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "label-caps": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-md": [
+                        "20px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "600"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+<style>/* Base styles */
+body {
+    background-color: theme("colors.background");
+    color: theme("colors.on-background");
+    font-family: "Inter", sans-serif;
+    -webkit-font-smoothing: antialiased
+    }
+/* Hide scrollbar for clean UI */
+::-webkit-scrollbar {
+    display: none
+    }
+/* Map placeholder styling */
+.map-bg {
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuA6HUg79c7myR8ZqeWFINvavjsuAZmEWPPtmcwxxrUN9ksgepc3tmiNRf6SSqvPq7WehV6v5SfS1oCGWmJaAuJbphqPTl0KXTMaxGMhfd2-qzZzSvRhekz_IdnLBh6ggN7rGYsumxi6_JkLnZz1_VNtnka8mO7z4sQZOY3HRdZcBX9lwBBcO25NTrOPpUsenXbwFkeahCX-nKxpwgXWEhTzgmn36QABBLpiae_HEh4Gsx35CozqkqXwFZkyntYX3uGjmnlhlJcYULPD);
+    background-size: cover;
+    background-position: center
+    }
+.glass-panel {
+    background: rgba(249, 249, 252, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px)
+    }</style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="relative h-screen w-full overflow-hidden flex flex-col antialiased">
+<!-- Background Map Layer (Level 0) -->
+<div class="absolute inset-0 z-0 map-bg" data-alt="A clean, modern top-down satellite map view of an urban area, possibly Shanghai, focused on a stylized navigational route. The aesthetic is flat, minimal, and highly legible, using muted tones of grey, white, and soft teal for water bodies. The lighting is neutral and even, indicating a bright daytime light-mode interface. The overall mood is precise, functional, and devoid of clutter, serving as a backdrop for a professional navigation app." data-location="Shanghai" style="">
+<!-- Route Path SVG Overlay -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" preserveaspectratio="xMidYMid slice" viewbox="0 0 390 844">
+<path d="M 195 400 L 195 300 C 195 250, 150 250, 150 200 L 150 150" fill="none" stroke="#003535" stroke-dasharray="8 8" stroke-width="4"></path>
+<circle cx="195" cy="400" fill="#ffe087" r="8" stroke="#003535" stroke-width="3"></circle>
+<circle cx="150" cy="150" fill="#ffffff" r="8" stroke="#003535" stroke-width="3"></circle>
+</svg>
+<!-- FAB - Current Location (Level 2) -->
+<button aria-label="Current Location" class="absolute bottom-margin-mobile right-margin-mobile z-10 w-12 h-12 bg-primary rounded-full shadow-[0_4px_20px_rgba(0,0,0,0.15)] flex items-center justify-center active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-on-primary" style="font-variation-settings: 'FILL' 1;">my_location</span>
+</button>
+</div>
+<!-- Top Status Bar (Level 1) -->
+<header class="relative z-20 w-full px-margin-mobile pt-12 pb-sm glass-panel border-b border-outline-variant/20 flex flex-col gap-xs shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-sm">
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+<h1 class="font-headline-md text-headline-md-mobile text-on-surface">下一站: 苏州河步道</h1>
+</div>
+<button class="text-on-surface-variant p-1">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+<div class="flex items-center gap-md text-on-surface-variant">
+<div class="flex items-center gap-unit">
+<span class="material-symbols-outlined text-[16px]">directions_walk</span>
+<span class="font-body-sm text-body-sm">本段: 步行 800m</span>
+</div>
+<div class="w-1 h-1 rounded-full bg-outline-variant"></div>
+<div class="flex items-center gap-unit">
+<span class="material-symbols-outlined text-[16px]">schedule</span>
+<span class="font-body-sm text-body-sm">预计 15:10 到达</span>
+</div>
+</div>
+</header>
+<!-- Bottom Sheet Container (Level 2) -->
+<div class="absolute bottom-0 left-0 right-0 z-30 glass-panel rounded-t-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] border-t border-outline-variant/20 flex flex-col max-h-[751px] transition-transform duration-300 transform translate-y-0 pb-safe">
+<!-- Handle -->
+<div class="w-full flex justify-center pt-xs pb-sm cursor-grab">
+<div class="w-10 h-1 bg-outline-variant/40 rounded-full"></div>
+</div>
+<div class="px-margin-mobile pb-margin-mobile flex flex-col gap-gutter overflow-y-auto">
+<!-- Active Node Card -->
+<div class="bg-surface rounded-lg border border-outline-variant/30 p-md flex flex-col gap-md shadow-sm">
+<div class="flex flex-col gap-xs">
+<span class="font-label-caps text-label-caps text-primary">当前任务</span>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">到达愚园路展馆</h2>
+</div>
+<div class="flex gap-sm">
+<button class="flex-1 bg-primary text-on-primary font-body-sm text-body-sm py-sm rounded-lg flex items-center justify-center gap-xs active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+                        到达确认
+                    </button>
+<button aria-label="拍照打卡" class="flex-none w-12 h-10 bg-surface border border-outline-variant/30 text-on-surface rounded-lg flex items-center justify-center active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">photo_camera</span>
+</button>
+<button aria-label="跳过或替换" class="flex-none w-12 h-10 bg-surface border border-outline-variant/30 text-on-surface-variant rounded-lg flex items-center justify-center active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">skip_next</span>
+</button>
+</div>
+</div>
+<!-- Preview Section -->
+<div class="flex flex-col gap-sm">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">后续节点</h3>
+<div class="flex flex-col gap-0 relative pl-6">
+<!-- Timeline Line -->
+<div class="absolute left-[11px] top-3 bottom-3 w-0.5 bg-outline-variant/30"></div>
+<!-- Node 1 -->
+<div class="relative py-sm flex items-start gap-md">
+<div class="absolute left-[-24px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full border-2 border-surface bg-outline-variant z-10"></div>
+<span class="font-body-sm text-body-sm text-on-surface-variant w-[45px]">15:45</span>
+<span class="font-body-sm text-body-sm text-on-surface">苏州河步道</span>
+</div>
+<!-- Node 2 -->
+<div class="relative py-sm flex items-start gap-md">
+<div class="absolute left-[-24px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full border-2 border-surface bg-outline-variant z-10"></div>
+<span class="font-body-sm text-body-sm text-on-surface-variant w-[45px]">16:30</span>
+<span class="font-body-sm text-body-sm text-on-surface">返回酒店</span>
+</div>
+</div>
+</div>
+<!-- Minimal Feedback Footer -->
+<div class="mt-xs pt-md border-t border-outline-variant/20 flex justify-center gap-xl text-on-surface-variant">
+<button aria-label="Rhythm" class="flex flex-col items-center gap-xs hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[24px]">directions_run</span>
+</button>
+<button aria-label="Surprise" class="flex flex-col items-center gap-xs hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[24px]">lightbulb</span>
+</button>
+<button aria-label="Fatigue" class="flex flex-col items-center gap-xs hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[24px]">battery_2_bar</span>
+</button>
+</div>
+</div>
+</div>
+</body></html>

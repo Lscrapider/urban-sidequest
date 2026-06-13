@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Urban Sidequest - Route Results</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "on-primary-fixed-variant": "#104f4f",
+                "tertiary": "#412a00",
+                "on-tertiary-container": "#eda500",
+                "primary-fixed": "#b4edec",
+                "on-surface": "#191c1d",
+                "surface-tint": "#2e6767",
+                "on-background": "#191c1d",
+                "error-container": "#ffdad6",
+                "surface-container-lowest": "#ffffff",
+                "surface-variant": "#e1e3e4",
+                "secondary-container": "#c6e4f4",
+                "outline": "#707978",
+                "primary-fixed-dim": "#98d1d0",
+                "on-tertiary-fixed-variant": "#604100",
+                "tertiary-fixed": "#ffdeae",
+                "secondary-fixed": "#c9e7f7",
+                "surface": "#f8f9fa",
+                "surface-container-low": "#f3f4f5",
+                "inverse-surface": "#2e3132",
+                "surface-bright": "#f8f9fa",
+                "on-primary": "#ffffff",
+                "on-error-container": "#93000a",
+                "inverse-primary": "#98d1d0",
+                "background": "#f8f9fa",
+                "primary-container": "#0d4d4d",
+                "surface-container-highest": "#e1e3e4",
+                "tertiary-fixed-dim": "#ffba3f",
+                "on-tertiary": "#ffffff",
+                "primary": "#003535",
+                "surface-container-high": "#e7e8e9",
+                "error": "#ba1a1a",
+                "secondary": "#466270",
+                "outline-variant": "#bfc8c8",
+                "on-secondary-fixed-variant": "#2e4b57",
+                "on-primary-container": "#85bdbc",
+                "on-tertiary-fixed": "#281800",
+                "surface-container": "#edeeef",
+                "on-primary-fixed": "#002020",
+                "surface-dim": "#d9dadb",
+                "on-secondary-container": "#4a6774",
+                "secondary-fixed-dim": "#adcbda",
+                "inverse-on-surface": "#f0f1f2",
+                "on-surface-variant": "#404848",
+                "tertiary-container": "#5e3f00",
+                "on-secondary-fixed": "#001f2a",
+                "on-secondary": "#ffffff",
+                "on-error": "#ffffff"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.125rem",
+                "lg": "0.25rem",
+                "xl": "0.5rem",
+                "full": "0.75rem"
+        },
+        "spacing": {
+                "gutter": "16px",
+                "margin-mobile": "16px",
+                "md": "16px",
+                "margin-desktop": "32px",
+                "sm": "8px",
+                "unit": "4px",
+                "lg": "24px",
+                "xl": "32px",
+                "xs": "4px",
+                "margin": "20px"
+        },
+        "fontFamily": {
+                "body-lg": [
+                        "Inter"
+                ],
+                "navigation-node": [
+                        "Hanken Grotesk"
+                ],
+                "body-sm": [
+                        "Inter"
+                ],
+                "headline-lg": [
+                        "Hanken Grotesk"
+                ],
+                "headline-lg-mobile": [
+                        "Hanken Grotesk"
+                ],
+                "label-caps": [
+                        "JetBrains Mono"
+                ],
+                "headline-md": [
+                        "Hanken Grotesk"
+                ],
+                "body-md": ["Inter"],
+                "label-sm": ["Inter"],
+                "display-lg": ["Inter"],
+                "label-lg": ["Inter"]
+        },
+        "fontSize": {
+                "body-lg": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "navigation-node": [
+                        "14px",
+                        {
+                                "lineHeight": "14px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "body-sm": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "headline-lg": [
+                        "32px",
+                        {
+                                "lineHeight": "40px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "letterSpacing": "-0.01em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "label-caps": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-md": [
+                        "20px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500" }],
+                "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }]
+        }
+},
+    },
+  }
+</script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Mobile Specific adjustments */
+        @media (max-width: 768px) {
+            .mobile-container {
+                width: 100%;
+                margin: 0 auto;
+            }
+        }
+        
+        /* Map Path Styling Simulation */
+        .map-path {
+            stroke: #0D4D4D; /* Primary Deep Teal */
+            stroke-width: 4px;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+        }
+        .map-node {
+            fill: #ffffff; /* White background */
+            stroke: #0D4D4D; /* Deep Teal border */
+            stroke-width: 2px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background h-screen w-screen overflow-hidden flex flex-col font-body-md antialiased mobile-container relative">
+<!-- Top Map Section -->
+<div class="relative w-full h-[442px] bg-surface-container-high flex-shrink-0 z-0">
+<!-- Mock Map Background Image -->
+<div class="absolute inset-0 w-full h-full bg-cover bg-center" data-alt="A muted, high-contrast digital street map of Shanghai focusing on the Suzhou Creek area. The aesthetic is clean, modern, and light-mode compatible, featuring subtle gray and off-white tones for streets and buildings. The map avoids heavy visual noise, emphasizing clear navigation routes. The lighting implies a calm daytime setting." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCPfB9lstwvEWi24HH4geUtWI3BXxy5ImJ5a-9bpIRTcLWVhwR5B73VoJZkbeiYW9opeTVrkO_AkrNIaQ_PgfmmoR1VDcpG8YAenoJ1q2HZ_jOXcrvJmVMK7ImuSM0eIl-eCzMzMXKaW1HYnvRzs-M84AAtPhxNoORu-EP-44KCevlq-WqMH7aFGFGPNKUA6S4j7TvNHqys-vDhoFEA8xcl6fVe8QBfN05OUyK7iy_aa-uHiHVLE3_JM1hlfFmp9Vx9UTqxN3RLNCDI'); opacity: 0.6;"></div>
+<div class="absolute inset-0 bg-surface/20 mix-blend-multiply"></div>
+<!-- Simulated Map SVG Layer -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" preserveaspectratio="xMidYMid slice" viewbox="0 0 390 400">
+<path class="map-path" d="M 80 300 L 150 220 L 250 200 L 320 120 L 100 80"></path>
+<!-- Nodes -->
+<circle class="map-node" cx="80" cy="300" r="6"></circle>
+<circle class="map-node" cx="150" cy="220" r="6"></circle>
+<circle class="map-node" cx="250" cy="200" r="6"></circle>
+<circle class="map-node" cx="320" cy="120" r="6"></circle>
+<circle class="map-node" cx="100" cy="80" r="6"></circle>
+<!-- Node Labels -->
+<g class="fill-surface bg-surface text-primary-container font-label-sm text-label-sm" transform="translate(65, 280)">
+<rect fill="#ffffff" height="16" rx="4" stroke="#0D4D4D" stroke-width="1" width="30" x="0" y="0"></rect>
+<text fill="#0D4D4D" text-anchor="middle" x="15" y="12">A1</text>
+</g>
+<g class="fill-surface bg-surface text-primary-container font-label-sm text-label-sm" transform="translate(135, 200)">
+<rect fill="#ffffff" height="16" rx="4" stroke="#0D4D4D" stroke-width="1" width="30" x="0" y="0"></rect>
+<text fill="#0D4D4D" text-anchor="middle" x="15" y="12">A2</text>
+</g>
+<g class="fill-surface bg-surface text-primary-container font-label-sm text-label-sm" transform="translate(235, 180)">
+<rect fill="#ffffff" height="16" rx="4" stroke="#0D4D4D" stroke-width="1" width="30" x="0" y="0"></rect>
+<text fill="#0D4D4D" text-anchor="middle" x="15" y="12">A3</text>
+</g>
+<g class="fill-surface bg-surface text-primary-container font-label-sm text-label-sm" transform="translate(305, 100)">
+<rect fill="#ffffff" height="16" rx="4" stroke="#0D4D4D" stroke-width="1" width="30" x="0" y="0"></rect>
+<text fill="#0D4D4D" text-anchor="middle" x="15" y="12">A4</text>
+</g>
+<g class="fill-surface bg-surface text-primary-container font-label-sm text-label-sm" transform="translate(85, 60)">
+<rect fill="#ffffff" height="16" rx="4" stroke="#0D4D4D" stroke-width="1" width="30" x="0" y="0"></rect>
+<text fill="#0D4D4D" text-anchor="middle" x="15" y="12">A5</text>
+</g>
+</svg>
+<!-- Top Status Bar (Floating over map) -->
+<div class="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-margin py-md bg-gradient-to-b from-surface/80 to-transparent pt-safe">
+<button class="w-10 h-10 rounded-full bg-surface/90 flex items-center justify-center shadow-sm text-on-surface hover:bg-surface-variant transition-colors border border-outline-variant/30">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<div class="px-md py-sm bg-surface/90 rounded-full shadow-sm backdrop-blur-md border border-outline-variant/30 font-label-lg text-label-lg text-on-surface">
+                路线 A · 稳妥省心
+            </div>
+<div class="flex gap-sm">
+<button class="w-10 h-10 rounded-full bg-surface/90 flex items-center justify-center shadow-sm text-on-surface hover:bg-surface-variant transition-colors border border-outline-variant/30">
+<span class="material-symbols-outlined">favorite_border</span>
+</button>
+<button class="w-10 h-10 rounded-full bg-surface/90 flex items-center justify-center shadow-sm text-on-surface hover:bg-surface-variant transition-colors border border-outline-variant/30">
+<span class="material-symbols-outlined">share</span>
+</button>
+</div>
+</div>
+<!-- Floating Action Button (Current Location) -->
+<button class="absolute bottom-margin right-margin z-10 w-12 h-12 rounded-full bg-primary-container flex items-center justify-center shadow-md hover:bg-primary transition-colors">
+<span class="material-symbols-outlined text-on-primary">my_location</span>
+</button>
+</div>
+<!-- Bottom Drawer Section -->
+<div class="relative w-full h-[486px] -mt-4 bg-surface rounded-t-[24px] shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-20 flex flex-col overflow-hidden pb-[80px]">
+<!-- Drag Handle -->
+<div class="w-full flex justify-center py-sm flex-shrink-0">
+<div class="w-10 h-1 rounded-full bg-outline-variant/50"></div>
+</div>
+<!-- Scrollable Content -->
+<div class="flex-1 overflow-y-auto px-margin pb-xl">
+<!-- Header -->
+<div class="mb-lg">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-xs">路线 A：苏州河半日走法</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">今天最稳妥，少绕路，解释充分</p>
+</div>
+<!-- Stats Row -->
+<div class="flex flex-wrap gap-md mb-xl">
+<div class="flex items-center gap-xs text-on-surface">
+<span class="material-symbols-outlined text-[18px] text-primary-container">schedule</span>
+<span class="font-label-sm text-label-sm">4小时20分</span>
+</div>
+<div class="flex items-center gap-xs text-on-surface">
+<span class="material-symbols-outlined text-[18px] text-primary-container">directions_walk</span>
+<span class="font-label-sm text-label-sm">步行3.2km</span>
+</div>
+<div class="flex items-center gap-xs text-on-surface">
+<span class="material-symbols-outlined text-[18px] text-primary-container">payments</span>
+<span class="font-label-sm text-label-sm">预算 ¥180-260</span>
+</div>
+<div class="flex items-center gap-xs text-on-surface">
+<span class="material-symbols-outlined text-[18px] text-primary-container">subway</span>
+<span class="font-label-sm text-label-sm">地铁1次</span>
+</div>
+</div>
+<!-- Recommendation Points -->
+<div class="mb-xl">
+<h3 class="font-label-lg text-label-lg text-on-surface mb-sm">为什么推荐</h3>
+<ul class="space-y-sm">
+<li class="flex items-start gap-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary mt-[2px]">check_circle</span>
+<span class="font-body-md text-body-md text-on-surface">午餐不绕路</span>
+</li>
+<li class="flex items-start gap-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary mt-[2px]">check_circle</span>
+<span class="font-body-md text-body-md text-on-surface">展馆避开高峰</span>
+</li>
+<li class="flex items-start gap-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary mt-[2px]">check_circle</span>
+<span class="font-body-md text-body-md text-on-surface">傍晚步道光线好</span>
+</li>
+</ul>
+</div>
+<!-- Risk/Alert Block -->
+<div class="mb-xl bg-[#FFF7E0] border border-tertiary/20 rounded-lg p-md">
+<div class="flex items-center gap-sm mb-sm text-tertiary">
+<span class="material-symbols-outlined">warning</span>
+<h3 class="font-label-lg text-label-lg font-bold">需要注意</h3>
+</div>
+<ul class="space-y-xs list-disc list-inside font-body-md text-body-md text-on-surface">
+<li>餐厅可能排队 20 分钟</li>
+<li>河边风大，建议外套</li>
+</ul>
+</div>
+<!-- Alternate Routes -->
+<div>
+<h3 class="font-label-lg text-label-lg text-on-surface mb-sm">其他选择</h3>
+<div class="flex gap-sm overflow-x-auto pb-sm scrollbar-hide">
+<button class="flex-shrink-0 px-md py-sm rounded-full border border-secondary/30 text-secondary font-label-sm text-label-sm bg-secondary/5 hover:bg-secondary/10 transition-colors whitespace-nowrap">
+                        B 更轻松 3.5h
+                    </button>
+<button class="flex-shrink-0 px-md py-sm rounded-full border border-secondary/30 text-secondary font-label-sm text-label-sm bg-secondary/5 hover:bg-secondary/10 transition-colors whitespace-nowrap">
+                        C 更有探索感 5h
+                    </button>
+</div>
+</div>
+<div class="h-10"></div> <!-- extra padding for scrolling past action bar -->
+</div>
+</div>
+<!-- Bottom Action Bar (Fixed) -->
+<div class="fixed bottom-0 left-0 right-0 z-30 bg-surface/95 backdrop-blur-md border-t border-outline-variant/20 px-margin py-md pb-safe flex items-center justify-between gap-md shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+<button class="flex-1 bg-primary-container text-on-primary h-12 rounded-lg font-label-lg text-label-lg flex items-center justify-center hover:bg-primary transition-colors">
+            开始路线
+        </button>
+<button class="flex-1 bg-surface text-primary-container border border-primary-container h-12 rounded-lg font-label-lg text-label-lg flex items-center justify-center hover:bg-surface-variant transition-colors">
+            调整路线
+        </button>
+</div>
+</body></html>
