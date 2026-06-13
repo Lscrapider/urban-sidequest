@@ -264,7 +264,7 @@
 </button>
 </div>
 <!-- Bottom Drawer Section -->
-<div class="relative w-full h-[486px] -mt-4 bg-surface rounded-t-[24px] shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-20 flex flex-col overflow-hidden pb-[80px]">
+<div class="relative w-full h-[486px] -mt-4 bg-surface rounded-t-[24px] shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-20 flex flex-col overflow-hidden pb-[160px]">
 <!-- Drag Handle -->
 <div class="w-full flex justify-center py-sm flex-shrink-0">
 <div class="w-10 h-1 rounded-full bg-outline-variant/50"></div>
@@ -340,7 +340,7 @@
 </div>
 </div>
 <!-- Bottom Action Bar (Fixed) -->
-<div class="fixed bottom-0 left-0 right-0 z-30 bg-surface/95 backdrop-blur-md border-t border-outline-variant/20 px-margin py-md pb-safe flex items-center justify-between gap-md shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+<div class="fixed left-0 right-0 z-30 bg-surface/95 backdrop-blur-md border-t border-outline-variant/20 px-margin py-md flex items-center justify-between gap-md shadow-[0_-4px_20px_rgba(0,0,0,0.08)] bottom-[64px]">
 <button class="flex-1 bg-primary-container text-on-primary h-12 rounded-lg font-label-lg text-label-lg flex items-center justify-center hover:bg-primary transition-colors">
             开始路线
         </button>
@@ -348,4 +348,17 @@
             调整路线
         </button>
 </div>
-</body></html>
+<nav class="fixed bottom-0 left-0 right-0 z-30 bg-surface/95 backdrop-blur-md border-t border-outline-variant/20 px-margin py-sm pb-safe flex items-center justify-around shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+<button class="flex flex-col items-center gap-xs text-on-surface-variant">
+<span class="material-symbols-outlined">map</span>
+<span class="font-label-sm text-label-sm">地图</span>
+</button>
+<button class="flex flex-col items-center gap-xs text-primary-container">
+<span class="material-symbols-outlined fill">directions_walk</span>
+<span class="font-label-sm text-label-sm">路线</span>
+</button>
+<button class="flex flex-col items-center gap-xs text-on-surface-variant">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-sm text-label-sm">我的</span>
+</button>
+</nav></body></html>

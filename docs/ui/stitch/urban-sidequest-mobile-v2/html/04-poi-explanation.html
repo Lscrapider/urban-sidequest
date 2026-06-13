@@ -195,13 +195,13 @@
 <!-- Navigation Drawer Header (Suppressed as per rules: Transactional/Focused intent on Bottom Sheet) -->
 <!-- Main Content Canvas: Bottom Sheet (Level 2) -->
 <!-- Positioned at the bottom, using max-height for expanded state, safe area padding -->
-<div class="absolute bottom-0 left-0 right-0 z-40 bg-surface rounded-t-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] flex flex-col bottom-sheet-anim pb-[env(safe-area-inset-bottom)] max-h-[839px] overflow-y-auto w-full md:w-[400px] md:mx-auto md:bottom-md md:rounded-xl">
+<div class="absolute left-0 right-0 z-40 bg-surface rounded-t-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] flex flex-col bottom-sheet-anim pb-[env(safe-area-inset-bottom)] max-h-[839px] overflow-y-auto w-full md:w-[400px] md:mx-auto md:bottom-md md:rounded-xl bottom-[64px]">
 <!-- Handle (Pill) -->
 <div class="w-full flex justify-center pt-sm pb-md sticky top-0 bg-surface z-50">
 <div class="w-[40px] h-[4px] bg-outline-variant/50 rounded-full"></div>
 </div>
 <!-- Scrollable Content Area -->
-<div class="px-margin flex flex-col gap-md pb-xl">
+<div class="px-margin flex flex-col gap-md pb-xl pb-[100px]">
 <!-- Header Section -->
 <div class="flex justify-between items-start">
 <div>
@@ -314,4 +314,17 @@
             }
         });
     </script>
-</body></html>
+<nav class="fixed bottom-0 left-0 right-0 z-50 bg-surface border-t border-outline-variant/20 flex justify-around items-center h-[64px] pb-[env(safe-area-inset-bottom)]">
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">map</span>
+<span class="text-[12px] font-medium">地图</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-[#0D4D4D]">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">route</span>
+<span class="text-[12px] font-bold">路线</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">person</span>
+<span class="text-[12px] font-medium">我的</span>
+</button>
+</nav></body></html>

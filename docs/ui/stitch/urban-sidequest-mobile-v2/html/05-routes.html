@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>路线 - Urban Sidequest</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;family=Hanken+Grotesk:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-variant": "#e1e3e4",
+                    "on-primary-container": "#85bdbc",
+                    "tertiary": "#412a00",
+                    "error-container": "#ffdad6",
+                    "primary-fixed-dim": "#98d1d0",
+                    "on-tertiary": "#ffffff",
+                    "surface-container-lowest": "#ffffff",
+                    "on-surface": "#191c1d",
+                    "outline": "#707978",
+                    "on-secondary": "#ffffff",
+                    "on-tertiary-container": "#eda500",
+                    "on-surface-variant": "#404848",
+                    "primary": "#003535",
+                    "surface-container": "#edeeef",
+                    "secondary-fixed-dim": "#adcbda",
+                    "on-tertiary-fixed": "#281800",
+                    "surface": "#f8f9fa",
+                    "inverse-on-surface": "#f0f1f2",
+                    "outline-variant": "#bfc8c8",
+                    "on-secondary-fixed-variant": "#2e4b57",
+                    "on-primary-fixed-variant": "#104f4f",
+                    "on-error-container": "#93000a",
+                    "surface-container-highest": "#e1e3e4",
+                    "primary-fixed": "#b4edec",
+                    "error": "#ba1a1a",
+                    "surface-bright": "#f8f9fa",
+                    "tertiary-container": "#5e3f00",
+                    "surface-container-high": "#e7e8e9",
+                    "on-error": "#ffffff",
+                    "secondary": "#466270",
+                    "on-tertiary-fixed-variant": "#604100",
+                    "on-primary": "#ffffff",
+                    "surface-tint": "#2e6767",
+                    "background": "#f8f9fa",
+                    "secondary-container": "#c6e4f4",
+                    "tertiary-fixed": "#ffdeae",
+                    "on-background": "#191c1d",
+                    "tertiary-fixed-dim": "#ffba3f",
+                    "on-secondary-fixed": "#001f2a",
+                    "primary-container": "#0d4d4d",
+                    "surface-container-low": "#f3f4f5",
+                    "surface-dim": "#d9dadb",
+                    "inverse-primary": "#98d1d0",
+                    "inverse-surface": "#2e3132",
+                    "on-secondary-container": "#4a6774",
+                    "on-primary-fixed": "#002020",
+                    "secondary-fixed": "#c9e7f7"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "lg": "24px",
+                    "gutter": "16px",
+                    "md": "16px",
+                    "sm": "8px",
+                    "unit": "4px",
+                    "xl": "32px",
+                    "margin-mobile": "16px",
+                    "margin-desktop": "32px",
+                    "xs": "4px"
+            },
+            "fontFamily": {
+                    "body-lg": ["Inter"],
+                    "label-caps": ["JetBrains Mono"],
+                    "body-sm": ["Inter"],
+                    "navigation-node": ["Hanken Grotesk"],
+                    "headline-md": ["Hanken Grotesk"],
+                    "headline-lg-mobile": ["Hanken Grotesk"],
+                    "headline-lg": ["Hanken Grotesk"]
+            },
+            "fontSize": {
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "navigation-node": ["14px", {"lineHeight": "14px", "fontWeight": "700"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-lg min-h-screen antialiased selection:bg-secondary-container selection:text-on-secondary-container pb-[80px] pt-[56px] md:pt-[64px]">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 flex items-center justify-between px-margin-mobile h-14 bg-surface border-b border-outline-variant flat no shadows transition-colors duration-200">
+<button class="flex items-center justify-center p-2 -ml-2 text-primary hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">menu</span>
+</button>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">路线</h1>
+<button class="flex items-center justify-center p-2 -mr-2 text-primary hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">filter_list</span>
+</button>
+</header>
+<main class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop py-md">
+<!-- Section 1: Current Route -->
+<section class="mb-xl">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-md">当前路线</h2>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden flex flex-col md:flex-row">
+<!-- Map Preview Thumbnail -->
+<div class="w-full md:w-[300px] h-[160px] md:h-auto bg-surface-variant relative flex-shrink-0">
+<img alt="Map Preview" class="w-full h-full object-cover" data-alt="A clean, minimalist vector map illustration of a city showing a distinct route marked in deep teal. The style is highly functional, corporate, and modern, using a light grey background with white roads and subtle teal accents. The visual identity prioritizes clarity and rapid information processing over decorative flair, suited for a professional urban navigation application." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDKTWtSK516Z1ZUNnyu1iLlAwAsjUgTvYnXkihU0rM-1gvxoOjCih9aqERPg_-ZoXSlgo-mAITRWL8FOxxOSv7x6yTXVMBVZMK4C7cf-OmQwKk-HfbIQ32LktoorceQysUmSBqvjliYp5mQfrHsuY8pWGI3hJESKSJz8HhCLIyyswY8ClRmtLBIvac3hhi_AY9KggB9QixD9glcShMFXZ5Pv8xJYlelD8VSrvtdlwY9wwb1sJgj5ErAL11WuwmMq9GklVapbTwh6PGH"/>
+<div class="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-surface-container-lowest/20 to-transparent"></div>
+<!-- Route Node Overlay -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface border-2 border-primary rounded-full px-sm py-unit flex items-center gap-unit shadow-[0_0_0_2px_rgba(255,255,255,1)]">
+<span class="material-symbols-outlined text-primary text-[16px]" style="font-variation-settings: 'FILL' 1;">directions_walk</span>
+<span class="font-navigation-node text-navigation-node text-primary">路线 A</span>
+</div>
+</div>
+<div class="p-md flex flex-col justify-between flex-grow">
+<div>
+<div class="flex justify-between items-start mb-sm">
+<h3 class="font-headline-md text-headline-md text-on-surface">路线 A · 苏州河半日</h3>
+<span class="bg-primary-container text-on-primary-container font-label-caps text-label-caps px-sm py-unit rounded">进行中</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-md flex items-center gap-unit">
+<span class="material-symbols-outlined text-[18px]">place</span>
+                            下一站: <span class="font-medium text-on-surface">四行仓库</span>
+</p>
+<!-- Progress -->
+<div class="mb-md">
+<div class="flex justify-between font-label-caps text-label-caps text-on-surface-variant mb-unit">
+<span>进度 2/5</span>
+<span>预计还需 1h 40m</span>
+</div>
+<div class="w-full h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary w-2/5 rounded-full"></div>
+</div>
+</div>
+</div>
+<button class="w-full md:w-auto self-end bg-primary hover:bg-surface-tint text-on-primary font-body-sm text-body-sm font-medium py-sm px-lg rounded-lg transition-colors flex items-center justify-center gap-unit">
+                        继续路线
+                        <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Section 2: Generated Routes -->
+<section>
+<h2 class="font-headline-md text-headline-md text-on-surface mb-md">已生成路线</h2>
+<div class="flex flex-col gap-md">
+<!-- Card 1 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md flex flex-col gap-md">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-body-lg text-body-lg font-semibold text-on-surface mb-unit">路线 A · 苏州河半日</h3>
+<div class="flex items-center gap-sm font-label-caps text-label-caps text-on-surface-variant flex-wrap">
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">schedule</span>4h 20m</span>
+<span>·</span>
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">route</span>3.2km</span>
+<span>·</span>
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">payments</span>¥180-260</span>
+</div>
+</div>
+<span class="bg-primary-container text-on-primary-container font-label-caps text-label-caps px-sm py-unit rounded whitespace-nowrap">进行中</span>
+</div>
+<div class="flex justify-between items-center border-t border-surface-variant pt-md">
+<span class="bg-surface-container-low text-on-surface-variant font-label-caps text-label-caps px-sm py-unit rounded border border-outline-variant">稳妥省心</span>
+<button class="text-primary hover:bg-surface-container font-body-sm text-body-sm font-medium py-sm px-md rounded transition-colors border border-primary">
+                            查看详情
+                        </button>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md flex flex-col gap-md opacity-90">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-body-lg text-body-lg font-semibold text-on-surface mb-unit">路线 B · 老城烟火线</h3>
+<div class="flex items-center gap-sm font-label-caps text-label-caps text-on-surface-variant flex-wrap">
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">schedule</span>3h 30m</span>
+<span>·</span>
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">route</span>2.5km</span>
+<span>·</span>
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">payments</span>¥120-200</span>
+</div>
+</div>
+<span class="bg-surface-container-high text-on-surface font-label-caps text-label-caps px-sm py-unit rounded whitespace-nowrap">未开始</span>
+</div>
+<div class="flex justify-between items-center border-t border-surface-variant pt-md">
+<span class="bg-surface-container-low text-on-surface-variant font-label-caps text-label-caps px-sm py-unit rounded border border-outline-variant">地道烟火</span>
+<button class="bg-primary hover:bg-surface-tint text-on-primary font-body-sm text-body-sm font-medium py-sm px-md rounded transition-colors">
+                            开始路线
+                        </button>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-md flex flex-col gap-md opacity-80">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-body-lg text-body-lg font-semibold text-on-surface-variant mb-unit">路线 C · 夜游低预算</h3>
+<div class="flex items-center gap-sm font-label-caps text-label-caps text-outline flex-wrap">
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">schedule</span>2h 45m</span>
+<span>·</span>
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">route</span>4.0km</span>
+<span>·</span>
+<span class="flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">payments</span>¥50-100</span>
+</div>
+</div>
+<span class="bg-surface-variant text-on-surface-variant font-label-caps text-label-caps px-sm py-unit rounded whitespace-nowrap">已完成</span>
+</div>
+<div class="flex justify-between items-center border-t border-surface-variant pt-md">
+<span class="bg-surface-container-low text-outline font-label-caps text-label-caps px-sm py-unit rounded border border-surface-variant">夜间光线好</span>
+<button class="text-on-surface-variant hover:bg-surface-container font-body-sm text-body-sm font-medium py-sm px-md rounded transition-colors border border-outline-variant">
+                            重新开始
+                        </button>
+</div>
+</div>
+</div>
+<div class="mt-xl text-center">
+<p class="font-body-sm text-body-sm text-outline flex items-center justify-center gap-sm">
+<span class="material-symbols-outlined text-[16px]">map</span>
+                    还没有更多路线，去地图生成新的路线
+                </p>
+</div>
+</section>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-16 px-gutter pb-safe bg-surface border-t border-outline-variant flat no shadows rounded-t-lg">
+<button class="flex flex-col items-center justify-center text-on-secondary-container px-4 py-1 hover:bg-surface-variant scale-95 active:scale-90 transition-transform duration-150 group">
+<span class="material-symbols-outlined mb-1 transition-colors group-hover:text-primary">map</span>
+<span class="font-label-caps text-label-caps transition-colors group-hover:text-primary">地图</span>
+</button>
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-95 active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined mb-1" style="font-variation-settings: 'FILL' 1;">directions</span>
+<span class="font-label-caps text-label-caps">路线</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-secondary-container px-4 py-1 hover:bg-surface-variant scale-95 active:scale-90 transition-transform duration-150 group">
+<span class="material-symbols-outlined mb-1 transition-colors group-hover:text-primary">person</span>
+<span class="font-label-caps text-label-caps transition-colors group-hover:text-primary">我的</span>
+</button>
+</nav>
+<!-- Desktop SideNav Placeholder (Hidden on mobile) -->
+<aside class="hidden md:flex flex-col w-[240px] fixed top-14 left-0 h-[calc(100vh-56px)] bg-surface border-r border-outline-variant py-lg px-md gap-sm">
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined">map</span>
+<span class="font-body-lg text-body-lg">地图</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg bg-primary-container text-on-primary-container transition-colors" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">directions</span>
+<span class="font-body-lg text-body-lg font-medium">路线</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-body-lg text-body-lg">我的</span>
+</a>
+</aside>
+</body></html>

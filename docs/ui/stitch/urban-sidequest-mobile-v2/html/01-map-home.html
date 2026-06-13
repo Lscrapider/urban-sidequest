@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Map Home Redesign</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;family=Inter:wght@400&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary": "#412a00",
+                        "on-secondary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "inverse-primary": "#98d1d0",
+                        "background": "#f8f9fa",
+                        "on-background": "#191c1d",
+                        "secondary": "#466270",
+                        "primary-container": "#0d4d4d",
+                        "on-secondary-fixed": "#001f2a",
+                        "surface-variant": "#e1e3e4",
+                        "primary-fixed": "#b4edec",
+                        "surface-container-high": "#e7e8e9",
+                        "on-tertiary-fixed": "#281800",
+                        "error-container": "#ffdad6",
+                        "primary-fixed-dim": "#98d1d0",
+                        "on-surface": "#191c1d",
+                        "primary": "#003535",
+                        "tertiary-fixed-dim": "#ffba3f",
+                        "surface-container-highest": "#e1e3e4",
+                        "on-secondary-container": "#4a6774",
+                        "tertiary-fixed": "#ffdeae",
+                        "surface-bright": "#f8f9fa",
+                        "on-tertiary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-surface-variant": "#404848",
+                        "on-primary-fixed": "#002020",
+                        "on-secondary-fixed-variant": "#2e4b57",
+                        "on-tertiary-fixed-variant": "#604100",
+                        "inverse-surface": "#2e3132",
+                        "outline-variant": "#bfc8c8",
+                        "outline": "#707978",
+                        "on-primary-container": "#85bdbc",
+                        "secondary-fixed-dim": "#adcbda",
+                        "secondary-fixed": "#c9e7f7",
+                        "surface-container-low": "#f3f4f5",
+                        "inverse-on-surface": "#f0f1f2",
+                        "surface-container": "#edeeef",
+                        "secondary-container": "#c6e4f4",
+                        "on-primary-fixed-variant": "#104f4f",
+                        "tertiary-container": "#5e3f00",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#eda500",
+                        "on-error": "#ffffff",
+                        "surface-dim": "#d9dadb",
+                        "surface-tint": "#2e6767",
+                        "surface-container-lowest": "#ffffff",
+                        "surface": "#f8f9fa"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "margin-mobile": "16px",
+                        "md": "16px",
+                        "lg": "24px",
+                        "sm": "8px",
+                        "xl": "32px",
+                        "xs": "4px",
+                        "gutter": "16px",
+                        "unit": "4px",
+                        "margin-desktop": "32px"
+                    },
+                    "fontFamily": {
+                        "navigation-node": ["Hanken Grotesk"],
+                        "body-lg": ["Inter"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "label-caps": ["JetBrains Mono"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "body-sm": ["Inter"],
+                        "headline-md": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "navigation-node": ["14px", {"lineHeight": "14px", "fontWeight": "700"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .map-bg {
+            background-color: #E8EBE9; /* Gaode-style light map base */
+            background-image: 
+                radial-gradient(circle at 50% 50%, #f0f3f1 0%, transparent 80%),
+                repeating-linear-gradient(45deg, #e3e6e4 0px, #e3e6e4 1px, transparent 1px, transparent 40px),
+                repeating-linear-gradient(-45deg, #e3e6e4 0px, #e3e6e4 1px, transparent 1px, transparent 40px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background h-screen w-full overflow-hidden flex flex-col font-body-lg">
+<!-- Map Canvas Area -->
+<div class="absolute inset-0 z-0 map-bg flex items-center justify-center">
+<!-- Current Location Marker -->
+<div class="relative flex items-center justify-center">
+<div class="absolute w-12 h-12 bg-primary-container opacity-20 rounded-full animate-ping"></div>
+<div class="absolute w-8 h-8 bg-primary-container opacity-40 rounded-full"></div>
+<div class="w-4 h-4 bg-primary-container border-2 border-surface rounded-full z-10 shadow-sm"></div>
+</div>
+</div>
+<!-- Top Tool Area -->
+<div class="z-20 pt-safe-top px-margin-mobile flex flex-col gap-sm mt-4">
+<!-- Header Row -->
+<div class="flex items-center justify-between h-12">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface opacity-90">地图</h1>
+<div class="w-10 h-10 rounded-full bg-surface-container-high overflow-hidden border border-outline-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant" style="font-variation-settings: 'FILL' 1;">person</span>
+</div>
+</div>
+<!-- Search Bar -->
+<div class="bg-surface/95 backdrop-blur-md h-12 rounded-lg border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.05)] flex items-center px-4 gap-3">
+<span class="material-symbols-outlined text-on-surface-variant">search</span>
+<input class="flex-1 bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-variant font-body-sm text-body-sm p-0" placeholder="搜索城市、区县、酒店或地点" type="text"/>
+<div class="w-px h-5 bg-outline-variant mx-1"></div>
+<span class="material-symbols-outlined text-primary-container">tune</span>
+</div>
+</div>
+<!-- Main Content Canvas (Empty to show map) -->
+<div class="flex-1 z-10 relative">
+<!-- FAB - Location -->
+<button class="absolute bottom-6 right-margin-mobile w-12 h-12 bg-surface rounded-full shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-outline-variant flex items-center justify-center active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-on-surface" style="font-variation-settings: 'FILL' 1;">my_location</span>
+</button>
+</div>
+<!-- Bottom Section: Drawer & Nav Bar -->
+<div class="z-50 flex flex-col w-full pb-safe-bottom">
+<!-- Floating Drawer -->
+<div class="px-margin-mobile mb-4">
+<div class="bg-surface rounded-xl shadow-[0_-4px_24px_rgba(0,0,0,0.06)] border border-outline-variant p-4 flex flex-col gap-sm">
+<button class="w-full bg-primary-container text-on-primary-container h-12 rounded-lg font-navigation-node text-navigation-node flex items-center justify-center hover:bg-primary active:scale-[0.98] transition-all">
+                    生成路线
+                </button>
+<p class="text-center font-body-sm text-body-sm text-on-surface-variant opacity-80">
+                    选择区域后生成今天的城市副本
+                </p>
+</div>
+</div>
+<!-- BottomNavBar (from JSON) -->
+<nav class="bg-surface border-t border-outline-variant h-16 w-full flex justify-around items-center px-gutter">
+<!-- Active Tab: 地图 -->
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 scale-95 active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined" data-icon="map" style="font-variation-settings: 'FILL' 1;">map</span>
+<span class="font-label-caps text-label-caps mt-1">地图</span>
+</button>
+<!-- Inactive Tab: 路线 -->
+<button class="flex flex-col items-center justify-center text-on-secondary-container px-4 py-1 hover:bg-surface-variant transition-colors duration-150 rounded-full">
+<span class="material-symbols-outlined" data-icon="directions">directions</span>
+<span class="font-label-caps text-label-caps mt-1">路线</span>
+</button>
+<!-- Inactive Tab: 我的 -->
+<button class="flex flex-col items-center justify-center text-on-secondary-container px-4 py-1 hover:bg-surface-variant transition-colors duration-150 rounded-full">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-label-caps text-label-caps mt-1">我的</span>
+</button>
+</nav>
+</div>
+</body></html>
