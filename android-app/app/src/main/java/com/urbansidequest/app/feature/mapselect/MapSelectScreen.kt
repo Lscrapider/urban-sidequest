@@ -35,10 +35,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.GpsFixed
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
@@ -61,7 +58,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -85,13 +81,14 @@ import com.amap.api.services.core.LatLonPoint
 import com.amap.api.services.help.Inputtips
 import com.amap.api.services.help.InputtipsQuery
 import com.amap.api.services.help.Tip
+import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
+import com.urbansidequest.app.ui.components.UrbanDestination
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.DeepTeal
-import com.urbansidequest.app.ui.theme.DeepTealDark
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -99,7 +96,11 @@ private val DefaultMapCenter = LatLng(39.908722, 116.397499)
 private val HorizontalScreenPadding = 16.dp
 
 @Composable
-fun MapSelectScreen() {
+fun MapSelectScreen(
+    onOpenRouteConfig: () -> Unit = {},
+    onOpenRoutes: () -> Unit = {},
+    onOpenProfile: () -> Unit = {}
+) {
     val context = LocalContext.current
     var isSelectionExpanded by remember { mutableStateOf(false) }
     var mapController by remember { mutableStateOf<AMap?>(null) }
@@ -227,7 +228,7 @@ fun MapSelectScreen() {
         ) {
             if (isSelectionExpanded) {
                 MapSelectionSheet(
-                    onNext = {},
+                    onNext = onOpenRouteConfig,
                     onManualSelect = {}
                 )
             } else {
@@ -235,7 +236,12 @@ fun MapSelectScreen() {
                     onGenerateRoute = { isSelectionExpanded = true }
                 )
             }
-            BottomNavigationBar()
+            UrbanBottomNavigationBar(
+                selectedDestination = UrbanDestination.Map,
+                onMapClick = {},
+                onRoutesClick = onOpenRoutes,
+                onProfileClick = onOpenProfile
+            )
         }
     }
 }
@@ -752,77 +758,6 @@ private fun MapChip(text: String) {
             color = AppTextMuted,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold
-        )
-    }
-}
-
-@Composable
-private fun BottomNavigationBar() {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(64.dp),
-        color = AppSurface,
-        border = BorderStroke(1.dp, AppBorder)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            BottomNavigationItem(
-                text = "地图",
-                icon = Icons.Filled.Map,
-                selected = true
-            )
-            BottomNavigationItem(
-                text = "路线",
-                icon = Icons.Filled.Directions,
-                selected = false
-            )
-            BottomNavigationItem(
-                text = "我的",
-                icon = Icons.Filled.Person,
-                selected = false
-            )
-        }
-    }
-}
-
-@Composable
-private fun BottomNavigationItem(
-    text: String,
-    icon: ImageVector,
-    selected: Boolean
-) {
-    val contentColor = if (selected) Color.White else AppTextMuted
-    val backgroundColor = if (selected) DeepTealDark else Color.Transparent
-
-    Column(
-        modifier = Modifier
-            .clickable { }
-            .border(
-                width = if (selected) 0.dp else 1.dp,
-                color = Color.Transparent,
-                shape = CircleShape
-            )
-            .background(backgroundColor, CircleShape)
-            .padding(horizontal = 18.dp, vertical = 7.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            modifier = Modifier.size(20.dp),
-            imageVector = icon,
-            contentDescription = text,
-            tint = contentColor
-        )
-        Text(
-            text = text,
-            color = contentColor,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold
         )
     }
 }
