@@ -19,6 +19,7 @@
 ## 文档索引
 
 - `PRODUCT.md`：项目级产品上下文，供设计和开发流程读取。
+- `DESIGN.md`：Android UI 设计系统和视觉规范。
 - `docs/product-brief.md`：早期产品 brief。
 - `docs/product-design.md`：当前产品设计基准。
 - `docs/ui-inspiration.md`：UI 启发、参考方向和探索图。
@@ -33,6 +34,22 @@
 - 主体验：地图选区、条件输入、路线 A、两条额外路线、POI 解释卡、打卡反馈。
 - Web：产品介绍页和后台维护。
 - 后续：iOS App 承接同等移动端能力。
+
+## 模块结构
+
+- `android-app/`：Android 前端，使用 Kotlin + Jetpack Compose，后续接入高德 Android SDK。
+- `backend/`：Java + Spring Boot 后端主服务。
+- `database/`：PostgreSQL/PostGIS 初始化、迁移脚本和单独数据库调试环境。
+- `docker-compose.yml`：根目录完整本地依赖环境，启动 PostGIS + Redis。
+- `database/docker-compose.yml`：只启动 PostGIS，便于单独调试数据库。
+
+本地依赖默认配置：
+
+- compose name：`urban-sidequest`
+- PostgreSQL service：`postgres`
+- database：`urban_sidequest`
+- user：`urban_sidequest`
+- port：`5432`
 
 ## 开发约束
 

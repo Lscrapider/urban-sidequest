@@ -39,6 +39,11 @@ target/
 .gradle/
 *.class
 
+# Android local config / build outputs
+local.properties
+android-app/.gradle/
+android-app/**/build/
+
 # Product design / brainstorming runtime state
 .superpowers/
 .impeccable/live/

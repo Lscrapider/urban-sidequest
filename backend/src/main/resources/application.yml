@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: urban-sidequest-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/urban_sidequest}
+    username: ${SPRING_DATASOURCE_USERNAME:urban_sidequest}
+    password: ${SPRING_DATASOURCE_PASSWORD:urban_sidequest_dev}
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+  flyway:
+    enabled: true
+    locations: ${SPRING_FLYWAY_LOCATIONS:filesystem:../database/migrations}
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+amap:
+  web:
+    key: ${AMAP_WEB_KEY:}
+    base-url: ${AMAP_WEB_BASE_URL:https://restapi.amap.com}
+

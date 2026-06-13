@@ -149,3 +149,9 @@ README 不替代详细文档，只作为项目导航。
 3. 设计 PostgreSQL + PostGIS 的核心数据表和坐标字段约束。
 4. 设计 App 与后端之间的 API 契约。
 5. 先跑通 mock 路线生成闭环，再逐步接入高德 Web 服务 API。
+
+当前已开始落地的模块路径：
+
+- `android-app/`
+- `backend/`
+- `database/`

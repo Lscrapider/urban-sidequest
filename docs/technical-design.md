@@ -30,6 +30,8 @@ Android App 使用：
 - Hilt 做依赖注入。
 - ViewModel + StateFlow 管理页面状态。
 
+模块路径：`android-app/`。
+
 Android 前端负责用户可见和可操作的体验，包括地图选区、条件配置、路线结果、POI 解释卡、路线执行、打卡反馈和我的页。地图显示、定位蓝点、POI marker、路线 polyline、节点 marker 和选区多边形由高德 Android SDK 承载，Compose 负责页面 UI、底部抽屉、按钮、chip、表单和列表。
 
 不采用 H5 作为第一阶段核心 App。H5 可以用于产品介绍页、路线分享页和后台管理系统，但不承担地图选区、路线执行和持续定位等核心移动端体验。
@@ -43,6 +45,8 @@ Android 前端负责用户可见和可操作的体验，包括地图选区、条
 - PostgreSQL + PostGIS。
 - Redis。
 - 高德 Web 服务 API。
+
+模块路径：`backend/`。
 
 Spring Boot 负责用户、认证、偏好、路线生成请求、路线结果、收藏、打卡、反馈、我的页和后台管理。后端不能依赖 Android SDK，路线生成必须通过高德 Web 服务 API、数据库缓存和自身规则在服务端可复现。
 
@@ -66,6 +70,12 @@ App 负责交互和展示，后端负责路线产品逻辑、可复现生成、�
 - Android Key 只用于 App，高德控制台绑定包名和签名。
 - Web 服务 Key 只用于后端，通过环境变量或密钥管理注入，禁止写入 App。
 - 后续 Web 后台或分享页如需地图能力，单独申请 Web/JS API Key。
+
+### 本地数据库环境
+
+数据库模块路径：`database/`。
+
+根目录 `docker-compose.yml` 用于完整本地依赖环境，启动 PostGIS 和 Redis。`database/docker-compose.yml` 只启动 PostGIS，用于单独调试数据库和迁移脚本。两个 compose 文件都使用 `name: urban-sidequest`，并保持数据库服务名、库名、用户名和端口一致；开发时只启动其中一个。
 
 ## 3. 路线生成链路
 
