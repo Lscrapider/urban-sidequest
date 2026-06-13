@@ -13,6 +13,9 @@ val localProperties = Properties().apply {
     }
 }
 
+val localBackendBaseUrl = localProperties.getProperty("backend.base.url")
+    ?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "com.urbansidequest.app"
     compileSdk = 35
@@ -24,7 +27,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         val backendBaseUrl = providers.environmentVariable("BACKEND_BASE_URL")
-            .orElse("http://10.0.2.2:8080")
+            .orElse(localBackendBaseUrl ?: "http://10.0.2.2:8080")
             .get()
         buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
         manifestPlaceholders["AMAP_API_KEY"] = localProperties.getProperty("amap.api.key", "")

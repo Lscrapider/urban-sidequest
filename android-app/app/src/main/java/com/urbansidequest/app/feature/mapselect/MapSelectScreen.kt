@@ -1,8 +1,12 @@
 package com.urbansidequest.app.feature.mapselect
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Color as AndroidColor
+import android.graphics.Paint
 import android.os.Bundle
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -48,7 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -60,7 +62,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.amap.api.maps.AMap
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
+import com.amap.api.maps.model.BitmapDescriptor
+import com.amap.api.maps.model.BitmapDescriptorFactory
 import com.amap.api.maps.model.LatLng
+import com.amap.api.maps.model.MarkerOptions
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
@@ -68,6 +73,7 @@ import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.DeepTeal
 import com.urbansidequest.app.ui.theme.DeepTealDark
+import kotlin.math.roundToInt
 
 private val DefaultMapCenter = LatLng(39.908722, 116.397499)
 private val HorizontalScreenPadding = 16.dp
@@ -85,12 +91,6 @@ fun MapSelectScreen() {
         AMapCanvas(
             modifier = Modifier.fillMaxSize(),
             onMapReady = { mapController = it }
-        )
-
-        CurrentLocationMarker(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .offset(y = (-24).dp)
         )
 
         MapTopBar(
@@ -136,29 +136,6 @@ fun MapSelectScreen() {
 }
 
 @Composable
-private fun CurrentLocationMarker(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(46.dp)) {
-        drawCircle(
-            color = DeepTeal.copy(alpha = 0.16f),
-            radius = size.minDimension / 2f
-        )
-        drawCircle(
-            color = AppSurface,
-            radius = 13.dp.toPx()
-        )
-        drawCircle(
-            color = DeepTeal,
-            radius = 8.dp.toPx()
-        )
-        drawCircle(
-            color = AppSurface,
-            radius = 13.dp.toPx(),
-            style = Stroke(width = 2.dp.toPx())
-        )
-    }
-}
-
-@Composable
 private fun AMapCanvas(
     modifier: Modifier = Modifier,
     onMapReady: (AMap) -> Unit
@@ -195,11 +172,49 @@ private fun AMapCanvas(
                 aMap.uiSettings.isZoomControlsEnabled = false
                 aMap.uiSettings.isCompassEnabled = false
                 aMap.uiSettings.isScaleControlsEnabled = true
+                aMap.addMarker(
+                    MarkerOptions()
+                        .position(DefaultMapCenter)
+                        .anchor(0.5f, 0.5f)
+                        .icon(createCurrentLocationIcon(context))
+                        .zIndex(10f)
+                )
                 aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(DefaultMapCenter, 14f))
                 onMapReady(aMap)
             }
         }
     )
+}
+
+private fun createCurrentLocationIcon(context: Context): BitmapDescriptor {
+    val density = context.resources.displayMetrics.density
+    val size = (46 * density).roundToInt()
+    val outerRadius = size / 2f
+    val whiteRadius = 13 * density
+    val innerRadius = 8 * density
+    val strokeWidth = 2 * density
+    val center = size / 2f
+
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = AndroidCanvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    paint.style = Paint.Style.FILL
+    paint.color = AndroidColor.argb(41, 13, 77, 77)
+    canvas.drawCircle(center, center, outerRadius, paint)
+
+    paint.color = AndroidColor.WHITE
+    canvas.drawCircle(center, center, whiteRadius, paint)
+
+    paint.color = AndroidColor.rgb(13, 77, 77)
+    canvas.drawCircle(center, center, innerRadius, paint)
+
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = strokeWidth
+    paint.color = AndroidColor.WHITE
+    canvas.drawCircle(center, center, whiteRadius, paint)
+
+    return BitmapDescriptorFactory.fromBitmap(bitmap)
 }
 
 @Composable
