@@ -18,24 +18,30 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
@@ -74,30 +80,47 @@ import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
 import com.amap.api.maps.model.BitmapDescriptor
 import com.amap.api.maps.model.BitmapDescriptorFactory
+import com.amap.api.maps.model.LatLngBounds
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
-import com.amap.api.services.core.LatLonPoint
-import com.amap.api.services.help.Inputtips
-import com.amap.api.services.help.InputtipsQuery
-import com.amap.api.services.help.Tip
+import com.amap.api.maps.model.Polyline
+import com.amap.api.maps.model.PolylineOptions
+import com.urbansidequest.app.data.map.PlaceSearchSuggestion
+import com.urbansidequest.app.data.map.searchAmapInputTips
+import com.urbansidequest.app.domain.model.GeneratedRoute
+import com.urbansidequest.app.domain.model.GeoPoint
+import com.urbansidequest.app.domain.model.RouteGeneration
+import com.urbansidequest.app.domain.model.RouteStop
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
+import com.urbansidequest.app.ui.components.UrbanChip
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.DeepTeal
+import com.urbansidequest.app.ui.theme.RouteTeal
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private val DefaultMapCenter = LatLng(39.908722, 116.397499)
 private val HorizontalScreenPadding = 16.dp
+private val ROUTE_A_COLOR = AndroidColor.rgb(19, 115, 230)
+private val ROUTE_B_COLOR = AndroidColor.rgb(17, 24, 39)
+private val ROUTE_C_COLOR = AndroidColor.rgb(0, 148, 136)
 
+private data class RouteStopMarkerPayload(
+    val routeIndex: Int,
+    val stop: RouteStop
+)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MapSelectScreen(
-    onOpenRouteConfig: () -> Unit = {},
+    routeGeneration: RouteGeneration? = null,
+    onOpenRouteConfig: (GeoPoint) -> Unit = {},
     onOpenRoutes: () -> Unit = {},
     onOpenProfile: () -> Unit = {}
 ) {
@@ -107,13 +130,24 @@ fun MapSelectScreen(
     var currentLocation by remember { mutableStateOf(DefaultMapCenter) }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
-    var searchSuggestions by remember { mutableStateOf<List<MapSearchSuggestion>>(emptyList()) }
+    var searchSuggestions by remember { mutableStateOf<List<PlaceSearchSuggestion>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
+    var selectedRouteIndex by remember { mutableStateOf(0) }
+    var isRouteSheetExpanded by remember { mutableStateOf(false) }
+    var selectedStopPayload by remember { mutableStateOf<RouteStopMarkerPayload?>(null) }
     val focusManager = LocalFocusManager.current
+    val routes = routeGeneration?.routes.orEmpty()
+    val selectedRoute = routes.getOrNull(selectedRouteIndex)
 
     fun moveToLocation(location: LatLng, zoom: Float = 16f) {
         currentLocation = location
         mapController?.animateCamera(CameraUpdateFactory.newLatLngZoom(location, zoom))
+    }
+
+    fun focusStop(routeIndex: Int, stop: RouteStop) {
+        selectedRouteIndex = routeIndex
+        selectedStopPayload = RouteStopMarkerPayload(routeIndex = routeIndex, stop = stop)
+        moveToLocation(stop.location.toLatLng(), 17f)
     }
 
     fun requestCurrentLocation() {
@@ -146,8 +180,19 @@ fun MapSelectScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        locateWithPermission()
+    LaunchedEffect(routeGeneration?.requestId) {
+        if (routeGeneration == null) {
+            locateWithPermission()
+        }
+    }
+
+    LaunchedEffect(routeGeneration?.requestId) {
+        selectedRouteIndex = 0
+        isRouteSheetExpanded = false
+        selectedStopPayload = null
+        if (routeGeneration != null) {
+            isSelectionExpanded = false
+        }
     }
 
     LaunchedEffect(searchText, currentLocation) {
@@ -180,7 +225,12 @@ fun MapSelectScreen(
         AMapCanvas(
             modifier = Modifier.fillMaxSize(),
             currentLocation = currentLocation,
-            onMapReady = { mapController = it }
+            routeGeneration = routeGeneration,
+            selectedRouteIndex = selectedRouteIndex,
+            onMapReady = { mapController = it },
+            onRouteStopClick = { payload ->
+                focusStop(payload.routeIndex, payload.stop)
+            }
         )
 
         MapTopBar(
@@ -210,15 +260,30 @@ fun MapSelectScreen(
             }
         )
 
-        MapLocationButton(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(
-                    end = HorizontalScreenPadding,
-                    bottom = if (isSelectionExpanded) 318.dp else 234.dp
-                ),
-            onClick = ::locateWithPermission
-        )
+        if (routes.isNotEmpty()) {
+            RouteSwitcher(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp),
+                routes = routes,
+                selectedRouteIndex = selectedRouteIndex,
+                onSelectRoute = {
+                    selectedRouteIndex = it
+                    isRouteSheetExpanded = false
+                    selectedStopPayload = null
+                }
+            )
+        } else {
+            MapLocationButton(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = HorizontalScreenPadding,
+                        bottom = if (isSelectionExpanded) 318.dp else 234.dp
+                    ),
+                onClick = ::locateWithPermission
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -226,15 +291,50 @@ fun MapSelectScreen(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            if (isSelectionExpanded) {
-                MapSelectionSheet(
-                    onNext = onOpenRouteConfig,
-                    onManualSelect = {}
+            if (selectedRoute != null) {
+                selectedStopPayload?.let { payload ->
+                    PoiDetailPopup(
+                        routeCode = routes.getOrNull(payload.routeIndex)?.routeCode.orEmpty(),
+                        routeColor = routeColor(payload.routeIndex),
+                        stop = payload.stop,
+                        onLocate = { focusStop(payload.routeIndex, payload.stop) },
+                        onClose = { selectedStopPayload = null }
+                    )
+                }
+                RouteDetailSheet(
+                    route = selectedRoute,
+                    routeIndex = selectedRouteIndex,
+                    routeCount = routes.size,
+                    isExpanded = isRouteSheetExpanded,
+                    onToggleExpanded = { isRouteSheetExpanded = !isRouteSheetExpanded },
+                    onLocateStop = { stop -> focusStop(selectedRouteIndex, stop) },
+                    onAdjustRoute = {
+                        onOpenRouteConfig(
+                            GeoPoint(
+                                longitudeGcj02 = currentLocation.longitude,
+                                latitudeGcj02 = currentLocation.latitude
+                            )
+                        )
+                    }
                 )
             } else {
-                MapHomeActionSheet(
-                    onGenerateRoute = { isSelectionExpanded = true }
-                )
+                if (isSelectionExpanded) {
+                    MapSelectionSheet(
+                        onNext = {
+                            onOpenRouteConfig(
+                                GeoPoint(
+                                    longitudeGcj02 = currentLocation.longitude,
+                                    latitudeGcj02 = currentLocation.latitude
+                                )
+                            )
+                        },
+                        onManualSelect = {}
+                    )
+                } else {
+                    MapHomeActionSheet(
+                        onGenerateRoute = { isSelectionExpanded = true }
+                    )
+                }
             }
             UrbanBottomNavigationBar(
                 selectedDestination = UrbanDestination.Map,
@@ -250,11 +350,17 @@ fun MapSelectScreen(
 private fun AMapCanvas(
     modifier: Modifier = Modifier,
     currentLocation: LatLng,
-    onMapReady: (AMap) -> Unit
+    routeGeneration: RouteGeneration?,
+    selectedRouteIndex: Int,
+    onMapReady: (AMap) -> Unit,
+    onRouteStopClick: (RouteStopMarkerPayload) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var currentLocationMarker by remember { mutableStateOf<Marker?>(null) }
+    val routePolylines = remember { mutableListOf<Polyline>() }
+    val routeMarkers = remember { mutableListOf<Marker>() }
+    var lastRenderedRequestId by remember { mutableStateOf<String?>(null) }
     val mapView = remember {
         MapView(context).apply {
             onCreate(Bundle())
@@ -293,11 +399,70 @@ private fun AMapCanvas(
                         .zIndex(10f)
                 )
                 aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLocation, 14f))
+                aMap.setOnMarkerClickListener { marker ->
+                    val payload = marker.`object` as? RouteStopMarkerPayload
+                    if (payload != null) {
+                        onRouteStopClick(payload)
+                        true
+                    } else {
+                        false
+                    }
+                }
                 onMapReady(aMap)
             }
         },
         update = {
             currentLocationMarker?.position = currentLocation
+            val aMap = mapView.map
+            routePolylines.forEach { polyline -> polyline.remove() }
+            routeMarkers.forEach { marker -> marker.remove() }
+            routePolylines.clear()
+            routeMarkers.clear()
+            val routes = routeGeneration?.routes.orEmpty()
+            routes.forEachIndexed { index, route ->
+                val isSelected = index == selectedRouteIndex
+                val path = route.stops
+                    .sortedBy(RouteStop::order)
+                    .map { stop -> stop.location.toLatLng() }
+                if (path.size >= 2) {
+                    routePolylines.add(
+                        aMap.addPolyline(
+                            PolylineOptions()
+                                .addAll(path)
+                                .color(routeLineColor(index = index, selected = isSelected))
+                                .width(if (isSelected) 14f else 7f)
+                                .zIndex(if (isSelected) 8f else 4f)
+                        )
+                    )
+                }
+                route.stops.sortedBy(RouteStop::order).forEach { stop ->
+                    val marker = aMap.addMarker(
+                        MarkerOptions()
+                            .position(stop.location.toLatLng())
+                            .anchor(0.5f, 0.5f)
+                            .icon(
+                                createRouteStopIcon(
+                                    context = context,
+                                    order = stop.order,
+                                    routeColor = routeColor(index),
+                                    selected = isSelected
+                                )
+                            )
+                            .zIndex(if (isSelected) 12f else 7f)
+                    )
+                    marker.`object` = RouteStopMarkerPayload(routeIndex = index, stop = stop)
+                    routeMarkers.add(marker)
+                }
+            }
+            val requestKey = "${routeGeneration?.requestId}:$selectedRouteIndex"
+            val selectedRoute = routes.getOrNull(selectedRouteIndex)
+            if (selectedRoute != null && requestKey != lastRenderedRequestId) {
+                val bounds = selectedRoute.stops.toLatLngBounds()
+                if (bounds != null) {
+                    aMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
+                }
+                lastRenderedRequestId = requestKey
+            }
         }
     )
 }
@@ -337,47 +502,6 @@ private fun startSingleAmapLocation(
     locationClient.startLocation()
 }
 
-private fun searchAmapInputTips(
-    context: Context,
-    keyword: String,
-    location: LatLng,
-    onResult: (String, List<MapSearchSuggestion>) -> Unit
-) {
-    val query = InputtipsQuery(keyword, "").apply {
-        setLocation(LatLonPoint(location.latitude, location.longitude))
-        setCityLimit(false)
-    }
-    val inputTips = Inputtips(context.applicationContext, query)
-    inputTips.setInputtipsListener { tips, resultCode ->
-        val suggestions = if (resultCode == AMAP_SUCCESS_CODE) {
-            tips.orEmpty()
-                .mapNotNull(Tip::toMapSearchSuggestion)
-                .take(MAX_SEARCH_SUGGESTIONS)
-        } else {
-            emptyList()
-        }
-        onResult(keyword, suggestions)
-    }
-    inputTips.requestInputtipsAsyn()
-}
-
-private fun Tip.toMapSearchSuggestion(): MapSearchSuggestion? {
-    val point = point ?: return null
-    val name = name.orEmpty().ifBlank { return null }
-    val districtText = district.orEmpty()
-    val addressText = address.orEmpty()
-    val description = listOf(districtText, addressText)
-        .filter { it.isNotBlank() && it != "[]" }
-        .distinct()
-        .joinToString(" · ")
-
-    return MapSearchSuggestion(
-        name = name,
-        description = description,
-        location = LatLng(point.latitude, point.longitude)
-    )
-}
-
 private fun createCurrentLocationIcon(context: Context): BitmapDescriptor {
     val density = context.resources.displayMetrics.density
     val size = (46 * density).roundToInt()
@@ -392,13 +516,13 @@ private fun createCurrentLocationIcon(context: Context): BitmapDescriptor {
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     paint.style = Paint.Style.FILL
-    paint.color = AndroidColor.argb(41, 13, 77, 77)
+    paint.color = AndroidColor.argb(42, 19, 115, 230)
     canvas.drawCircle(center, center, outerRadius, paint)
 
     paint.color = AndroidColor.WHITE
     canvas.drawCircle(center, center, whiteRadius, paint)
 
-    paint.color = AndroidColor.rgb(13, 77, 77)
+    paint.color = ROUTE_A_COLOR
     canvas.drawCircle(center, center, innerRadius, paint)
 
     paint.style = Paint.Style.STROKE
@@ -409,27 +533,52 @@ private fun createCurrentLocationIcon(context: Context): BitmapDescriptor {
     return BitmapDescriptorFactory.fromBitmap(bitmap)
 }
 
-private const val LOCATION_TIMEOUT_MILLIS = 8_000L
-private const val AMAP_SUCCESS_CODE = 1000
-private const val MAX_SEARCH_SUGGESTIONS = 8
+private fun createRouteStopIcon(
+    context: Context,
+    order: Int,
+    routeColor: Int,
+    selected: Boolean
+): BitmapDescriptor {
+    val density = context.resources.displayMetrics.density
+    val size = ((if (selected) 38 else 32) * density).roundToInt()
+    val center = size / 2f
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = AndroidCanvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-private data class MapSearchSuggestion(
-    val name: String,
-    val description: String,
-    val location: LatLng
-)
+    paint.style = Paint.Style.FILL
+    paint.color = AndroidColor.WHITE
+    canvas.drawCircle(center, center, center - density, paint)
+
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = if (selected) 3 * density else 2 * density
+    paint.color = routeColor
+    canvas.drawCircle(center, center, center - 3 * density, paint)
+
+    paint.style = Paint.Style.FILL
+    paint.color = routeColor
+    paint.textAlign = Paint.Align.CENTER
+    paint.textSize = if (selected) 13 * density else 12 * density
+    paint.isFakeBoldText = true
+    val baseline = center - (paint.descent() + paint.ascent()) / 2
+    canvas.drawText(order.toString(), center, baseline, paint)
+
+    return BitmapDescriptorFactory.fromBitmap(bitmap)
+}
+
+private const val LOCATION_TIMEOUT_MILLIS = 8_000L
 
 @Composable
 private fun MapTopBar(
     modifier: Modifier = Modifier,
     isSearchActive: Boolean,
     searchText: String,
-    suggestions: List<MapSearchSuggestion>,
+    suggestions: List<PlaceSearchSuggestion>,
     isSearching: Boolean,
     onSearchFocus: () -> Unit,
     onSearchTextChange: (String) -> Unit,
     onCancelSearch: () -> Unit,
-    onSelectSuggestion: (MapSearchSuggestion) -> Unit
+    onSelectSuggestion: (PlaceSearchSuggestion) -> Unit
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -528,9 +677,9 @@ private fun MapTopBar(
 @Composable
 private fun SearchSuggestionsPanel(
     searchText: String,
-    suggestions: List<MapSearchSuggestion>,
+    suggestions: List<PlaceSearchSuggestion>,
     isSearching: Boolean,
-    onSelectSuggestion: (MapSearchSuggestion) -> Unit
+    onSelectSuggestion: (PlaceSearchSuggestion) -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -568,7 +717,7 @@ private fun SearchPanelHint(text: String) {
 
 @Composable
 private fun SearchSuggestionRow(
-    suggestion: MapSearchSuggestion,
+    suggestion: PlaceSearchSuggestion,
     onClick: () -> Unit
 ) {
     Row(
@@ -625,6 +774,380 @@ private fun MapLocationButton(
             contentDescription = "回到当前位置",
             tint = DeepTeal
         )
+    }
+}
+
+@Composable
+private fun RouteSwitcher(
+    modifier: Modifier = Modifier,
+    routes: List<GeneratedRoute>,
+    selectedRouteIndex: Int,
+    onSelectRoute: (Int) -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            routes.forEachIndexed { index, route ->
+                val selected = index == selectedRouteIndex
+                val color = routeColor(index).toComposeColor()
+                Surface(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clickable { onSelectRoute(index) },
+                    shape = CircleShape,
+                    color = if (selected) color else AppSurfaceMuted,
+                    border = BorderStroke(1.dp, if (selected) color else AppBorder)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = route.routeCode,
+                            color = if (selected) Color.White else AppTextMuted,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PoiDetailPopup(
+    routeCode: String,
+    routeColor: Int,
+    stop: RouteStop,
+    onLocate: () -> Unit,
+    onClose: () -> Unit
+) {
+    val color = routeColor.toComposeColor()
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HorizontalScreenPadding, vertical = 8.dp)
+            .shadow(8.dp, RoundedCornerShape(12.dp), clip = false),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Surface(
+                        modifier = Modifier.size(34.dp),
+                        shape = CircleShape,
+                        color = color
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = stop.order.toString(),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = "$routeCode 线 · ${stop.name}",
+                            color = AppText,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = formatCategory(stop.category),
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "关闭地点详情",
+                        tint = AppTextMuted
+                    )
+                }
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                stop.stayMinutes?.let { minutes ->
+                    UrbanChip(text = "停留 ${minutes} 分钟", selected = true)
+                }
+                if (!stop.transportToNext.isNullOrBlank() && stop.durationToNextMinutes != null) {
+                    UrbanChip(text = "下一段 ${formatTransportMode(stop.transportToNext)} ${stop.durationToNextMinutes} 分钟")
+                }
+                stop.distanceToNextMeters?.let { meters ->
+                    UrbanChip(text = "距离 ${formatDistance(meters)}")
+                }
+            }
+
+            if (!stop.reason.isNullOrBlank()) {
+                Text(
+                    text = stop.reason,
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (!stop.riskNote.isNullOrBlank()) {
+                Text(
+                    text = stop.riskNote,
+                    color = RouteTeal,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp),
+                onClick = onLocate,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = color,
+                    contentColor = Color.White
+                )
+            ) {
+                Icon(
+                    modifier = Modifier.size(18.dp),
+                    imageVector = Icons.Filled.MyLocation,
+                    contentDescription = null
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "定位到这个地点", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RouteDetailSheet(
+    route: GeneratedRoute,
+    routeIndex: Int,
+    routeCount: Int,
+    isExpanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onLocateStop: (RouteStop) -> Unit,
+    onAdjustRoute: () -> Unit
+) {
+    val routeColor = routeColor(routeIndex).toComposeColor()
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HorizontalScreenPadding, vertical = 12.dp)
+            .shadow(10.dp, RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp), clip = false),
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier
+                .clickable(onClick = onToggleExpanded)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(44.dp)
+                    .height(4.dp)
+                    .background(AppBorder, CircleShape)
+                    .align(Alignment.CenterHorizontally)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = route.title,
+                        color = AppText,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${routeCount} 条路线可切换，当前高亮 ${route.routeCode} 线",
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Text(
+                    text = if (isExpanded) "收起" else "详情",
+                    color = routeColor,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                UrbanChip(text = formatDuration(route.totalDurationMinutes), selected = true)
+                UrbanChip(text = formatDistance(route.totalDistanceMeters))
+                UrbanChip(text = formatBudget(route.budgetCent))
+                UrbanChip(text = formatRiskLevel(route.riskLevel))
+            }
+
+            Text(
+                text = route.summary,
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            if (isExpanded) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    route.stops.sortedBy(RouteStop::order).forEach { stop ->
+                        RouteStopDetailRow(
+                            stop = stop,
+                            routeColor = routeColor,
+                            onLocate = { onLocateStop(stop) }
+                        )
+                    }
+                    Text(
+                        text = route.explanation,
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                onClick = onAdjustRoute,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DeepTeal,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(text = "调整路线条件", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteStopDetailRow(
+    stop: RouteStop,
+    routeColor: Color,
+    onLocate: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onLocate)
+            .background(AppSurfaceMuted, RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Surface(
+            modifier = Modifier.size(28.dp),
+            shape = CircleShape,
+            color = routeColor
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = stop.order.toString(),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = stop.name,
+                color = AppText,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = formatCategory(stop.category),
+                color = AppTextMuted,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (!stop.reason.isNullOrBlank()) {
+                Text(
+                    text = stop.reason,
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            val nextText = buildString {
+                if (stop.stayMinutes != null) {
+                    append("停留 ${stop.stayMinutes} 分钟")
+                }
+                if (!stop.transportToNext.isNullOrBlank() && stop.durationToNextMinutes != null) {
+                    if (isNotEmpty()) {
+                        append(" · ")
+                    }
+                    append("${formatTransportMode(stop.transportToNext)} ${stop.durationToNextMinutes} 分钟")
+                }
+            }
+            if (nextText.isNotBlank()) {
+                Text(
+                    text = nextText,
+                    color = routeColor,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            if (!stop.riskNote.isNullOrBlank()) {
+                Text(
+                    text = stop.riskNote,
+                    color = RouteTeal,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        IconButton(onClick = onLocate) {
+            Icon(
+                imageVector = Icons.Filled.MyLocation,
+                contentDescription = "定位到${stop.name}",
+                tint = routeColor
+            )
+        }
     }
 }
 
@@ -690,22 +1213,22 @@ private fun MapSelectionSheet(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "天安门附近",
+                    text = "待选择范围",
                     color = AppText,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "当前范围适合 3-5 小时步行 + 地铁路线",
+                    text = "确认区域后再进入路线条件配置",
                     color = AppTextMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MapChip(text = "半日路线")
-                MapChip(text = "地铁可达")
-                MapChip(text = "低绕路")
+                MapChip(text = "范围待定")
+                MapChip(text = "交通待选")
+                MapChip(text = "目标待选")
             }
 
             Button(
@@ -759,5 +1282,101 @@ private fun MapChip(text: String) {
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+private fun GeoPoint.toLatLng(): LatLng {
+    return LatLng(latitudeGcj02, longitudeGcj02)
+}
+
+private fun List<RouteStop>.toLatLngBounds(): LatLngBounds? {
+    if (isEmpty()) {
+        return null
+    }
+    val builder = LatLngBounds.builder()
+    forEach { stop -> builder.include(stop.location.toLatLng()) }
+    return builder.build()
+}
+
+private fun routeLineColor(index: Int, selected: Boolean): Int {
+    val color = routeColor(index)
+    return if (selected) color else color.withAlpha(128)
+}
+
+private fun routeColor(index: Int): Int {
+    return when (index % 3) {
+        1 -> ROUTE_B_COLOR
+        2 -> ROUTE_C_COLOR
+        else -> ROUTE_A_COLOR
+    }
+}
+
+private fun Int.withAlpha(alpha: Int): Int {
+    return AndroidColor.argb(
+        alpha,
+        AndroidColor.red(this),
+        AndroidColor.green(this),
+        AndroidColor.blue(this)
+    )
+}
+
+private fun Int.toComposeColor(): Color {
+    return Color(this)
+}
+
+private fun formatDuration(minutes: Int): String {
+    val hours = minutes / 60
+    val restMinutes = minutes % 60
+    return when {
+        hours > 0 && restMinutes > 0 -> "${hours} 小时 ${restMinutes} 分钟"
+        hours > 0 -> "${hours} 小时"
+        else -> "${minutes} 分钟"
+    }
+}
+
+private fun formatDistance(meters: Int): String {
+    return if (meters >= 1000) {
+        "${meters / 1000}.${meters % 1000 / 100} 公里"
+    } else {
+        "${meters} 米"
+    }
+}
+
+private fun formatBudget(budgetCent: Int?): String {
+    return if (budgetCent == null) {
+        "预算待定"
+    } else {
+        "约 ¥${budgetCent / 100}"
+    }
+}
+
+private fun formatRiskLevel(riskLevel: String): String {
+    return when (riskLevel) {
+        "LOW" -> "风险低"
+        "MEDIUM" -> "需留意"
+        "HIGH" -> "风险高"
+        else -> "风险待确认"
+    }
+}
+
+private fun formatTransportMode(mode: String): String {
+    return when (mode) {
+        "WALK" -> "步行"
+        "TRANSIT" -> "公共交通"
+        "BIKE" -> "骑行"
+        "TAXI" -> "打车"
+        else -> "交通待确认"
+    }
+}
+
+private fun formatCategory(category: String?): String {
+    return when (category) {
+        "CULTURE" -> "文化展馆"
+        "SCENIC" -> "景点"
+        "FOOD" -> "餐饮"
+        "REST" -> "休息点"
+        "LOCAL" -> "本地街区"
+        "NIGHT" -> "夜游点"
+        else -> "地点"
     }
 }

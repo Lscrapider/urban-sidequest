@@ -24,4 +24,8 @@ class AuthRepository(
     fun isLoggedIn(): Boolean {
         return authSessionStore.hasAccessToken()
     }
+
+    fun clearSession() {
+        authSessionStore.clear()
+    }
 }

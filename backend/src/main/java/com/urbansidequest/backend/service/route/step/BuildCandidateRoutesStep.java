@@ -4,13 +4,16 @@ import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
 import com.urbansidequest.backend.domain.dto.SegmentCostDTO;
+import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
 import com.urbansidequest.backend.service.route.RouteGenerationContext;
 import com.urbansidequest.backend.service.route.RouteGenerationStep;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +22,8 @@ import org.springframework.stereotype.Component;
 public class BuildCandidateRoutesStep implements RouteGenerationStep {
 
     private static final int DEFAULT_STAY_MINUTES = 45;
+
+    private static final int MAX_STOPS = 5;
 
     @Override
     public void execute(RouteGenerationContext context) {
@@ -31,38 +36,105 @@ public class BuildCandidateRoutesStep implements RouteGenerationStep {
 
         List<PoiCandidateDTO> orderedCandidates = this.orderCandidates(candidates);
         List<CandidateRouteDTO> routes = new ArrayList<>();
-        routes.add(this.buildRoute("A", "路线 A · 稳妥省心线", orderedCandidates, context));
-        routes.add(this.buildRoute("B", "路线 B · 兴趣优先线", this.rotate(orderedCandidates, 1), context));
-        routes.add(this.buildRoute("C", "路线 C · 轻量备选线", this.rotate(orderedCandidates, 2), context));
+        routes.add(this.buildRoute(
+                "A",
+                "路线 A · 稳妥省心线",
+                this.selectMixedCandidates(orderedCandidates, List.of(
+                        PoiCandidateRole.MUST_VISIT,
+                        PoiCandidateRole.ANCHOR,
+                        PoiCandidateRole.MEAL,
+                        PoiCandidateRole.REST,
+                        PoiCandidateRole.BACKUP
+                )),
+                context,
+                0
+        ));
+        routes.add(this.buildRoute(
+                "B",
+                "路线 B · 兴趣优先线",
+                this.selectMixedCandidates(orderedCandidates, List.of(
+                        PoiCandidateRole.MUST_VISIT,
+                        PoiCandidateRole.LOCAL,
+                        PoiCandidateRole.ANCHOR,
+                        PoiCandidateRole.MEAL,
+                        PoiCandidateRole.REST,
+                        PoiCandidateRole.BACKUP
+                )),
+                context,
+                1
+        ));
+        routes.add(this.buildRoute(
+                "C",
+                "路线 C · 轻量备选线",
+                this.selectMixedCandidates(orderedCandidates, List.of(
+                        PoiCandidateRole.MUST_VISIT,
+                        PoiCandidateRole.ANCHOR,
+                        PoiCandidateRole.REST,
+                        PoiCandidateRole.MEAL,
+                        PoiCandidateRole.BACKUP
+                )),
+                context,
+                2
+        ));
         context.setCandidateRoutes(routes);
     }
 
     private List<PoiCandidateDTO> orderCandidates(List<PoiCandidateDTO> candidates) {
         return candidates.stream()
                 .sorted(Comparator.comparing(PoiCandidateDTO::mustVisit).reversed()
+                        .thenComparing(candidate -> this.roleWeight(candidate.role()))
                         .thenComparing(candidate -> candidate.amapRating() == null ? BigDecimal.ZERO : candidate.amapRating(), Comparator.reverseOrder()))
-                .limit(5)
                 .toList();
     }
 
-    private List<PoiCandidateDTO> rotate(List<PoiCandidateDTO> candidates, int distance) {
-        if (candidates.size() <= 1) {
-            return candidates;
+    private int roleWeight(PoiCandidateRole role) {
+        return switch (role) {
+            case MUST_VISIT -> 0;
+            case ANCHOR -> 1;
+            case MEAL -> 2;
+            case REST -> 3;
+            case LOCAL -> 4;
+            case BACKUP -> 5;
+        };
+    }
+
+    private List<PoiCandidateDTO> selectMixedCandidates(
+            List<PoiCandidateDTO> candidates,
+            List<PoiCandidateRole> rolePriority
+    ) {
+        Map<String, PoiCandidateDTO> selected = new LinkedHashMap<>();
+        for (PoiCandidateDTO candidate : candidates) {
+            if (candidate.mustVisit()) {
+                selected.put(candidate.poiId(), candidate);
+            }
         }
-        List<PoiCandidateDTO> result = new ArrayList<>(candidates);
-        int safeDistance = Math.min(distance, result.size() - 1);
-        List<PoiCandidateDTO> tail = new ArrayList<>(result.subList(safeDistance, result.size()));
-        tail.addAll(result.subList(0, safeDistance));
-        return tail;
+        for (PoiCandidateRole role : rolePriority) {
+            if (selected.size() >= MAX_STOPS) {
+                break;
+            }
+            candidates.stream()
+                    .filter(candidate -> role == candidate.role())
+                    .filter(candidate -> !selected.containsKey(candidate.poiId()))
+                    .findFirst()
+                    .ifPresent(candidate -> selected.put(candidate.poiId(), candidate));
+        }
+        for (PoiCandidateDTO candidate : candidates) {
+            if (selected.size() >= MAX_STOPS) {
+                break;
+            }
+            selected.putIfAbsent(candidate.poiId(), candidate);
+        }
+        return selected.values().stream().limit(MAX_STOPS).toList();
     }
 
     private CandidateRouteDTO buildRoute(
             String routeCode,
             String title,
             List<PoiCandidateDTO> orderedCandidates,
-            RouteGenerationContext context
+            RouteGenerationContext context,
+            int routeVariant
     ) {
-        List<PoiCandidateDTO> stops = orderedCandidates.stream().limit(4).toList();
+        List<PoiCandidateDTO> stops = orderedCandidates.stream().limit(MAX_STOPS).toList();
         List<RouteStopDTO> routeStops = new ArrayList<>();
         int totalDuration = 0;
         int totalDistance = 0;
@@ -81,11 +153,11 @@ public class BuildCandidateRoutesStep implements RouteGenerationStep {
                 budgetCent += current.avgPriceCent();
             }
             routeStops.add(new RouteStopDTO(
-                    current.poiId(),
+                    current.poiId() + "-" + routeCode,
                     index + 1,
                     current.name(),
                     current.category(),
-                    current.location(),
+                    this.offsetForRouteVariant(current.location(), routeVariant),
                     DEFAULT_STAY_MINUTES,
                     nextCost == null ? null : nextCost.mode(),
                     nextCost == null ? null : nextCost.distanceMeters(),
@@ -107,6 +179,17 @@ public class BuildCandidateRoutesStep implements RouteGenerationStep {
                 routeStops,
                 0
         );
+    }
+
+    private com.urbansidequest.backend.domain.dto.GeoPointDTO offsetForRouteVariant(
+            com.urbansidequest.backend.domain.dto.GeoPointDTO location,
+            int routeVariant
+    ) {
+        return switch (routeVariant) {
+            case 1 -> com.urbansidequest.backend.service.route.GeoMath.offset(location, 520, -460);
+            case 2 -> com.urbansidequest.backend.service.route.GeoMath.offset(location, -520, -520);
+            default -> location;
+        };
     }
 
     private SegmentCostDTO findBestCost(PoiCandidateDTO origin, PoiCandidateDTO destination, RouteGenerationContext context) {

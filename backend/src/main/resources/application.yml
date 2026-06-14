@@ -21,7 +21,7 @@ management:
 
 amap:
   web:
-    key: ${AMAP_WEB_KEY:}
+    key: ${AMAP_WEB_KEY:120e80a9378ee58d7e08d461ddf34a94}
     base-url: ${AMAP_WEB_BASE_URL:https://restapi.amap.com}
 
 auth:

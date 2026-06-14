@@ -214,6 +214,37 @@ fun WarningBanner(
 }
 
 @Composable
+fun EmptyState(
+    title: String,
+    description: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = title,
+                color = AppText,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = description,
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
 fun RouteMapPreview(
     label: String,
     modifier: Modifier = Modifier,

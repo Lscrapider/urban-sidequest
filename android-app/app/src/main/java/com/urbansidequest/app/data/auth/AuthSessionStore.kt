@@ -21,6 +21,19 @@ class AuthSessionStore(context: Context) {
         return !sharedPreferences.getString(KEY_ACCESS_TOKEN, null).isNullOrBlank()
     }
 
+    fun clear() {
+        sharedPreferences.edit().clear().apply()
+    }
+
+    fun getAuthorizationHeader(): String? {
+        val tokenType = sharedPreferences.getString(KEY_TOKEN_TYPE, null)
+        val accessToken = sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
+        if (tokenType.isNullOrBlank() || accessToken.isNullOrBlank()) {
+            return null
+        }
+        return "$tokenType $accessToken"
+    }
+
     private companion object {
         private const val PREFERENCES_NAME = "auth_session"
         private const val KEY_TOKEN_TYPE = "token_type"
