@@ -7,7 +7,11 @@
 先启动本地依赖：
 
 ```bash
+cd /Users/qinzeyu/study/docker-database-common
 docker compose up -d
+
+cd /Users/qinzeyu/study/mix-java-python/urban-sidequest
+docker compose run --rm postgres-init
 ```
 
 再启动后端：
@@ -50,3 +54,4 @@ Controller -> Service -> Manage / API / Mapper -> Domain
 - `SPRING_REDIS_PORT`
 - `AMAP_WEB_KEY`
 
+本地宿主机直接运行后端时，不需要导出 `.env.example` 里的容器网络地址；应用默认通过通用数据库栈映射端口访问 `localhost:5432` 和 `localhost:6379`，账号使用项目级 `urban_sidequest`。

@@ -1,29 +1,31 @@
 # 数据库模块
 
-本目录用于单独调试城市副本数据库环境。
+本目录用于维护城市副本数据库初始化脚本和迁移 SQL。
 
 ## 启动方式
 
-只启动 PostGIS：
+先启动通用数据库栈：
 
 ```bash
-cd database
+cd /Users/qinzeyu/study/docker-database-common
 docker compose up -d
 ```
 
-根目录完整依赖环境：
+再执行项目数据库初始化：
 
 ```bash
-docker compose up -d
+cd /Users/qinzeyu/study/mix-java-python/urban-sidequest
+docker compose run --rm postgres-init
 ```
 
-两个 compose 文件都使用同一个项目名 `urban-sidequest`，数据库服务名、库名、用户名和端口保持一致。不要同时启动两套 compose。
+根目录 compose 只包含项目资源初始化服务，不再启动 PostgreSQL、Redis 等基础数据库服务。
 
 ## 默认配置
 
 - 数据库：`urban_sidequest`
 - 用户名：`urban_sidequest`
-- 本地端口：`5432`
+- PostgreSQL：`common-postgres:5432`
+- Redis：`common-redis:6379`
 - 坐标字段：统一保存 GCJ-02 经度、纬度，并用 `location_gcj02` 建 PostGIS 空间索引。
 
 ## 初始化脚本
@@ -35,4 +37,4 @@ cd database
 python3 init_database.py
 ```
 
-脚本默认通过 Docker Compose 的 `postgres` 服务执行 `psql`，不依赖宿主机安装 `psql` 或 Python 数据库驱动。脚本检测到 `users` 表存在时会跳过，避免重复执行初始化 SQL。
+脚本默认在项目初始化镜像内执行，通过 `psql` 连接 `common-postgres:5432`，不依赖宿主机安装 `psql` 或 Python 数据库驱动。初始化会使用 common PostgreSQL root 账号创建项目数据库和项目账号，启用 `postgis`、`pgcrypto` 扩展，然后使用项目账号执行迁移 SQL。重复执行时，如果检测到 `users` 表已存在，会跳过迁移。

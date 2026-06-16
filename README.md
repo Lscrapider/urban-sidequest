@@ -40,16 +40,17 @@
 - `android-app/`：Android 前端，使用 Kotlin + Jetpack Compose，后续接入高德 Android SDK。
 - `backend/`：Java + Spring Boot 后端主服务。
 - `database/`：PostgreSQL/PostGIS 初始化、迁移脚本和单独数据库调试环境。
-- `docker-compose.yml`：根目录完整本地依赖环境，启动 PostGIS + Redis。
-- `database/docker-compose.yml`：只启动 PostGIS，便于单独调试数据库。
+- `docker-compose.yml`：项目资源初始化服务，连接通用数据库栈。
 
 本地依赖默认配置：
 
 - compose name：`urban-sidequest`
-- PostgreSQL service：`postgres`
+- 通用数据库栈：`/Users/qinzeyu/study/docker-database-common`
+- PostgreSQL host：`common-postgres:5432`
+- Redis host：`common-redis:6379`
 - database：`urban_sidequest`
 - user：`urban_sidequest`
-- port：`5432`
+- 本地后端运行时可通过通用栈端口映射访问 `localhost:5432` 和 `localhost:6379`
 
 ## 开发约束
 

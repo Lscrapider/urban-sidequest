@@ -1,36 +1,25 @@
 name: urban-sidequest
 
 services:
-  postgres:
-    image: imresamu/postgis:16-3.4
+  postgres-init:
+    build:
+      context: .
+      dockerfile: database/init/Dockerfile
+    image: urban-sidequest-postgres-init:local
     environment:
+      COMMON_POSTGRES_HOST: ${COMMON_POSTGRES_HOST:-common-postgres}
+      COMMON_POSTGRES_PORT: ${COMMON_POSTGRES_PORT:-5432}
+      COMMON_POSTGRES_DB: ${COMMON_POSTGRES_DB:-postgres}
+      COMMON_POSTGRES_USER: ${COMMON_POSTGRES_USER:-postgres-root}
+      COMMON_POSTGRES_PASSWORD: ${COMMON_POSTGRES_PASSWORD:-postgres-root-password}
       POSTGRES_DB: ${POSTGRES_DB:-urban_sidequest}
       POSTGRES_USER: ${POSTGRES_USER:-urban_sidequest}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urban_sidequest_dev}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/migrations:/migrations:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-urban_sidequest} -d ${POSTGRES_DB:-urban_sidequest}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    command: ["python3", "/app/database/init_database.py"]
+    networks:
+      - database-common-network
 
-  redis:
-    image: redis:7.4-alpine
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    command: ["redis-server", "--appendonly", "yes"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:
-  redis_data:
+networks:
+  database-common-network:
+    external: true
+    name: docker-database-common-network
