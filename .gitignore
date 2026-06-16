@@ -1,6 +1,6 @@
 # macOS
 .DS_Store
-
+backend/src/main/resources/application.yml
 # IDE / editor
 .idea/
 .vscode/
