@@ -67,7 +67,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("com.amap.api:3dmap-location-search:10.1.200_loc6.4.9_sea9.7.4")
+    implementation(files("libs/AMap3DMap_11.2.000_AMapSearch_9.8.0_AMapLocation_11.2.000_20260529.jar"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

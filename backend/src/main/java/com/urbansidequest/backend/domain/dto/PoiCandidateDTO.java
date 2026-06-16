@@ -11,9 +11,12 @@ public record PoiCandidateDTO(
         String category,
         PoiCandidateRole role,
         GeoPointDTO location,
+        String address,
+        String description,
         BigDecimal amapRating,
         Integer avgPriceCent,
         List<String> matchedInterestTags,
+        List<String> imageUrls,
         boolean mustVisit,
         String reasonSeed
 ) {

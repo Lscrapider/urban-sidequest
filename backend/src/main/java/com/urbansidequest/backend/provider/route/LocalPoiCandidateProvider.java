@@ -6,8 +6,8 @@ import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.param.MustVisitPointParam;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
-import com.urbansidequest.backend.service.route.GeoMath;
-import com.urbansidequest.backend.service.route.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.support.GeoMath;
+import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -56,9 +56,12 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                 "MUST_VISIT",
                 PoiCandidateRole.MUST_VISIT,
                 location,
+                null,
+                "用户指定的必去地点，会优先安排进路线。",
                 BigDecimal.valueOf(4.6),
                 null,
                 List.of("MUST_VISIT"),
+                List.of(),
                 true,
                 "用户标记为" + switch (mustVisitPoint.getPriority()) {
                     case MUST -> "必须到达";
@@ -83,7 +86,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
             PoiCandidateRole role = this.resolveInterestRole(tag);
             candidates.add(this.buildCandidate(
                     "seed-" + tag.getTagCode(),
-                    tag.getDisplayName() + "候选点",
+                    this.localNameForTag(tag),
                     tag.getCategoryGroup(),
                     role,
                     center,
@@ -100,7 +103,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
         if (candidates.stream().noneMatch(candidate -> PoiCandidateRole.ANCHOR == candidate.role())) {
             candidates.add(this.buildCandidate(
                     "seed-anchor-fallback",
-                    "城市核心游览点",
+                    "城市观景公园",
                     "SCENIC",
                     PoiCandidateRole.ANCHOR,
                     center,
@@ -115,7 +118,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
         if (RouteGoal.LOCAL == context.getGenerateParam().getRouteGoal()) {
             candidates.add(this.buildCandidate(
                     "seed-local-street",
-                    "本地生活街区",
+                    "本地生活街巷",
                     "LOCAL",
                     PoiCandidateRole.LOCAL,
                     center,
@@ -130,7 +133,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
         if (RouteGoal.NIGHT == context.getGenerateParam().getRouteGoal()) {
             candidates.add(this.buildCandidate(
                     "seed-night-view",
-                    "夜景观赏点",
+                    "城市夜景平台",
                     "NIGHT",
                     PoiCandidateRole.ANCHOR,
                     center,
@@ -151,7 +154,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
         if (this.overlaps(context, LUNCH_START, LUNCH_END)) {
             candidates.add(this.buildCandidate(
                     "seed-lunch",
-                    "午餐候选点",
+                    "附近风味餐厅",
                     "FOOD",
                     PoiCandidateRole.MEAL,
                     center,
@@ -160,13 +163,13 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                     BigDecimal.valueOf(4.2),
                     7200,
                     List.of("FOOD"),
-                    "路线覆盖午餐时间，系统自动补充"
+                    "路线覆盖午餐时间，适合作为用餐停留"
             ));
         }
         if (this.overlaps(context, DINNER_START, DINNER_END)) {
             candidates.add(this.buildCandidate(
                     "seed-dinner",
-                    "晚餐候选点",
+                    "本地晚餐小馆",
                     "FOOD",
                     PoiCandidateRole.MEAL,
                     center,
@@ -175,13 +178,13 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                     BigDecimal.valueOf(4.3),
                     8600,
                     List.of("FOOD"),
-                    "路线覆盖晚餐时间，系统自动补充"
+                    "路线覆盖晚餐时间，适合作为用餐停留"
             ));
         }
         if (context.getGenerateParam().getDurationMinutes() >= SHORT_ROUTE_MINUTES) {
             candidates.add(this.buildCandidate(
                     "seed-rest",
-                    "路线休息点",
+                    "街角咖啡馆",
                     "REST",
                     PoiCandidateRole.REST,
                     center,
@@ -190,7 +193,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                     BigDecimal.valueOf(4.3),
                     4200,
                     List.of("COFFEE"),
-                    "用于控制路线节奏"
+                    "适合控制路线节奏，中途休息补给"
             ));
         }
         return candidates;
@@ -201,7 +204,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
         return List.of(
                 this.buildCandidate(
                         "seed-backup-scenic",
-                        "备选游览点",
+                        "邻近景观公园",
                         "SCENIC",
                         PoiCandidateRole.BACKUP,
                         center,
@@ -214,7 +217,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                 ),
                 this.buildCandidate(
                         "seed-backup-rest",
-                        "备选休息点",
+                        "安静咖啡馆",
                         "REST",
                         PoiCandidateRole.BACKUP,
                         center,
@@ -248,17 +251,52 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                 category,
                 role,
                 GeoMath.offset(center, offsetEastMeters, offsetNorthMeters),
+                null,
+                this.localDescription(name, category, reasonSeed, avgPriceCent),
                 rating,
                 avgPriceCent,
                 matchedInterestTags,
+                List.of(),
                 false,
                 reasonSeed
         );
     }
 
+    private String localNameForTag(InterestTagCatalogPO tag) {
+        String categoryGroup = tag.getCategoryGroup();
+        if ("CULTURE".equals(categoryGroup)) {
+            return "城市展览馆";
+        }
+        if ("SCENIC".equals(categoryGroup)) {
+            return "城市观景公园";
+        }
+        if ("FOOD".equals(categoryGroup)) {
+            return "本地风味餐厅";
+        }
+        if ("LOCAL".equals(categoryGroup)) {
+            return "本地生活街巷";
+        }
+        return tag.getDisplayName() + "精选点";
+    }
+
+    private String localDescription(String name, String category, String reasonSeed, Integer avgPriceCent) {
+        List<String> parts = new ArrayList<>();
+        parts.add(name + "是当前范围内的路线兜底地点");
+        parts.add(reasonSeed);
+        if (avgPriceCent != null) {
+            parts.add("预估人均约 " + avgPriceCent / 100 + " 元");
+        }
+        if ("FOOD".equals(category)) {
+            parts.add("适合补充午晚餐安排");
+        } else if ("REST".equals(category)) {
+            parts.add("适合短暂停留和补给");
+        }
+        return String.join("，", parts) + "。";
+    }
+
     private PoiCandidateRole resolveInterestRole(InterestTagCatalogPO tag) {
         if ("FOOD".equals(tag.getCategoryGroup())) {
-            return PoiCandidateRole.LOCAL;
+            return PoiCandidateRole.MEAL;
         }
         return PoiCandidateRole.ANCHOR;
     }

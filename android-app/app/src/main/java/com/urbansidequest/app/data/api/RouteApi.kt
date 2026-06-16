@@ -97,13 +97,17 @@ class RouteApi {
             order = json.getInt("order"),
             name = json.getString("name"),
             location = parseGeoPoint(json.getJSONObject("location")),
-            reason = json.optString("reason").ifBlank { null },
-            category = json.optString("category").ifBlank { null },
+            reason = json.optNullableString("reason"),
+            slotLabel = json.optNullableString("slotLabel"),
+            description = json.optNullableString("description"),
+            imageUrls = json.optJSONArray("imageUrls").orEmptyStringList(),
+            category = json.optNullableString("category"),
+            rating = json.optNullableDouble("rating"),
             stayMinutes = json.optNullableInt("stayMinutes"),
-            transportToNext = json.optString("transportToNext").ifBlank { null },
+            transportToNext = json.optNullableString("transportToNext"),
             distanceToNextMeters = json.optNullableInt("distanceToNextMeters"),
             durationToNextMinutes = json.optNullableInt("durationToNextMinutes"),
-            riskNote = json.optString("riskNote").ifBlank { null }
+            riskNote = json.optNullableString("riskNote")
         )
     }
 
@@ -233,5 +237,21 @@ private fun JSONObject.optNullableInt(name: String): Int? {
         null
     } else {
         optInt(name)
+    }
+}
+
+private fun JSONObject.optNullableString(name: String): String? {
+    return if (isNull(name)) {
+        null
+    } else {
+        optString(name).ifBlank { null }
+    }
+}
+
+private fun JSONObject.optNullableDouble(name: String): Double? {
+    return if (isNull(name)) {
+        null
+    } else {
+        optDouble(name)
     }
 }

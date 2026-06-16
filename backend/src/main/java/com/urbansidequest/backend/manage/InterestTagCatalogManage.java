@@ -14,17 +14,6 @@ public class InterestTagCatalogManage extends ServiceImpl<InterestTagCatalogMapp
         if (CollUtil.isEmpty(tagCodes)) {
             return List.of();
         }
-        return this.lambdaQuery()
-                .select(
-                        InterestTagCatalogPO::getId,
-                        InterestTagCatalogPO::getTagCode,
-                        InterestTagCatalogPO::getDisplayName,
-                        InterestTagCatalogPO::getCategoryGroup,
-                        InterestTagCatalogPO::getSortOrder,
-                        InterestTagCatalogPO::getEnabled)
-                .eq(InterestTagCatalogPO::getEnabled, true)
-                .in(InterestTagCatalogPO::getTagCode, tagCodes)
-                .orderByAsc(InterestTagCatalogPO::getSortOrder)
-                .list();
+        return this.baseMapper.findEnabledByTagCodes(tagCodes);
     }
 }

@@ -3,7 +3,7 @@ package com.urbansidequest.backend.handler.route.constraint;
 import cn.hutool.core.collection.CollUtil;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.param.MustVisitPointParam;
-import com.urbansidequest.backend.service.route.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;

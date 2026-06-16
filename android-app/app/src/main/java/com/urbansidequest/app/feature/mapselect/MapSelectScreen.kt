@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
@@ -12,9 +13,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,8 +65,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -102,8 +108,11 @@ import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.DeepTeal
 import com.urbansidequest.app.ui.theme.RouteTeal
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import java.net.URL
 
 private val DefaultMapCenter = LatLng(39.908722, 116.397499)
 private val HorizontalScreenPadding = 16.dp
@@ -869,13 +878,13 @@ private fun PoiDetailPopup(
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
-                            text = "$routeCode 线 · ${stop.name}",
+                            text = stop.name,
                             color = AppText,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = formatCategory(stop.category),
+                            text = "$routeCode 线 · ${formatStopLabel(stop)}",
                             color = AppTextMuted,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -894,6 +903,9 @@ private fun PoiDetailPopup(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                stop.rating?.let { rating ->
+                    UrbanChip(text = "评分 ${formatRating(rating)}")
+                }
                 stop.stayMinutes?.let { minutes ->
                     UrbanChip(text = "停留 ${minutes} 分钟", selected = true)
                 }
@@ -905,6 +917,17 @@ private fun PoiDetailPopup(
                 }
             }
 
+            if (stop.imageUrls.isNotEmpty()) {
+                PoiImageCarousel(imageUrls = stop.imageUrls)
+            }
+
+            if (!stop.description.isNullOrBlank()) {
+                Text(
+                    text = stop.description,
+                    color = AppText,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             if (!stop.reason.isNullOrBlank()) {
                 Text(
                     text = stop.reason,
@@ -940,6 +963,64 @@ private fun PoiDetailPopup(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "定位到这个地点", fontWeight = FontWeight.Bold)
             }
+        }
+    }
+}
+
+@Composable
+private fun PoiImageCarousel(imageUrls: List<String>) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        imageUrls.forEach { imageUrl ->
+            RemotePoiImage(
+                modifier = Modifier
+                    .width(132.dp)
+                    .height(86.dp),
+                imageUrl = imageUrl
+            )
+        }
+    }
+}
+
+@Composable
+private fun RemotePoiImage(
+    modifier: Modifier = Modifier,
+    imageUrl: String
+) {
+    var bitmap by remember(imageUrl) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(imageUrl) {
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                URL(imageUrl).openStream().use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream)
+                }
+            }.getOrNull()
+        }
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(AppSurfaceMuted)
+    ) {
+        val loadedBitmap = bitmap
+        if (loadedBitmap != null) {
+            Image(
+                modifier = Modifier.fillMaxSize(),
+                bitmap = loadedBitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Text(
+                modifier = Modifier.align(Alignment.Center),
+                text = "图片加载中",
+                color = AppTextMuted,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
     }
 }
@@ -1102,11 +1183,18 @@ private fun RouteStopDetailRow(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = formatCategory(stop.category),
+                text = formatStopLabel(stop),
                 color = AppTextMuted,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold
             )
+            if (!stop.description.isNullOrBlank()) {
+                Text(
+                    text = stop.description,
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             if (!stop.reason.isNullOrBlank()) {
                 Text(
                     text = stop.reason,
@@ -1346,8 +1434,12 @@ private fun formatBudget(budgetCent: Int?): String {
     return if (budgetCent == null) {
         "预算待定"
     } else {
-        "约 ¥${budgetCent / 100}"
+        "约 ${budgetCent / 100} 元"
     }
+}
+
+private fun formatRating(rating: Double): String {
+    return String.format("%.1f", rating)
 }
 
 private fun formatRiskLevel(riskLevel: String): String {
@@ -1379,4 +1471,8 @@ private fun formatCategory(category: String?): String {
         "NIGHT" -> "夜游点"
         else -> "地点"
     }
+}
+
+private fun formatStopLabel(stop: RouteStop): String {
+    return stop.slotLabel ?: formatCategory(stop.category)
 }

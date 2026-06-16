@@ -1,7 +1,7 @@
 package com.urbansidequest.backend.handler.route.constraint;
 
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
-import com.urbansidequest.backend.service.route.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import org.springframework.stereotype.Component;
 
 @Component

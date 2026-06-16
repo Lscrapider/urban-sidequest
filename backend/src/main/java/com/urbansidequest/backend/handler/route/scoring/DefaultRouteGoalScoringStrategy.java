@@ -3,7 +3,7 @@ package com.urbansidequest.backend.handler.route.scoring;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
-import com.urbansidequest.backend.service.route.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import org.springframework.stereotype.Component;
 
 @Component
