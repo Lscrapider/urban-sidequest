@@ -30,6 +30,10 @@ public class RouteGenerateParam {
 
     private List<String> adminAdcodes = new ArrayList<>();
 
+    private String routeCityName;
+
+    private String routeCityAdcode;
+
     @NotNull
     private Instant departureTime;
 
@@ -95,6 +99,22 @@ public class RouteGenerateParam {
 
     public void setAdminAdcodes(List<String> adminAdcodes) {
         this.adminAdcodes = adminAdcodes == null ? new ArrayList<>() : adminAdcodes;
+    }
+
+    public String getRouteCityName() {
+        return this.routeCityName;
+    }
+
+    public void setRouteCityName(String routeCityName) {
+        this.routeCityName = routeCityName;
+    }
+
+    public String getRouteCityAdcode() {
+        return this.routeCityAdcode;
+    }
+
+    public void setRouteCityAdcode(String routeCityAdcode) {
+        this.routeCityAdcode = routeCityAdcode;
     }
 
     public Instant getDepartureTime() {

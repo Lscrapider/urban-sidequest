@@ -51,6 +51,8 @@ import com.urbansidequest.app.data.api.MustVisitPointRequest
 import com.urbansidequest.app.data.api.RouteApiException
 import com.urbansidequest.app.data.api.RouteGenerateRequest
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
+import com.urbansidequest.app.data.map.RouteCityInfo
+import com.urbansidequest.app.data.map.resolveRouteCityInfo
 import com.urbansidequest.app.data.map.searchAmapInputTips
 import com.urbansidequest.app.data.route.RouteRepository
 import com.urbansidequest.app.domain.model.GeoPoint
@@ -299,9 +301,14 @@ fun RouteConfigScreen(
                             isGenerating = true
                             errorMessage = null
                             runCatching {
+                                val routeCityInfo = resolveRouteCityInfo(
+                                    context = context,
+                                    location = LatLng(center.latitudeGcj02, center.longitudeGcj02)
+                                )
                                 repository.generateRoute(
                                     buildRequest(
                                         center = center,
+                                        routeCityInfo = routeCityInfo,
                                         departureOption = selectedDeparture,
                                         durationOption = selectedDuration,
                                         transportOption = selectedTransport,
@@ -616,6 +623,7 @@ private fun MustVisitPointRow(
 
 private fun buildRequest(
     center: GeoPoint,
+    routeCityInfo: RouteCityInfo?,
     departureOption: DepartureOption,
     durationOption: DurationOption,
     transportOption: CodeOption,
@@ -628,6 +636,8 @@ private fun buildRequest(
         areaLabel = "地图选区",
         center = center,
         areaPolygonGcj02 = emptyList(),
+        routeCityName = routeCityInfo?.cityName,
+        routeCityAdcode = routeCityInfo?.cityAdcode,
         departureTime = departureOption.toInstantString(),
         durationMinutes = durationOption.minutes,
         transportProfile = transportOption.code,

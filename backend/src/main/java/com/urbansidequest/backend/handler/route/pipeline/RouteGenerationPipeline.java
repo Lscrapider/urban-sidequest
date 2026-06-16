@@ -3,6 +3,7 @@ package com.urbansidequest.backend.handler.route.pipeline;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.step.BuildCandidateRoutesStep;
 import com.urbansidequest.backend.handler.route.step.BuildSegmentCostGraphStep;
+import com.urbansidequest.backend.handler.route.step.CalibrateSelectedRouteSegmentsStep;
 import com.urbansidequest.backend.handler.route.step.EnrichPoiDetailsStep;
 import com.urbansidequest.backend.handler.route.step.LoadInterestTagsStep;
 import com.urbansidequest.backend.handler.route.step.LoadPoiCandidatesStep;
@@ -30,6 +31,8 @@ public class RouteGenerationPipeline {
 
     private final ScoreAndSelectRoutesStep scoreAndSelectRoutesStep;
 
+    private final CalibrateSelectedRouteSegmentsStep calibrateSelectedRouteSegmentsStep;
+
     public RouteGenerationPipeline(
             ValidateRouteRequestStep validateRouteRequestStep,
             ResolveAreaStep resolveAreaStep,
@@ -38,7 +41,8 @@ public class RouteGenerationPipeline {
             EnrichPoiDetailsStep enrichPoiDetailsStep,
             BuildSegmentCostGraphStep buildSegmentCostGraphStep,
             BuildCandidateRoutesStep buildCandidateRoutesStep,
-            ScoreAndSelectRoutesStep scoreAndSelectRoutesStep
+            ScoreAndSelectRoutesStep scoreAndSelectRoutesStep,
+            CalibrateSelectedRouteSegmentsStep calibrateSelectedRouteSegmentsStep
     ) {
         this.validateRouteRequestStep = validateRouteRequestStep;
         this.resolveAreaStep = resolveAreaStep;
@@ -48,6 +52,7 @@ public class RouteGenerationPipeline {
         this.buildSegmentCostGraphStep = buildSegmentCostGraphStep;
         this.buildCandidateRoutesStep = buildCandidateRoutesStep;
         this.scoreAndSelectRoutesStep = scoreAndSelectRoutesStep;
+        this.calibrateSelectedRouteSegmentsStep = calibrateSelectedRouteSegmentsStep;
     }
 
     public void execute(RouteGenerationContext context) {
@@ -59,5 +64,6 @@ public class RouteGenerationPipeline {
         this.buildSegmentCostGraphStep.execute(context);
         this.buildCandidateRoutesStep.execute(context);
         this.scoreAndSelectRoutesStep.execute(context);
+        this.calibrateSelectedRouteSegmentsStep.execute(context);
     }
 }

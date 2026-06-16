@@ -67,6 +67,7 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
                 route.riskLevel(),
                 route.explanation(),
                 route.stops(),
+                route.segments(),
                 score
         );
     }

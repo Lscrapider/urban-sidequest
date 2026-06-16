@@ -312,6 +312,7 @@ public class BeamSearchRouteSelector {
                 RiskLevel.LOW,
                 "优先覆盖必去点和用户选择兴趣，饭点与休息点按路线时长动态补充。",
                 routeStops,
+                List.of(),
                 state.score()
         );
     }

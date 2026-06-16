@@ -12,6 +12,7 @@ public record GeneratedRouteVO(
         Integer budgetCent,
         RiskLevel riskLevel,
         String explanation,
-        List<RouteStopVO> stops
+        List<RouteStopVO> stops,
+        List<RouteSegmentVO> segments
 ) {
 }

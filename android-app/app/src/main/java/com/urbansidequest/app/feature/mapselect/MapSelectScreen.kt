@@ -97,6 +97,7 @@ import com.urbansidequest.app.data.map.searchAmapInputTips
 import com.urbansidequest.app.domain.model.GeneratedRoute
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
+import com.urbansidequest.app.domain.model.RouteSegment
 import com.urbansidequest.app.domain.model.RouteStop
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
@@ -116,6 +117,8 @@ import java.net.URL
 
 private val DefaultMapCenter = LatLng(39.908722, 116.397499)
 private val HorizontalScreenPadding = 16.dp
+private const val DEFAULT_VISIBLE_ROUTE_INDEX = 0
+private const val MAX_VISIBLE_ROUTE_STEPS = 4
 private val ROUTE_A_COLOR = AndroidColor.rgb(19, 115, 230)
 private val ROUTE_B_COLOR = AndroidColor.rgb(17, 24, 39)
 private val ROUTE_C_COLOR = AndroidColor.rgb(0, 148, 136)
@@ -123,6 +126,14 @@ private val ROUTE_C_COLOR = AndroidColor.rgb(0, 148, 136)
 private data class RouteStopMarkerPayload(
     val routeIndex: Int,
     val stop: RouteStop
+)
+
+private data class RouteSegmentPolylinePayload(
+    val routeIndex: Int,
+    val routeCode: String,
+    val segment: RouteSegment,
+    val originStop: RouteStop?,
+    val destinationStop: RouteStop?
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -141,12 +152,15 @@ fun MapSelectScreen(
     var searchText by remember { mutableStateOf("") }
     var searchSuggestions by remember { mutableStateOf<List<PlaceSearchSuggestion>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
-    var selectedRouteIndex by remember { mutableStateOf(0) }
+    var selectedRouteIndex by remember { mutableStateOf<Int?>(DEFAULT_VISIBLE_ROUTE_INDEX) }
+    var visibleRouteIndexes by remember { mutableStateOf(setOf(DEFAULT_VISIBLE_ROUTE_INDEX)) }
     var isRouteSheetExpanded by remember { mutableStateOf(false) }
     var selectedStopPayload by remember { mutableStateOf<RouteStopMarkerPayload?>(null) }
+    var selectedSegmentPayload by remember { mutableStateOf<RouteSegmentPolylinePayload?>(null) }
     val focusManager = LocalFocusManager.current
     val routes = routeGeneration?.routes.orEmpty()
-    val selectedRoute = routes.getOrNull(selectedRouteIndex)
+    val selectedRoutePosition = selectedRouteIndex
+    val selectedRoute = selectedRoutePosition?.let { routes.getOrNull(it) }
 
     fun moveToLocation(location: LatLng, zoom: Float = 16f) {
         currentLocation = location
@@ -155,7 +169,9 @@ fun MapSelectScreen(
 
     fun focusStop(routeIndex: Int, stop: RouteStop) {
         selectedRouteIndex = routeIndex
+        visibleRouteIndexes = visibleRouteIndexes + routeIndex
         selectedStopPayload = RouteStopMarkerPayload(routeIndex = routeIndex, stop = stop)
+        selectedSegmentPayload = null
         moveToLocation(stop.location.toLatLng(), 17f)
     }
 
@@ -195,10 +211,12 @@ fun MapSelectScreen(
         }
     }
 
-    LaunchedEffect(routeGeneration?.requestId) {
-        selectedRouteIndex = 0
+    LaunchedEffect(routeGeneration?.requestId, routes.size) {
+        selectedRouteIndex = if (routes.isNotEmpty()) DEFAULT_VISIBLE_ROUTE_INDEX else null
+        visibleRouteIndexes = if (routes.isNotEmpty()) setOf(DEFAULT_VISIBLE_ROUTE_INDEX) else emptySet()
         isRouteSheetExpanded = false
         selectedStopPayload = null
+        selectedSegmentPayload = null
         if (routeGeneration != null) {
             isSelectionExpanded = false
         }
@@ -236,9 +254,17 @@ fun MapSelectScreen(
             currentLocation = currentLocation,
             routeGeneration = routeGeneration,
             selectedRouteIndex = selectedRouteIndex,
+            visibleRouteIndexes = visibleRouteIndexes,
             onMapReady = { mapController = it },
             onRouteStopClick = { payload ->
                 focusStop(payload.routeIndex, payload.stop)
+            },
+            onRouteSegmentClick = { payload ->
+                selectedRouteIndex = payload.routeIndex
+                visibleRouteIndexes = visibleRouteIndexes + payload.routeIndex
+                selectedSegmentPayload = payload
+                selectedStopPayload = null
+                isRouteSheetExpanded = false
             }
         )
 
@@ -276,10 +302,22 @@ fun MapSelectScreen(
                     .padding(end = 12.dp),
                 routes = routes,
                 selectedRouteIndex = selectedRouteIndex,
-                onSelectRoute = {
-                    selectedRouteIndex = it
+                visibleRouteIndexes = visibleRouteIndexes,
+                onToggleRoute = { routeIndex ->
+                    val nextVisibleRouteIndexes = if (routeIndex in visibleRouteIndexes) {
+                        visibleRouteIndexes - routeIndex
+                    } else {
+                        visibleRouteIndexes + routeIndex
+                    }
+                    visibleRouteIndexes = nextVisibleRouteIndexes
+                    selectedRouteIndex = when {
+                        routeIndex in nextVisibleRouteIndexes -> routeIndex
+                        selectedRouteIndex == routeIndex -> nextVisibleRouteIndexes.minOrNull()
+                        else -> selectedRouteIndex
+                    }
                     isRouteSheetExpanded = false
                     selectedStopPayload = null
+                    selectedSegmentPayload = null
                 }
             )
         } else {
@@ -301,6 +339,13 @@ fun MapSelectScreen(
                 .navigationBarsPadding()
         ) {
             if (selectedRoute != null) {
+                selectedSegmentPayload?.let { payload ->
+                    RouteSegmentPopup(
+                        routeColor = routeColor(payload.routeIndex),
+                        payload = payload,
+                        onClose = { selectedSegmentPayload = null }
+                    )
+                }
                 selectedStopPayload?.let { payload ->
                     PoiDetailPopup(
                         routeCode = routes.getOrNull(payload.routeIndex)?.routeCode.orEmpty(),
@@ -312,11 +357,11 @@ fun MapSelectScreen(
                 }
                 RouteDetailSheet(
                     route = selectedRoute,
-                    routeIndex = selectedRouteIndex,
+                    routeIndex = selectedRoutePosition,
                     routeCount = routes.size,
                     isExpanded = isRouteSheetExpanded,
                     onToggleExpanded = { isRouteSheetExpanded = !isRouteSheetExpanded },
-                    onLocateStop = { stop -> focusStop(selectedRouteIndex, stop) },
+                    onLocateStop = { stop -> focusStop(selectedRoutePosition, stop) },
                     onAdjustRoute = {
                         onOpenRouteConfig(
                             GeoPoint(
@@ -360,15 +405,18 @@ private fun AMapCanvas(
     modifier: Modifier = Modifier,
     currentLocation: LatLng,
     routeGeneration: RouteGeneration?,
-    selectedRouteIndex: Int,
+    selectedRouteIndex: Int?,
+    visibleRouteIndexes: Set<Int>,
     onMapReady: (AMap) -> Unit,
-    onRouteStopClick: (RouteStopMarkerPayload) -> Unit
+    onRouteStopClick: (RouteStopMarkerPayload) -> Unit,
+    onRouteSegmentClick: (RouteSegmentPolylinePayload) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var currentLocationMarker by remember { mutableStateOf<Marker?>(null) }
     val routePolylines = remember { mutableListOf<Polyline>() }
     val routeMarkers = remember { mutableListOf<Marker>() }
+    val routeSegmentPayloads = remember { mutableMapOf<String, RouteSegmentPolylinePayload>() }
     var lastRenderedRequestId by remember { mutableStateOf<String?>(null) }
     val mapView = remember {
         MapView(context).apply {
@@ -417,6 +465,9 @@ private fun AMapCanvas(
                         false
                     }
                 }
+                aMap.setOnPolylineClickListener { polyline ->
+                    routeSegmentPayloads[polyline.id]?.let(onRouteSegmentClick)
+                }
                 onMapReady(aMap)
             }
         },
@@ -427,24 +478,49 @@ private fun AMapCanvas(
             routeMarkers.forEach { marker -> marker.remove() }
             routePolylines.clear()
             routeMarkers.clear()
+            routeSegmentPayloads.clear()
             val routes = routeGeneration?.routes.orEmpty()
             routes.forEachIndexed { index, route ->
+                if (index !in visibleRouteIndexes) {
+                    return@forEachIndexed
+                }
                 val isSelected = index == selectedRouteIndex
-                val path = route.stops
-                    .sortedBy(RouteStop::order)
-                    .map { stop -> stop.location.toLatLng() }
-                if (path.size >= 2) {
-                    routePolylines.add(
-                        aMap.addPolyline(
+                val sortedStops = route.stops.sortedBy(RouteStop::order)
+                val stopsById = route.stops.associateBy(RouteStop::id)
+                val drawableSegments = route.segments.filter { segment -> segment.polyline.size >= 2 }
+                if (drawableSegments.isNotEmpty()) {
+                    drawableSegments.forEach { segment ->
+                        val polyline = aMap.addPolyline(
                             PolylineOptions()
-                                .addAll(path)
+                                .addAll(segment.polyline.map { point -> point.toLatLng() })
                                 .color(routeLineColor(index = index, selected = isSelected))
-                                .width(if (isSelected) 14f else 7f)
+                                .width(if (isSelected) 14f else 8f)
                                 .zIndex(if (isSelected) 8f else 4f)
                         )
-                    )
+                        routePolylines.add(polyline)
+                        routeSegmentPayloads[polyline.id] = RouteSegmentPolylinePayload(
+                            routeIndex = index,
+                            routeCode = route.routeCode,
+                            segment = segment,
+                            originStop = stopsById[segment.originStopId],
+                            destinationStop = stopsById[segment.destinationStopId]
+                        )
+                    }
+                } else {
+                    val path = sortedStops.map { stop -> stop.location.toLatLng() }
+                    if (path.size >= 2) {
+                        routePolylines.add(
+                            aMap.addPolyline(
+                                PolylineOptions()
+                                    .addAll(path)
+                                    .color(routeLineColor(index = index, selected = isSelected))
+                                    .width(if (isSelected) 14f else 7f)
+                                    .zIndex(if (isSelected) 8f else 4f)
+                            )
+                        )
+                    }
                 }
-                route.stops.sortedBy(RouteStop::order).forEach { stop ->
+                sortedStops.forEach { stop ->
                     val marker = aMap.addMarker(
                         MarkerOptions()
                             .position(stop.location.toLatLng())
@@ -463,8 +539,8 @@ private fun AMapCanvas(
                     routeMarkers.add(marker)
                 }
             }
-            val requestKey = "${routeGeneration?.requestId}:$selectedRouteIndex"
-            val selectedRoute = routes.getOrNull(selectedRouteIndex)
+            val requestKey = "${routeGeneration?.requestId}:$selectedRouteIndex:${visibleRouteIndexes.sorted().joinToString(",")}"
+            val selectedRoute = selectedRouteIndex?.let { routes.getOrNull(it) }
             if (selectedRoute != null && requestKey != lastRenderedRequestId) {
                 val bounds = selectedRoute.stops.toLatLngBounds()
                 if (bounds != null) {
@@ -790,8 +866,9 @@ private fun MapLocationButton(
 private fun RouteSwitcher(
     modifier: Modifier = Modifier,
     routes: List<GeneratedRoute>,
-    selectedRouteIndex: Int,
-    onSelectRoute: (Int) -> Unit
+    selectedRouteIndex: Int?,
+    visibleRouteIndexes: Set<Int>,
+    onToggleRoute: (Int) -> Unit
 ) {
     Surface(
         modifier = modifier,
@@ -805,24 +882,106 @@ private fun RouteSwitcher(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             routes.forEachIndexed { index, route ->
+                val visible = index in visibleRouteIndexes
                 val selected = index == selectedRouteIndex
                 val color = routeColor(index).toComposeColor()
                 Surface(
                     modifier = Modifier
                         .size(44.dp)
-                        .clickable { onSelectRoute(index) },
+                        .clickable { onToggleRoute(index) },
                     shape = CircleShape,
-                    color = if (selected) color else AppSurfaceMuted,
-                    border = BorderStroke(1.dp, if (selected) color else AppBorder)
+                    color = if (visible) color else AppSurfaceMuted,
+                    border = BorderStroke(1.dp, if (visible || selected) color else AppBorder)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
                             text = route.routeCode,
-                            color = if (selected) Color.White else AppTextMuted,
+                            color = if (visible) Color.White else AppTextMuted,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RouteSegmentPopup(
+    routeColor: Int,
+    payload: RouteSegmentPolylinePayload,
+    onClose: () -> Unit
+) {
+    val color = routeColor.toComposeColor()
+    val segment = payload.segment
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HorizontalScreenPadding, vertical = 8.dp)
+            .shadow(8.dp, RoundedCornerShape(12.dp), clip = false),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = "${payload.routeCode} 线第 ${segment.order} 段怎么去",
+                        color = AppText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = buildRouteSegmentTitle(payload),
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "关闭路线段说明",
+                        tint = AppTextMuted
+                    )
+                }
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                UrbanChip(text = formatTransportMode(segment.mode), selected = true)
+                UrbanChip(text = "${segment.durationMinutes} 分钟")
+                UrbanChip(text = formatDistance(segment.distanceMeters))
+            }
+
+            Text(
+                text = segment.summary,
+                color = color,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                segment.steps.take(MAX_VISIBLE_ROUTE_STEPS).forEach { step ->
+                    Text(
+                        text = "${step.order}. ${step.instruction}",
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -1455,10 +1614,19 @@ private fun formatTransportMode(mode: String): String {
     return when (mode) {
         "WALK" -> "步行"
         "TRANSIT" -> "公共交通"
+        "SUBWAY" -> "地铁"
+        "BUS" -> "公交"
         "BIKE" -> "骑行"
         "TAXI" -> "打车"
+        "DRIVE" -> "驾车"
         else -> "交通待确认"
     }
+}
+
+private fun buildRouteSegmentTitle(payload: RouteSegmentPolylinePayload): String {
+    val originName = payload.originStop?.name ?: "上一站"
+    val destinationName = payload.destinationStop?.name ?: "下一站"
+    return "$originName → $destinationName"
 }
 
 private fun formatCategory(category: String?): String {

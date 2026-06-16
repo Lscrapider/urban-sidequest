@@ -5,6 +5,27 @@ data class GeoPoint(
     val latitudeGcj02: Double
 )
 
+data class RouteStep(
+    val order: Int,
+    val instruction: String,
+    val roadName: String?,
+    val distanceMeters: Int,
+    val durationMinutes: Int,
+    val polyline: List<GeoPoint> = emptyList()
+)
+
+data class RouteSegment(
+    val order: Int,
+    val originStopId: String,
+    val destinationStopId: String,
+    val mode: String,
+    val distanceMeters: Int,
+    val durationMinutes: Int,
+    val polyline: List<GeoPoint> = emptyList(),
+    val steps: List<RouteStep> = emptyList(),
+    val summary: String
+)
+
 data class RouteSummary(
     val id: String,
     val code: String,
@@ -48,7 +69,8 @@ data class GeneratedRoute(
     val budgetCent: Int?,
     val riskLevel: String,
     val explanation: String,
-    val stops: List<RouteStop>
+    val stops: List<RouteStop>,
+    val segments: List<RouteSegment> = emptyList()
 )
 
 data class RouteGeneration(

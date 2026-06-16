@@ -5,6 +5,8 @@ import com.urbansidequest.app.domain.model.GeneratedRoute
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteArea
 import com.urbansidequest.app.domain.model.RouteGeneration
+import com.urbansidequest.app.domain.model.RouteSegment
+import com.urbansidequest.app.domain.model.RouteStep
 import com.urbansidequest.app.domain.model.RouteStop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -87,7 +89,8 @@ class RouteApi {
             budgetCent = json.optNullableInt("budgetCent"),
             riskLevel = json.getString("riskLevel"),
             explanation = json.getString("explanation"),
-            stops = json.getJSONArray("stops").mapObjects(::parseRouteStop)
+            stops = json.getJSONArray("stops").mapObjects(::parseRouteStop),
+            segments = json.optJSONArray("segments")?.mapObjects(::parseRouteSegment).orEmpty()
         )
     }
 
@@ -108,6 +111,31 @@ class RouteApi {
             distanceToNextMeters = json.optNullableInt("distanceToNextMeters"),
             durationToNextMinutes = json.optNullableInt("durationToNextMinutes"),
             riskNote = json.optNullableString("riskNote")
+        )
+    }
+
+    private fun parseRouteSegment(json: JSONObject): RouteSegment {
+        return RouteSegment(
+            order = json.getInt("order"),
+            originStopId = json.getString("originStopId"),
+            destinationStopId = json.getString("destinationStopId"),
+            mode = json.getString("mode"),
+            distanceMeters = json.getInt("distanceMeters"),
+            durationMinutes = json.getInt("durationMinutes"),
+            polyline = json.optJSONArray("polyline")?.mapObjects(::parseGeoPoint).orEmpty(),
+            steps = json.optJSONArray("steps")?.mapObjects(::parseRouteStep).orEmpty(),
+            summary = json.optString("summary").ifBlank { "查看这一段怎么去" }
+        )
+    }
+
+    private fun parseRouteStep(json: JSONObject): RouteStep {
+        return RouteStep(
+            order = json.getInt("order"),
+            instruction = json.optString("instruction").ifBlank { "继续前行" },
+            roadName = json.optNullableString("roadName"),
+            distanceMeters = json.optInt("distanceMeters"),
+            durationMinutes = json.optInt("durationMinutes"),
+            polyline = json.optJSONArray("polyline")?.mapObjects(::parseGeoPoint).orEmpty()
         )
     }
 
@@ -172,6 +200,8 @@ data class RouteGenerateRequest(
     val areaLabel: String,
     val center: GeoPoint,
     val areaPolygonGcj02: List<GeoPoint>,
+    val routeCityName: String?,
+    val routeCityAdcode: String?,
     val departureTime: String,
     val durationMinutes: Int,
     val transportProfile: String,
@@ -186,6 +216,8 @@ data class RouteGenerateRequest(
             .put("areaLabel", areaLabel)
             .put("center", center.toJson())
             .put("areaPolygonGcj02", areaPolygonGcj02.toGeoPointArray())
+            .put("routeCityName", routeCityName ?: JSONObject.NULL)
+            .put("routeCityAdcode", routeCityAdcode ?: JSONObject.NULL)
             .put("departureTime", departureTime)
             .put("durationMinutes", durationMinutes)
             .put("transportProfile", transportProfile)

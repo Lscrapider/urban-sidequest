@@ -13,6 +13,7 @@ public record CandidateRouteDTO(
         RiskLevel riskLevel,
         String explanation,
         List<RouteStopDTO> stops,
+        List<RouteSegmentDTO> segments,
         int score
 ) {
 }
