@@ -34,6 +34,8 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
@@ -41,6 +43,8 @@ import org.springframework.web.client.RestClientException;
 @Primary
 @Component
 public class AmapPoiCandidateProvider implements PoiCandidateProvider {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AmapPoiCandidateProvider.class);
 
     private static final String SEARCH_TYPE_AROUND = "AROUND";
 
@@ -105,7 +109,22 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
         }
 
         for (PoiSearchPlan plan : this.buildSearchPlans(context)) {
-            JsonNode response = this.searchWithCache(plan.query());
+            JsonNode response;
+            try {
+                response = this.searchWithCache(plan.query());
+            } catch (RestClientException exception) {
+                context.addWarning("部分高德 POI 查询失败，已跳过搜索计划：" + plan.reasonSeed());
+                LOGGER.warn(
+                        "高德 POI 查询计划失败，searchType={}，types={}，keywords={}，pageNum={}，pageSize={}",
+                        plan.query().searchType(),
+                        plan.query().types(),
+                        plan.query().keywords(),
+                        plan.query().pageNum(),
+                        plan.query().pageSize(),
+                        exception
+                );
+                continue;
+            }
             for (JsonNode poiNode : response.path("pois")) {
                 this.toPoiCandidate(poiNode, plan).ifPresent(candidate -> this.putCandidate(candidates, candidate));
             }

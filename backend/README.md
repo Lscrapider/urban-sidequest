@@ -53,5 +53,8 @@ Controller -> Service -> Manage / API / Mapper -> Domain
 - `SPRING_REDIS_HOST`
 - `SPRING_REDIS_PORT`
 - `AMAP_WEB_KEY`
+- `AMAP_WEB_BASE_URL`
+- `AMAP_WEB_CONNECT_TIMEOUT`，默认 `3s`
+- `AMAP_WEB_READ_TIMEOUT`，默认 `8s`
 
 本地宿主机直接运行后端时，不需要导出 `.env.example` 里的容器网络地址；应用默认通过通用数据库栈映射端口访问 `localhost:5432` 和 `localhost:6379`，账号使用项目级 `urban_sidequest`。

@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -21,6 +23,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 @Component
 public class AmapRoutePlanningApi {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AmapRoutePlanningApi.class);
 
     private static final String STATUS_SUCCESS = "1";
 
@@ -36,7 +40,10 @@ public class AmapRoutePlanningApi {
             ObjectMapper objectMapper
     ) {
         this.amapWebProperties = amapWebProperties;
-        this.restTemplate = restTemplateBuilder.build();
+        this.restTemplate = restTemplateBuilder
+                .connectTimeout(amapWebProperties.getConnectTimeout())
+                .readTimeout(amapWebProperties.getReadTimeout())
+                .build();
         this.objectMapper = objectMapper;
     }
 
@@ -57,6 +64,13 @@ public class AmapRoutePlanningApi {
             );
             return this.parseRoutePlan(response, mode);
         } catch (RestClientException | IllegalArgumentException exception) {
+            LOGGER.warn(
+                    "高德路径规划请求失败，mode={}，cityName={}，cityAdcode={}",
+                    mode,
+                    cityName,
+                    cityAdcode,
+                    exception
+            );
             return Optional.empty();
         }
     }
@@ -68,6 +82,7 @@ public class AmapRoutePlanningApi {
         try {
             return this.parseRoutePlan(this.objectMapper.readTree(rawPayload), mode);
         } catch (Exception exception) {
+            LOGGER.warn("高德路径规划缓存解析失败，mode={}", mode, exception);
             return Optional.empty();
         }
     }
@@ -116,6 +131,7 @@ public class AmapRoutePlanningApi {
 
     private Optional<RoutePlanDTO> parseRoutePlan(JsonNode response, SegmentTransportMode mode) {
         if (response == null || !STATUS_SUCCESS.equals(response.path("status").asText())) {
+            this.logUnsuccessfulResponse(response, mode);
             return Optional.empty();
         }
         if (this.isTransitMode(mode)) {
@@ -149,6 +165,20 @@ public class AmapRoutePlanningApi {
                 this.summary(mode, distanceMeters, Math.max(1, durationMinutes)),
                 response.toString()
         ));
+    }
+
+    private void logUnsuccessfulResponse(JsonNode response, SegmentTransportMode mode) {
+        if (response == null) {
+            LOGGER.warn("高德路径规划返回空响应，mode={}", mode);
+            return;
+        }
+        LOGGER.warn(
+                "高德路径规划返回失败，mode={}，status={}，info={}，infocode={}",
+                mode,
+                response.path("status").asText(""),
+                response.path("info").asText(""),
+                response.path("infocode").asText("")
+        );
     }
 
     private Optional<RoutePlanDTO> parseTransitRoutePlan(JsonNode response, SegmentTransportMode mode) {

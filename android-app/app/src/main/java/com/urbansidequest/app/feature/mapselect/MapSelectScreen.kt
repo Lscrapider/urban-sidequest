@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -39,8 +40,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -49,7 +48,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -69,16 +67,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -109,6 +114,8 @@ import com.urbansidequest.app.domain.model.RouteStop
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
 import com.urbansidequest.app.ui.components.UrbanChip
+import com.urbansidequest.app.ui.components.UrbanPrimaryButton
+import com.urbansidequest.app.ui.components.UrbanSearchField
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
@@ -125,18 +132,29 @@ import java.net.URL
 
 private val DefaultMapCenter = LatLng(39.908722, 116.397499)
 private val HorizontalScreenPadding = 16.dp
+private val FloatingMapControlGap = 20.dp
 private const val DEFAULT_VISIBLE_ROUTE_INDEX = 0
 private const val MAX_VISIBLE_ROUTE_STEPS = 4
-private val ROUTE_A_COLOR = AndroidColor.rgb(15, 107, 99)
+private val ROUTE_A_COLOR = AndroidColor.rgb(19, 115, 230)
 private val ROUTE_B_COLOR = AndroidColor.rgb(96, 125, 139)
-private val ROUTE_C_COLOR = AndroidColor.rgb(138, 90, 106)
+private val ROUTE_C_COLOR = AndroidColor.rgb(85, 105, 150)
 private const val ROUTE_SELECTED_ALPHA = 255
 private const val ROUTE_ALTERNATIVE_ALPHA = 156
 private const val ROUTE_ESTIMATED_ALPHA = 112
 private const val ROUTE_SELECTED_WIDTH = 13f
 private const val ROUTE_ALTERNATIVE_WIDTH = 7f
 private const val ROUTE_ESTIMATED_WIDTH_DELTA = 1.5f
-private const val ROUTE_SHEET_DRAG_THRESHOLD_PX = 48f
+private const val ROUTE_SHEET_DRAG_RANGE_PX = 720f
+private const val ROUTE_SHEET_HIDE_DRAG_RANGE_PX = 220f
+private const val ROUTE_SHEET_SNAP_THRESHOLD = 0.5f
+private const val ROUTE_SHEET_COLLAPSE_DRAG_PX = 32f
+private const val ROUTE_SHEET_PEEK_HANDLE_HEIGHT_PX = 48f
+private const val IMAGE_CONNECT_TIMEOUT_MILLIS = 3_000
+private const val IMAGE_READ_TIMEOUT_MILLIS = 8_000
+private val RouteSwitcherShape = RoundedCornerShape(14.dp)
+private val RouteSwitcherSegmentShape = RoundedCornerShape(12.dp)
+private val RouteSwitcherSegmentWidth = 42.dp
+private val RouteSwitcherSegmentHeight = 24.dp
 
 private data class RouteStopMarkerPayload(
     val routeIndex: Int,
@@ -151,12 +169,6 @@ private data class RouteSegmentPolylinePayload(
     val destinationStop: RouteStop?,
     val isEstimated: Boolean
 )
-
-private enum class RouteDetailSheetState {
-    Hidden,
-    Collapsed,
-    Expanded
-}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -176,13 +188,72 @@ fun MapSelectScreen(
     var isSearching by remember { mutableStateOf(false) }
     var selectedRouteIndex by remember { mutableStateOf<Int?>(DEFAULT_VISIBLE_ROUTE_INDEX) }
     var visibleRouteIndexes by remember { mutableStateOf(setOf(DEFAULT_VISIBLE_ROUTE_INDEX)) }
-    var routeSheetState by remember { mutableStateOf(RouteDetailSheetState.Collapsed) }
+    var routeSheetProgress by remember { mutableStateOf(0f) }
+    var routeSheetHiddenProgress by remember { mutableStateOf(0f) }
+    var routeSheetDragOffset by remember { mutableStateOf(0f) }
     var selectedStopPayload by remember { mutableStateOf<RouteStopMarkerPayload?>(null) }
     var selectedSegmentPayload by remember { mutableStateOf<RouteSegmentPolylinePayload?>(null) }
     val focusManager = LocalFocusManager.current
     val routes = routeGeneration?.routes.orEmpty()
     val selectedRoutePosition = selectedRouteIndex
     val selectedRoute = selectedRoutePosition?.let { routes.getOrNull(it) }
+
+    fun resetRouteSheet() {
+        routeSheetProgress = 0f
+        routeSheetHiddenProgress = 0f
+        routeSheetDragOffset = 0f
+    }
+
+    fun dragRouteSheet(drag: Float) {
+        routeSheetDragOffset += drag
+        if (drag > 0f) {
+            if (routeSheetProgress > 0f) {
+                routeSheetProgress = (routeSheetProgress - drag / ROUTE_SHEET_DRAG_RANGE_PX)
+                    .coerceIn(0f, 1f)
+            } else {
+                routeSheetHiddenProgress = (routeSheetHiddenProgress + drag / ROUTE_SHEET_HIDE_DRAG_RANGE_PX)
+                    .coerceIn(0f, 1f)
+            }
+        } else {
+            if (routeSheetHiddenProgress > 0f) {
+                routeSheetHiddenProgress = (routeSheetHiddenProgress + drag / ROUTE_SHEET_HIDE_DRAG_RANGE_PX)
+                    .coerceIn(0f, 1f)
+            } else {
+                routeSheetProgress = (routeSheetProgress - drag / ROUTE_SHEET_DRAG_RANGE_PX)
+                    .coerceIn(0f, 1f)
+            }
+        }
+    }
+
+    fun settleRouteSheet() {
+        when {
+            routeSheetDragOffset > ROUTE_SHEET_COLLAPSE_DRAG_PX && routeSheetProgress > 0.02f -> {
+                routeSheetProgress = 0f
+                routeSheetHiddenProgress = 0f
+            }
+            routeSheetDragOffset > ROUTE_SHEET_COLLAPSE_DRAG_PX -> {
+                routeSheetProgress = 0f
+                routeSheetHiddenProgress = 1f
+            }
+            routeSheetDragOffset < -ROUTE_SHEET_COLLAPSE_DRAG_PX && routeSheetHiddenProgress > 0f -> {
+                routeSheetHiddenProgress = 0f
+                routeSheetProgress = 0f
+            }
+            routeSheetHiddenProgress >= ROUTE_SHEET_SNAP_THRESHOLD -> {
+                routeSheetHiddenProgress = 1f
+                routeSheetProgress = 0f
+            }
+            routeSheetProgress >= ROUTE_SHEET_SNAP_THRESHOLD -> {
+                routeSheetHiddenProgress = 0f
+                routeSheetProgress = 1f
+            }
+            else -> {
+                routeSheetHiddenProgress = 0f
+                routeSheetProgress = 0f
+            }
+        }
+        routeSheetDragOffset = 0f
+    }
 
     fun moveToLocation(location: LatLng, zoom: Float = 16f) {
         currentLocation = location
@@ -194,7 +265,7 @@ fun MapSelectScreen(
         visibleRouteIndexes = visibleRouteIndexes + routeIndex
         selectedStopPayload = RouteStopMarkerPayload(routeIndex = routeIndex, stop = stop)
         selectedSegmentPayload = null
-        routeSheetState = RouteDetailSheetState.Hidden
+        resetRouteSheet()
         moveToLocation(stop.location.toLatLng(), 17f)
     }
 
@@ -237,7 +308,7 @@ fun MapSelectScreen(
     LaunchedEffect(routeGeneration?.requestId, routes.size) {
         selectedRouteIndex = if (routes.isNotEmpty()) DEFAULT_VISIBLE_ROUTE_INDEX else null
         visibleRouteIndexes = if (routes.isNotEmpty()) setOf(DEFAULT_VISIBLE_ROUTE_INDEX) else emptySet()
-        routeSheetState = RouteDetailSheetState.Collapsed
+        resetRouteSheet()
         selectedStopPayload = null
         selectedSegmentPayload = null
         if (routeGeneration != null) {
@@ -287,7 +358,7 @@ fun MapSelectScreen(
                 visibleRouteIndexes = visibleRouteIndexes + payload.routeIndex
                 selectedSegmentPayload = payload
                 selectedStopPayload = null
-                routeSheetState = RouteDetailSheetState.Hidden
+                resetRouteSheet()
             }
         )
 
@@ -321,9 +392,9 @@ fun MapSelectScreen(
         if (routes.isNotEmpty() && !isSearchActive) {
             RouteSwitcher(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(Alignment.TopStart)
                     .statusBarsPadding()
-                    .padding(start = 16.dp, top = 72.dp, end = 16.dp),
+                    .padding(start = 16.dp, top = 70.dp),
                 routes = routes,
                 selectedRouteIndex = selectedRouteIndex,
                 visibleRouteIndexes = visibleRouteIndexes,
@@ -334,25 +405,11 @@ fun MapSelectScreen(
                         visibleRouteIndexes + routeIndex
                     }
                     visibleRouteIndexes = nextVisibleRouteIndexes
-                    selectedRouteIndex = when {
-                        routeIndex in nextVisibleRouteIndexes -> routeIndex
-                        selectedRouteIndex == routeIndex -> nextVisibleRouteIndexes.minOrNull()
-                        else -> selectedRouteIndex
-                    }
-                    routeSheetState = RouteDetailSheetState.Collapsed
+                    selectedRouteIndex = routeIndex
+                    resetRouteSheet()
                     selectedStopPayload = null
                     selectedSegmentPayload = null
                 }
-            )
-        } else {
-            MapLocationButton(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(
-                        end = HorizontalScreenPadding,
-                        bottom = if (isSelectionExpanded) 318.dp else 234.dp
-                    ),
-                onClick = ::locateWithPermission
             )
         }
 
@@ -362,6 +419,18 @@ fun MapSelectScreen(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
+            if (!isSearchActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = HorizontalScreenPadding),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    MapLocationButton(onClick = ::locateWithPermission)
+                }
+                Spacer(modifier = Modifier.height(FloatingMapControlGap))
+            }
+
             if (selectedRoute != null) {
                 selectedSegmentPayload?.let { payload ->
                     RouteSegmentPopup(
@@ -379,43 +448,31 @@ fun MapSelectScreen(
                         onClose = { selectedStopPayload = null }
                     )
                 }
-                RouteDetailSheet(
-                    route = selectedRoute,
-                    routeIndex = selectedRoutePosition,
-                    routeCount = routes.size,
-                    sheetState = routeSheetState,
-                    onShowSummary = { routeSheetState = RouteDetailSheetState.Collapsed },
-                    onToggleExpanded = {
-                        routeSheetState = if (routeSheetState == RouteDetailSheetState.Expanded) {
-                            RouteDetailSheetState.Collapsed
-                        } else {
-                            RouteDetailSheetState.Expanded
-                        }
-                    },
-                    onDragUp = {
-                        routeSheetState = when (routeSheetState) {
-                            RouteDetailSheetState.Hidden -> RouteDetailSheetState.Collapsed
-                            RouteDetailSheetState.Collapsed -> RouteDetailSheetState.Expanded
-                            RouteDetailSheetState.Expanded -> RouteDetailSheetState.Expanded
-                        }
-                    },
-                    onDragDown = {
-                        routeSheetState = when (routeSheetState) {
-                            RouteDetailSheetState.Expanded -> RouteDetailSheetState.Collapsed
-                            RouteDetailSheetState.Collapsed -> RouteDetailSheetState.Hidden
-                            RouteDetailSheetState.Hidden -> RouteDetailSheetState.Hidden
-                        }
-                    },
-                    onLocateStop = { stop -> focusStop(selectedRoutePosition, stop) },
-                    onAdjustRoute = {
-                        onOpenRouteConfig(
-                            GeoPoint(
-                                longitudeGcj02 = currentLocation.longitude,
-                                latitudeGcj02 = currentLocation.latitude
+                if (routeSheetHiddenProgress >= 0.99f) {
+                    RouteDetailPeekHandle(
+                        onDrag = { drag -> dragRouteSheet(drag) },
+                        onDragEnd = { settleRouteSheet() }
+                    )
+                } else {
+                    RouteDetailSheet(
+                        route = selectedRoute,
+                        routeIndex = selectedRoutePosition,
+                        routeCount = routes.size,
+                        sheetProgress = routeSheetProgress,
+                        hiddenProgress = routeSheetHiddenProgress,
+                        onDrag = { drag -> dragRouteSheet(drag) },
+                        onDragEnd = { settleRouteSheet() },
+                        onLocateStop = { stop -> focusStop(selectedRoutePosition, stop) },
+                        onAdjustRoute = {
+                            onOpenRouteConfig(
+                                GeoPoint(
+                                    longitudeGcj02 = currentLocation.longitude,
+                                    latitudeGcj02 = currentLocation.latitude
+                                )
                             )
-                        )
-                    }
-                )
+                        }
+                    )
+                }
             } else {
                 if (isSelectionExpanded) {
                     MapSelectionSheet(
@@ -462,7 +519,7 @@ private fun AMapCanvas(
     val routePolylines = remember { mutableListOf<Polyline>() }
     val routeMarkers = remember { mutableListOf<Marker>() }
     val routeSegmentPayloads = remember { mutableMapOf<String, RouteSegmentPolylinePayload>() }
-    var lastRenderedRequestId by remember { mutableStateOf<String?>(null) }
+    var lastRenderedRouteKey by remember { mutableStateOf<String?>(null) }
     val mapView = remember {
         MapView(context).apply {
             onCreate(Bundle())
@@ -519,12 +576,16 @@ private fun AMapCanvas(
         update = {
             currentLocationMarker?.position = currentLocation
             val aMap = mapView.map
+            val routes = routeGeneration?.routes.orEmpty()
+            val renderKey = "${routeGeneration?.requestId}:$selectedRouteIndex:${visibleRouteIndexes.sorted().joinToString(",")}"
+            if (renderKey == lastRenderedRouteKey) {
+                return@AndroidView
+            }
             routePolylines.forEach { polyline -> polyline.remove() }
             routeMarkers.forEach { marker -> marker.remove() }
             routePolylines.clear()
             routeMarkers.clear()
             routeSegmentPayloads.clear()
-            val routes = routeGeneration?.routes.orEmpty()
             routes.forEachIndexed { index, route ->
                 if (index !in visibleRouteIndexes) {
                     return@forEachIndexed
@@ -609,15 +670,14 @@ private fun AMapCanvas(
                     routeMarkers.add(marker)
                 }
             }
-            val requestKey = "${routeGeneration?.requestId}:$selectedRouteIndex:${visibleRouteIndexes.sorted().joinToString(",")}"
             val selectedRoute = selectedRouteIndex?.let { routes.getOrNull(it) }
-            if (selectedRoute != null && requestKey != lastRenderedRequestId) {
+            if (selectedRoute != null) {
                 val bounds = selectedRoute.stops.toLatLngBounds()
                 if (bounds != null) {
                     aMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
                 }
-                lastRenderedRequestId = requestKey
             }
+            lastRenderedRouteKey = renderKey
         }
     )
 }
@@ -742,23 +802,23 @@ private fun MapTopBar(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Surface(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
-                .shadow(6.dp, RoundedCornerShape(8.dp), clip = false),
-            shape = RoundedCornerShape(8.dp),
-            color = AppSurface,
-            border = BorderStroke(1.dp, AppBorder)
+                .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(onClick = onSearchFocus)
-                    .padding(horizontal = if (isSearchActive) 4.dp else 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isSearchActive) {
+            UrbanSearchField(
+                value = searchText,
+                onValueChange = {
+                    onSearchFocus()
+                    onSearchTextChange(it)
+                },
+                placeholder = "搜索起点、区域或必去点",
+                containerColor = AppSurface.copy(alpha = 0.86f),
+                borderColor = AppBorder.copy(alpha = 0.58f),
+                onFocus = onSearchFocus,
+                leadingIcon = if (isSearchActive) {
+                    {
                     IconButton(onClick = onCancelSearch) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -766,59 +826,28 @@ private fun MapTopBar(
                             tint = AppTextMuted
                         )
                     }
+                    }
                 } else {
-                    Icon(
-                        imageVector = Icons.Filled.Search,
-                        contentDescription = "搜索",
-                        tint = AppTextMuted
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                }
-
-                BasicTextField(
-                    modifier = Modifier.weight(1f),
-                    value = searchText,
-                    onValueChange = {
-                        onSearchFocus()
-                        onSearchTextChange(it)
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = AppText),
-                    decorationBox = { innerTextField ->
-                        if (searchText.isBlank()) {
-                            Text(
-                                text = "搜索起点、区域或必去点",
-                                color = AppTextMuted,
-                                style = MaterialTheme.typography.bodyMedium
+                    null
+                },
+                trailingIcon = {
+                    if (isSearchActive && searchText.isNotBlank()) {
+                        IconButton(onClick = { onSearchTextChange("") }) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "清空搜索",
+                                tint = AppTextMuted
                             )
                         }
-                        innerTextField()
-                    }
-                )
-
-                if (isSearchActive && searchText.isNotBlank()) {
-                    IconButton(onClick = { onSearchTextChange("") }) {
+                    } else if (!isSearchActive) {
                         Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "清空搜索",
-                            tint = AppTextMuted
+                            imageVector = Icons.Filled.Tune,
+                            contentDescription = "路线条件",
+                            tint = DeepTeal
                         )
                     }
-                } else if (!isSearchActive) {
-                    Box(
-                        modifier = Modifier
-                            .height(22.dp)
-                            .width(1.dp)
-                            .background(AppBorder)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Icon(
-                        imageVector = Icons.Filled.Tune,
-                        contentDescription = "路线条件",
-                        tint = DeepTeal
-                    )
                 }
-            }
+            )
         }
 
         if (isSearchActive) {
@@ -944,14 +973,14 @@ private fun RouteSwitcher(
     onToggleRoute: (Int) -> Unit
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = AppSurface,
-        border = BorderStroke(1.dp, AppBorder)
+        modifier = modifier,
+        shape = RouteSwitcherShape,
+        color = AppSurface.copy(alpha = 0.74f),
+        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.46f))
     ) {
         Row(
-            modifier = Modifier.padding(6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             routes.forEachIndexed { index, route ->
@@ -960,34 +989,30 @@ private fun RouteSwitcher(
                 val color = routeColor(index).toComposeColor()
                 Surface(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
+                        .width(RouteSwitcherSegmentWidth)
+                        .height(RouteSwitcherSegmentHeight)
+                        .semantics {
+                            role = Role.Checkbox
+                            this.selected = visible
+                        }
                         .clickable { onToggleRoute(index) },
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RouteSwitcherSegmentShape,
                     color = when {
-                        selected -> color
-                        visible -> color.copy(alpha = 0.12f)
-                        else -> AppSurfaceMuted
+                        selected && visible -> color.copy(alpha = 0.18f)
+                        visible -> color.copy(alpha = 0.10f)
+                        else -> Color.Transparent
                     },
-                    border = BorderStroke(1.dp, if (visible || selected) color else AppBorder)
+                    border = BorderStroke(
+                        1.dp,
+                        if (visible) color.copy(alpha = 0.86f) else Color.Transparent
+                    )
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Text(
                             text = route.routeCode,
-                            color = if (selected) Color.White else if (visible) color else AppTextMuted,
+                            color = if (visible) color else AppTextMuted,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (index == DEFAULT_VISIBLE_ROUTE_INDEX) "主推" else "备选",
-                            color = if (selected) Color.White else if (visible) color else AppTextMuted,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -1180,6 +1205,7 @@ private fun PoiDetailPopup(
 
             if (stop.imageUrls.isNotEmpty()) {
                 PoiImageCarousel(
+                    poiName = stop.name,
                     imageUrls = stop.imageUrls,
                     onImageClick = { index -> selectedImageIndex = index }
                 )
@@ -1242,6 +1268,7 @@ private fun PoiDetailPopup(
 
 @Composable
 private fun PoiImageCarousel(
+    poiName: String,
     imageUrls: List<String>,
     onImageClick: (Int) -> Unit
 ) {
@@ -1257,7 +1284,8 @@ private fun PoiImageCarousel(
                     .width(132.dp)
                     .height(86.dp)
                     .clickable { onImageClick(index) },
-                imageUrl = imageUrl
+                imageUrl = imageUrl,
+                contentDescription = "$poiName 图片 ${index + 1}"
             )
         }
     }
@@ -1267,6 +1295,7 @@ private fun PoiImageCarousel(
 private fun RemotePoiImage(
     modifier: Modifier = Modifier,
     imageUrl: String,
+    contentDescription: String?,
     contentScale: ContentScale = ContentScale.Crop,
     placeholderColor: Color = AppSurfaceMuted,
     placeholderTextColor: Color = AppTextMuted
@@ -1277,7 +1306,11 @@ private fun RemotePoiImage(
         isLoadFinished = false
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                URL(imageUrl).openStream().use { inputStream ->
+                val connection = URL(imageUrl).openConnection().apply {
+                    connectTimeout = IMAGE_CONNECT_TIMEOUT_MILLIS
+                    readTimeout = IMAGE_READ_TIMEOUT_MILLIS
+                }
+                connection.getInputStream().use { inputStream ->
                     BitmapFactory.decodeStream(inputStream)
                 }
             }.getOrNull()
@@ -1294,7 +1327,7 @@ private fun RemotePoiImage(
             Image(
                 modifier = Modifier.fillMaxSize(),
                 bitmap = loadedBitmap.asImageBitmap(),
-                contentDescription = null,
+                contentDescription = contentDescription,
                 contentScale = contentScale
             )
         } else {
@@ -1333,6 +1366,7 @@ private fun PoiImageDialog(
                     .heightIn(min = 220.dp, max = 560.dp)
                     .padding(horizontal = 20.dp),
                 imageUrl = imageUrls[selectedIndex],
+                contentDescription = "地点图片 ${selectedIndex + 1}",
                 contentScale = ContentScale.Fit,
                 placeholderColor = Color.Transparent,
                 placeholderTextColor = Color.White
@@ -1402,31 +1436,29 @@ private fun RouteDetailSheet(
     route: GeneratedRoute,
     routeIndex: Int,
     routeCount: Int,
-    sheetState: RouteDetailSheetState,
-    onShowSummary: () -> Unit,
-    onToggleExpanded: () -> Unit,
-    onDragUp: () -> Unit,
-    onDragDown: () -> Unit,
+    sheetProgress: Float,
+    hiddenProgress: Float,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
     onLocateStop: (RouteStop) -> Unit,
     onAdjustRoute: () -> Unit
 ) {
     val routeColor = routeColor(routeIndex).toComposeColor()
-    val isExpanded = sheetState == RouteDetailSheetState.Expanded
-    if (sheetState == RouteDetailSheetState.Hidden) {
-        RouteDetailSummaryBar(
-            route = route,
-            routeColor = routeColor,
-            onClick = onShowSummary,
-            onDragUp = onDragUp,
-            onDragDown = onDragDown
-        )
-        return
-    }
+    val detailHeight = 300.dp * sheetProgress.coerceIn(0f, 1f)
+    var sheetHeightPx by remember { mutableStateOf(0f) }
+    val hiddenOffsetPx = ((sheetHeightPx - ROUTE_SHEET_PEEK_HANDLE_HEIGHT_PX).coerceAtLeast(0f) *
+        hiddenProgress.coerceIn(0f, 1f)).roundToInt()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = HorizontalScreenPadding, vertical = 12.dp)
-            .shadow(10.dp, RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp), clip = false),
+            .onSizeChanged { size -> sheetHeightPx = size.height.toFloat() }
+            .offset { IntOffset(x = 0, y = hiddenOffsetPx) }
+            .shadow(10.dp, RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp), clip = false)
+            .routeSheetDragGesture(
+                onDrag = onDrag,
+                onDragEnd = onDragEnd
+            ),
         shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
         color = AppSurface,
         border = BorderStroke(1.dp, AppBorder)
@@ -1438,9 +1470,8 @@ private fun RouteDetailSheet(
         ) {
             RouteSheetHandle(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
-                onClick = onToggleExpanded,
-                onDragUp = onDragUp,
-                onDragDown = onDragDown
+                onDrag = onDrag,
+                onDragEnd = onDragEnd
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1464,8 +1495,8 @@ private fun RouteDetailSheet(
                     )
                 }
                 Text(
-                    text = if (isExpanded) "收起" else "详情",
-                    color = routeColor,
+                    text = "详情",
+                    color = routeColor.copy(alpha = 0.82f),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -1487,11 +1518,11 @@ private fun RouteDetailSheet(
                 style = MaterialTheme.typography.bodySmall
             )
 
-            if (isExpanded) {
+            if (sheetProgress > 0.02f) {
                 Column(
                     modifier = Modifier
-                        .heightIn(max = 300.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .height(detailHeight)
+                        .clipToBounds(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     route.stops.sortedBy(RouteStop::order).forEach { stop ->
@@ -1509,84 +1540,40 @@ private fun RouteDetailSheet(
                 }
             }
 
-            Button(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(46.dp),
+            UrbanPrimaryButton(
+                modifier = Modifier.fillMaxWidth(),
+                text = "调整路线条件",
                 onClick = onAdjustRoute,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DeepTeal,
-                    contentColor = Color.White
-                )
-            ) {
-                Text(text = "调整路线条件", fontWeight = FontWeight.Bold)
-            }
+            )
         }
     }
 }
 
 @Composable
-private fun RouteDetailSummaryBar(
-    route: GeneratedRoute,
-    routeColor: Color,
-    onClick: () -> Unit,
-    onDragUp: () -> Unit,
-    onDragDown: () -> Unit
+private fun RouteDetailPeekHandle(
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = HorizontalScreenPadding, vertical = 10.dp)
-            .shadow(6.dp, RoundedCornerShape(14.dp), clip = false)
+            .padding(horizontal = HorizontalScreenPadding, vertical = 8.dp)
+            .height(38.dp)
+            .shadow(6.dp, RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp), clip = false)
             .routeSheetDragGesture(
-                onDragUp = onDragUp,
-                onDragDown = onDragDown
-            )
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        color = AppSurface,
+                onDrag = onDrag,
+                onDragEnd = onDragEnd
+            ),
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
+        color = AppSurface.copy(alpha = 0.96f),
         border = BorderStroke(1.dp, AppBorder)
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Surface(
-                modifier = Modifier.size(30.dp),
-                shape = CircleShape,
-                color = routeColor
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = route.routeCode,
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = route.title,
-                    color = AppText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${formatDuration(route.totalDurationMinutes)} · ${formatDistance(route.totalDistanceMeters)}",
-                    color = AppTextMuted,
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-            Text(
-                text = "展开",
-                color = routeColor,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold
+        Box(contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .width(44.dp)
+                    .height(4.dp)
+                    .background(AppBorder, CircleShape)
             )
         }
     }
@@ -1595,19 +1582,17 @@ private fun RouteDetailSummaryBar(
 @Composable
 private fun RouteSheetHandle(
     modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-    onDragUp: () -> Unit,
-    onDragDown: () -> Unit
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit
 ) {
     Box(
         modifier = modifier
             .width(64.dp)
             .height(20.dp)
             .routeSheetDragGesture(
-                onDragUp = onDragUp,
-                onDragDown = onDragDown
-            )
-            .clickable(onClick = onClick),
+                onDrag = onDrag,
+                onDragEnd = onDragEnd
+            ),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -1620,25 +1605,17 @@ private fun RouteSheetHandle(
 }
 
 private fun Modifier.routeSheetDragGesture(
-    onDragUp: () -> Unit,
-    onDragDown: () -> Unit
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit
 ): Modifier {
-    return pointerInput(onDragUp, onDragDown) {
-        var dragAmount = 0f
+    return pointerInput(onDrag, onDragEnd) {
         detectVerticalDragGestures(
-            onDragStart = { dragAmount = 0f },
             onVerticalDrag = { change, drag ->
-                dragAmount += drag
                 change.consume()
+                onDrag(drag)
             },
-            onDragEnd = {
-                when {
-                    dragAmount < -ROUTE_SHEET_DRAG_THRESHOLD_PX -> onDragUp()
-                    dragAmount > ROUTE_SHEET_DRAG_THRESHOLD_PX -> onDragDown()
-                }
-                dragAmount = 0f
-            },
-            onDragCancel = { dragAmount = 0f }
+            onDragEnd = onDragEnd,
+            onDragCancel = onDragEnd
         )
     }
 }

@@ -17,16 +17,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.urbansidequest.app.domain.model.GeneratedRoute
@@ -38,7 +34,9 @@ import com.urbansidequest.app.ui.components.RouteMapPreview
 import com.urbansidequest.app.ui.components.TimelineItem
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
+import com.urbansidequest.app.ui.components.UrbanPrimaryButton
 import com.urbansidequest.app.ui.components.UrbanSection
+import com.urbansidequest.app.ui.components.UrbanSecondaryButton
 import com.urbansidequest.app.ui.components.WarningBanner
 import com.urbansidequest.app.ui.theme.AppBackground
 import com.urbansidequest.app.ui.theme.AppBorder
@@ -46,7 +44,6 @@ import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
-import com.urbansidequest.app.ui.theme.DeepTeal
 import com.urbansidequest.app.ui.theme.RouteSecondary
 
 @Composable
@@ -107,33 +104,17 @@ fun RouteResultScreen(
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
+                    UrbanSecondaryButton(
+                        modifier = Modifier.weight(1f),
+                        text = "调整路线",
                         onClick = onAdjustRoute,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = DeepTeal
-                        ),
-                        border = BorderStroke(1.dp, DeepTeal)
-                    ) {
-                        Text(text = "调整路线", fontWeight = FontWeight.Bold)
-                    }
-                    Button(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
+                    )
+                    UrbanPrimaryButton(
+                        modifier = Modifier.weight(1f),
+                        text = "开始路线",
                         onClick = onStartRoute,
                         enabled = primaryRoute != null,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = DeepTeal,
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Text(text = "开始路线", fontWeight = FontWeight.Bold)
-                    }
+                    )
                 }
             }
         }

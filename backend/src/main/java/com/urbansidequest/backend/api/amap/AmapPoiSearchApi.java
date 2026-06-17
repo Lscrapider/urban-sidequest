@@ -28,7 +28,10 @@ public class AmapPoiSearchApi {
 
     public AmapPoiSearchApi(AmapWebProperties amapWebProperties, RestTemplateBuilder restTemplateBuilder) {
         this.amapWebProperties = amapWebProperties;
-        this.restTemplate = restTemplateBuilder.build();
+        this.restTemplate = restTemplateBuilder
+                .connectTimeout(amapWebProperties.getConnectTimeout())
+                .readTimeout(amapWebProperties.getReadTimeout())
+                .build();
     }
 
     public JsonNode search(AmapPoiSearchQueryDTO query) {

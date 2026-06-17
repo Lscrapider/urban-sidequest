@@ -29,7 +29,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.urbansidequest.app.data.auth.AuthRepository
 import com.urbansidequest.app.ui.theme.AppBackground
@@ -65,7 +65,7 @@ fun LoginRoute(
     val loginViewModel: LoginViewModel = viewModel(
         factory = LoginViewModelFactory(authRepository)
     )
-    val uiState by loginViewModel.uiState.collectAsState()
+    val uiState by loginViewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(loginViewModel) {
         loginViewModel.events.collectLatest { event ->

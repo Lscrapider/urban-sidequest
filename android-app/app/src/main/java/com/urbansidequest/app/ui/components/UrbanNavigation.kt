@@ -2,19 +2,18 @@ package com.urbansidequest.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Directions
+import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
@@ -26,12 +25,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
+import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppTextMuted
-import com.urbansidequest.app.ui.theme.DeepTealDark
+import com.urbansidequest.app.ui.theme.DeepTeal
 
 enum class UrbanDestination {
     Map,
@@ -50,30 +54,30 @@ fun UrbanBottomNavigationBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp),
+            .height(72.dp),
         color = AppSurface,
         border = BorderStroke(1.dp, AppBorder)
     ) {
         Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BottomNavigationItem(
+            UrbanNavigationItem(
                 text = "地图",
                 icon = Icons.Filled.Map,
                 selected = selectedDestination == UrbanDestination.Map,
                 onClick = onMapClick
             )
-            BottomNavigationItem(
-                text = "路线",
-                icon = Icons.Filled.Directions,
+            UrbanNavigationItem(
+                text = "生成",
+                icon = Icons.Filled.AddLocationAlt,
                 selected = selectedDestination == UrbanDestination.Routes,
                 onClick = onRoutesClick
             )
-            BottomNavigationItem(
+            UrbanNavigationItem(
                 text = "我的",
                 icon = Icons.Filled.Person,
                 selected = selectedDestination == UrbanDestination.Profile,
@@ -84,38 +88,37 @@ fun UrbanBottomNavigationBar(
 }
 
 @Composable
-private fun BottomNavigationItem(
+private fun UrbanNavigationItem(
     text: String,
     icon: ImageVector,
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val contentColor = if (selected) Color.White else AppTextMuted
-    val backgroundColor = if (selected) DeepTealDark else Color.Transparent
-
+    val contentColor = if (selected) DeepTeal else AppTextMuted
     Column(
         modifier = Modifier
+            .sizeIn(minWidth = 64.dp, minHeight = 48.dp)
+            .semantics {
+                role = Role.Tab
+                this.selected = selected
+            }
             .clickable(onClick = onClick)
-            .border(
-                width = if (selected) 0.dp else 1.dp,
-                color = Color.Transparent,
-                shape = CircleShape
-            )
-            .background(backgroundColor, CircleShape)
-            .padding(horizontal = 18.dp, vertical = 7.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(if (selected) AppSurfaceMuted else Color.Transparent, CircleShape)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         Icon(
             modifier = Modifier.size(20.dp),
             imageVector = icon,
-            contentDescription = text,
+            contentDescription = null,
             tint = contentColor
         )
         Text(
             text = text,
             color = contentColor,
             style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.SemiBold
         )
     }
 }

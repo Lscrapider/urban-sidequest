@@ -19,14 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,23 +31,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.amap.api.maps.model.LatLng
 import com.urbansidequest.app.data.api.MustVisitPointRequest
-import com.urbansidequest.app.data.api.RouteApiException
-import com.urbansidequest.app.data.api.RouteGenerateRequest
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
-import com.urbansidequest.app.data.map.RouteCityInfo
 import com.urbansidequest.app.data.map.resolveRouteCityInfo
 import com.urbansidequest.app.data.map.searchAmapInputTips
 import com.urbansidequest.app.data.route.RouteRepository
@@ -59,6 +47,8 @@ import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.ui.components.RouteMapPreview
 import com.urbansidequest.app.ui.components.UrbanChip
+import com.urbansidequest.app.ui.components.UrbanPrimaryButton
+import com.urbansidequest.app.ui.components.UrbanSearchField
 import com.urbansidequest.app.ui.components.UrbanSection
 import com.urbansidequest.app.ui.components.UrbanTopBar
 import com.urbansidequest.app.ui.theme.AppBackground
@@ -68,12 +58,10 @@ import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.DeepTeal
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.ZoneId
+import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -82,42 +70,40 @@ fun RouteConfigScreen(
     selectedCenter: GeoPoint? = null,
     onBack: () -> Unit = {},
     onAuthExpired: () -> Unit = {},
-    onGenerateRoute: (RouteGeneration?) -> Unit = {}
+    onGenerateRoute: (RouteGeneration?) -> Unit = {},
+    routeConfigViewModel: RouteConfigViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
-    val coroutineScope = rememberCoroutineScope()
-    var selectedDeparture by remember { mutableStateOf(DepartureOptions.first()) }
-    var selectedDuration by remember { mutableStateOf(DurationOptions[1]) }
-    var selectedTransport by remember { mutableStateOf(TransportOptions[1]) }
-    var selectedGoal by remember { mutableStateOf(RouteGoalOptions.first()) }
-    var selectedInterestTags by remember { mutableStateOf(setOf("MUSEUM", "SCENIC")) }
-    var mustVisitSearchText by remember { mutableStateOf("") }
-    var mustVisitSuggestions by remember { mutableStateOf<List<PlaceSearchSuggestion>>(emptyList()) }
-    var isMustVisitSearching by remember { mutableStateOf(false) }
-    var mustVisitPoints by remember { mutableStateOf<List<MustVisitPointRequest>>(emptyList()) }
-    var isGenerating by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    val canGenerate = selectedCenter != null && routeRepository != null && !isGenerating
+    val uiState by routeConfigViewModel.uiState.collectAsStateWithLifecycle()
+    val canGenerate = selectedCenter != null && routeRepository != null && !uiState.isGenerating
 
-    LaunchedEffect(mustVisitSearchText, selectedCenter) {
-        val keyword = mustVisitSearchText.trim()
+    LaunchedEffect(routeConfigViewModel) {
+        routeConfigViewModel.events.collectLatest { event ->
+            when (event) {
+                RouteConfigEvent.AuthExpired -> onAuthExpired()
+                is RouteConfigEvent.RouteGenerated -> onGenerateRoute(event.routeGeneration)
+            }
+        }
+    }
+
+    LaunchedEffect(selectedCenter) {
+        routeConfigViewModel.reset()
+    }
+
+    LaunchedEffect(uiState.mustVisitSearchText, selectedCenter) {
+        val keyword = uiState.mustVisitSearchText.trim()
         if (keyword.length < 2) {
-            mustVisitSuggestions = emptyList()
-            isMustVisitSearching = false
             return@LaunchedEffect
         }
-        isMustVisitSearching = true
+        routeConfigViewModel.onMustVisitSearchStarted()
         delay(250)
         searchAmapInputTips(
             context = context,
             keyword = keyword,
             location = selectedCenter?.toLatLng() ?: DefaultSearchCenter,
             onResult = { resultKeyword, suggestions ->
-                if (resultKeyword == mustVisitSearchText.trim()) {
-                    mustVisitSuggestions = suggestions
-                    isMustVisitSearching = false
-                }
+                routeConfigViewModel.onMustVisitSuggestionsLoaded(resultKeyword, suggestions)
             }
         )
     }
@@ -185,8 +171,8 @@ fun RouteConfigScreen(
                     DepartureOptions.forEach { option ->
                         SelectableChip(
                             text = option.label,
-                            selected = option == selectedDeparture,
-                            onClick = { selectedDeparture = option }
+                            selected = option == uiState.selectedDeparture,
+                            onClick = { routeConfigViewModel.selectDeparture(option) }
                         )
                     }
                 }
@@ -198,8 +184,8 @@ fun RouteConfigScreen(
                     DurationOptions.forEach { option ->
                         SelectableChip(
                             text = option.label,
-                            selected = option == selectedDuration,
-                            onClick = { selectedDuration = option }
+                            selected = option == uiState.selectedDuration,
+                            onClick = { routeConfigViewModel.selectDuration(option) }
                         )
                     }
                 }
@@ -211,8 +197,8 @@ fun RouteConfigScreen(
                     TransportOptions.forEach { option ->
                         SelectableChip(
                             text = option.label,
-                            selected = option == selectedTransport,
-                            onClick = { selectedTransport = option }
+                            selected = option == uiState.selectedTransport,
+                            onClick = { routeConfigViewModel.selectTransport(option) }
                         )
                     }
                 }
@@ -224,8 +210,8 @@ fun RouteConfigScreen(
                     RouteGoalOptions.forEach { option ->
                         SelectableChip(
                             text = option.label,
-                            selected = option == selectedGoal,
-                            onClick = { selectedGoal = option }
+                            selected = option == uiState.selectedGoal,
+                            onClick = { routeConfigViewModel.selectGoal(option) }
                         )
                     }
                 }
@@ -237,14 +223,8 @@ fun RouteConfigScreen(
                     InterestTagOptions.forEach { option ->
                         SelectableChip(
                             text = option.label,
-                            selected = selectedInterestTags.contains(option.code),
-                            onClick = {
-                                selectedInterestTags = if (selectedInterestTags.contains(option.code)) {
-                                    selectedInterestTags - option.code
-                                } else {
-                                    selectedInterestTags + option.code
-                                }
-                            }
+                            selected = uiState.selectedInterestTags.contains(option.code),
+                            onClick = { routeConfigViewModel.toggleInterestTag(option.code) }
                         )
                     }
                 }
@@ -253,25 +233,16 @@ fun RouteConfigScreen(
             UrbanSection {
                 SectionTitle(title = "必去点", subtitle = "搜索地点加入路线硬约束")
                 MustVisitPicker(
-                    searchText = mustVisitSearchText,
-                    suggestions = mustVisitSuggestions,
-                    isSearching = isMustVisitSearching,
-                    selectedPoints = mustVisitPoints,
-                    onSearchTextChange = { mustVisitSearchText = it },
+                    searchText = uiState.mustVisitSearchText,
+                    suggestions = uiState.mustVisitSuggestions,
+                    isSearching = uiState.isMustVisitSearching,
+                    selectedPoints = uiState.mustVisitPoints,
+                    onSearchTextChange = routeConfigViewModel::onMustVisitSearchTextChange,
                     onSelectSuggestion = { suggestion ->
-                        val point = suggestion.toMustVisitPoint()
-                        val exists = mustVisitPoints.any { it.isSamePlace(point) }
-                        if (!exists) {
-                            mustVisitPoints = mustVisitPoints + point
-                        }
-                        mustVisitSearchText = ""
-                        mustVisitSuggestions = emptyList()
-                        isMustVisitSearching = false
+                        routeConfigViewModel.addMustVisitSuggestion(suggestion)
                         focusManager.clearFocus()
                     },
-                    onRemovePoint = { point ->
-                        mustVisitPoints = mustVisitPoints.filterNot { it.isSamePlace(point) }
-                    }
+                    onRemovePoint = routeConfigViewModel::removeMustVisitPoint
                 )
             }
 
@@ -289,63 +260,30 @@ fun RouteConfigScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
+                UrbanPrimaryButton(
+                    modifier = Modifier.fillMaxWidth(),
                     enabled = canGenerate,
+                    text = if (uiState.isGenerating) "正在生成..." else "生成路线",
                     onClick = {
-                        val center = selectedCenter ?: return@Button
-                        val repository = routeRepository ?: return@Button
-                        coroutineScope.launch {
-                            isGenerating = true
-                            errorMessage = null
-                            runCatching {
-                                val routeCityInfo = resolveRouteCityInfo(
+                        routeConfigViewModel.generateRoute(
+                            routeRepository = routeRepository,
+                            selectedCenter = selectedCenter,
+                            resolveRouteCityInfo = { center ->
+                                resolveRouteCityInfo(
                                     context = context,
                                     location = LatLng(center.latitudeGcj02, center.longitudeGcj02)
                                 )
-                                repository.generateRoute(
-                                    buildRequest(
-                                        center = center,
-                                        routeCityInfo = routeCityInfo,
-                                        departureOption = selectedDeparture,
-                                        durationOption = selectedDuration,
-                                        transportOption = selectedTransport,
-                                        goalOption = selectedGoal,
-                                        interestTags = selectedInterestTags.toList(),
-                                        mustVisitPoints = mustVisitPoints
-                                    )
-                                )
-                            }.onSuccess { routeGeneration ->
-                                onGenerateRoute(routeGeneration)
-                            }.onFailure { throwable ->
-                                errorMessage = throwable.message ?: "路线生成失败，请稍后重试"
-                                if (throwable is RouteApiException && throwable.isAuthenticationError) {
-                                    onAuthExpired()
-                                }
                             }
-                            isGenerating = false
-                        }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = DeepTeal,
-                        contentColor = Color.White
-                    )
-                ) {
-                    Text(
-                        text = if (isGenerating) "正在生成..." else "生成路线",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                        )
+                    }
+                )
                 Text(
-                    text = errorMessage ?: if (selectedCenter == null) {
+                    text = uiState.errorMessage ?: if (selectedCenter == null) {
                         "请先从地图页确认区域。"
                     } else {
                         "路线会由后端生成，前端只提交结构化条件。"
                     },
-                    color = if (errorMessage == null) AppTextMuted else MaterialTheme.colorScheme.error,
+                    color = if (uiState.errorMessage == null) AppTextMuted else MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -390,7 +328,7 @@ private fun SelectableChip(
     UrbanChip(
         text = text,
         selected = selected,
-        modifier = Modifier.clickable(onClick = onClick)
+        onClick = onClick
     )
 }
 
@@ -448,44 +386,11 @@ private fun MustVisitSearchField(
     searchText: String,
     onSearchTextChange: (String) -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(44.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = AppSurface,
-        border = BorderStroke(1.dp, AppBorder)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 12.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                modifier = Modifier.size(20.dp),
-                imageVector = Icons.Filled.Search,
-                contentDescription = null,
-                tint = AppTextMuted
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            BasicTextField(
-                modifier = Modifier.weight(1f),
-                value = searchText,
-                onValueChange = onSearchTextChange,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = AppText),
-                decorationBox = { innerTextField ->
-                    if (searchText.isBlank()) {
-                        Text(
-                            text = "搜索并加入必去点",
-                            color = AppTextMuted,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                    innerTextField()
-                }
-            )
+    UrbanSearchField(
+        value = searchText,
+        onValueChange = onSearchTextChange,
+        placeholder = "搜索并加入必去点",
+        trailingIcon = {
             if (searchText.isNotBlank()) {
                 IconButton(onClick = { onSearchTextChange("") }) {
                     Icon(
@@ -496,7 +401,7 @@ private fun MustVisitSearchField(
                 }
             }
         }
-    }
+    )
 }
 
 @Composable
@@ -621,108 +526,8 @@ private fun MustVisitPointRow(
     }
 }
 
-private fun buildRequest(
-    center: GeoPoint,
-    routeCityInfo: RouteCityInfo?,
-    departureOption: DepartureOption,
-    durationOption: DurationOption,
-    transportOption: CodeOption,
-    goalOption: CodeOption,
-    interestTags: List<String>,
-    mustVisitPoints: List<MustVisitPointRequest>
-): RouteGenerateRequest {
-    return RouteGenerateRequest(
-        areaMode = "AUTO_RADIUS",
-        areaLabel = "地图选区",
-        center = center,
-        areaPolygonGcj02 = emptyList(),
-        routeCityName = routeCityInfo?.cityName,
-        routeCityAdcode = routeCityInfo?.cityAdcode,
-        departureTime = departureOption.toInstantString(),
-        durationMinutes = durationOption.minutes,
-        transportProfile = transportOption.code,
-        routeGoal = goalOption.code,
-        interestTags = interestTags,
-        mustVisitPoints = mustVisitPoints
-    )
-}
-
-private fun PlaceSearchSuggestion.toMustVisitPoint(): MustVisitPointRequest {
-    return MustVisitPointRequest(
-        name = name,
-        amapPoiId = amapPoiId,
-        location = GeoPoint(
-            longitudeGcj02 = location.longitude,
-            latitudeGcj02 = location.latitude
-        ),
-        priority = "MUST"
-    )
-}
-
-private fun MustVisitPointRequest.isSamePlace(other: MustVisitPointRequest): Boolean {
-    if (amapPoiId != null && other.amapPoiId != null) {
-        return amapPoiId == other.amapPoiId
-    }
-    return name == other.name &&
-        location.longitudeGcj02 == other.location.longitudeGcj02 &&
-        location.latitudeGcj02 == other.location.latitudeGcj02
-}
-
 private fun GeoPoint.toLatLng(): LatLng {
     return LatLng(latitudeGcj02, longitudeGcj02)
 }
 
-private fun DepartureOption.toInstantString(): String {
-    return LocalDateTime.of(LocalDate.now(RouteZone), time)
-        .atZone(RouteZone)
-        .toInstant()
-        .toString()
-}
-
-private data class DepartureOption(val label: String, val time: LocalTime)
-
-private data class DurationOption(val label: String, val minutes: Int)
-
-private data class CodeOption(val label: String, val code: String)
-
-private val RouteZone = ZoneId.of("Asia/Shanghai")
 private val DefaultSearchCenter = LatLng(39.908722, 116.397499)
-
-private val DepartureOptions = listOf(
-    DepartureOption("上午 10:00", LocalTime.of(10, 0)),
-    DepartureOption("中午 12:00", LocalTime.of(12, 0)),
-    DepartureOption("下午 14:00", LocalTime.of(14, 0)),
-    DepartureOption("傍晚 18:00", LocalTime.of(18, 0))
-)
-
-private val DurationOptions = listOf(
-    DurationOption("2 小时", 120),
-    DurationOption("4 小时", 240),
-    DurationOption("8 小时", 480)
-)
-
-private val TransportOptions = listOf(
-    CodeOption("只步行", "WALK_ONLY"),
-    CodeOption("步行 + 地铁", "WALK_SUBWAY"),
-    CodeOption("骑车 + 地铁", "BIKE_SUBWAY"),
-    CodeOption("步行 + 打车", "WALK_TAXI")
-)
-
-private val RouteGoalOptions = listOf(
-    CodeOption("稳妥省心", "STEADY"),
-    CodeOption("经典必看", "CLASSIC"),
-    CodeOption("地道烟火", "LOCAL"),
-    CodeOption("低预算", "LOW_BUDGET"),
-    CodeOption("夜游", "NIGHT"),
-    CodeOption("拍照出片", "PHOTO")
-)
-
-private val InterestTagOptions = listOf(
-    CodeOption("美食", "FOOD"),
-    CodeOption("咖啡休息", "COFFEE"),
-    CodeOption("展馆", "MUSEUM"),
-    CodeOption("景点", "SCENIC"),
-    CodeOption("拍照", "PHOTO"),
-    CodeOption("购物", "SHOPPING"),
-    CodeOption("夜游", "NIGHT")
-)

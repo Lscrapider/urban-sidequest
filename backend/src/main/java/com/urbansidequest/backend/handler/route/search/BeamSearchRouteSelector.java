@@ -406,7 +406,18 @@ public class BeamSearchRouteSelector {
                 .toList();
         RouteSearchState state = new RouteSearchState(List.of(), Set.of(), Set.of(), 0, 0, 0, 0);
         for (PoiCandidateDTO stop : stops) {
-            state = this.appendStop(state, stop, context);
+            RouteSearchState nextState = this.appendStop(state, stop, context);
+            if (nextState.totalDurationMinutes() > context.getGenerateParam().getDurationMinutes()) {
+                String warning = stop.mustVisit()
+                        ? "兜底路线无法在可用时长内安排必去点：" + stop.name()
+                        : "兜底路线已跳过超出可用时长的候选点：" + stop.name();
+                context.addWarning(warning);
+                continue;
+            }
+            state = nextState;
+        }
+        if (state.stops().size() < MIN_STOPS) {
+            context.addWarning("可用时长不足以形成 3 个以上站点，已返回部分兜底路线");
         }
         return state;
     }

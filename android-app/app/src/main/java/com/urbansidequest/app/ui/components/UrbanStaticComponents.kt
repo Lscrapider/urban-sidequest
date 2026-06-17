@@ -3,6 +3,7 @@ package com.urbansidequest.app.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,22 +14,36 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -138,22 +153,149 @@ fun UrbanSection(
 fun UrbanChip(
     text: String,
     selected: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    role: Role = Role.Button
 ) {
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = if (selected) DeepTeal.copy(alpha = 0.10f) else AppSurface,
-        border = BorderStroke(1.dp, if (selected) DeepTeal else AppBorder)
-    ) {
-        Text(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            text = text,
-            color = if (selected) DeepTeal else AppTextMuted,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold
-        )
+    val interactionModifier = if (onClick == null) {
+        modifier
+    } else {
+        modifier
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .semantics {
+                this.role = role
+                this.selected = selected
+            }
+            .clickable(onClick = onClick)
     }
+    Box(
+        modifier = interactionModifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier.height(36.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = if (selected) DeepTeal.copy(alpha = 0.08f) else AppSurface,
+            border = BorderStroke(1.dp, if (selected) DeepTeal else AppBorder)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = text,
+                    color = if (selected) DeepTeal else AppText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun UrbanPrimaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    Button(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp),
+        enabled = enabled,
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = DeepTeal,
+            contentColor = AppSurface,
+            disabledContainerColor = AppBorder,
+            disabledContentColor = AppTextMuted
+        )
+    ) {
+        Text(text = text, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun UrbanSecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    OutlinedButton(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp),
+        enabled = enabled,
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, DeepTeal),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = DeepTeal,
+            disabledContentColor = AppTextMuted
+        )
+    ) {
+        Text(text = text, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun UrbanSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    containerColor: Color = AppSurface,
+    borderColor: Color = AppBorder,
+    focusedBorderColor: Color = DeepTeal,
+    onFocus: (() -> Unit)? = null,
+    leadingIcon: (@Composable () -> Unit)? = null,
+    trailingIcon: (@Composable () -> Unit)? = null
+) {
+    OutlinedTextField(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .then(if (onFocus == null) Modifier else Modifier.onFocusChanged { state ->
+                if (state.isFocused) {
+                    onFocus()
+                }
+            }),
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = AppText),
+        leadingIcon = leadingIcon ?: {
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = null,
+                tint = AppTextMuted
+            )
+        },
+        trailingIcon = trailingIcon,
+        placeholder = {
+            Text(
+                text = placeholder,
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        },
+        shape = MaterialTheme.shapes.small,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = AppText,
+            unfocusedTextColor = AppText,
+            focusedBorderColor = focusedBorderColor,
+            unfocusedBorderColor = borderColor,
+            focusedContainerColor = containerColor,
+            unfocusedContainerColor = containerColor,
+            cursorColor = DeepTeal
+        )
+    )
 }
 
 @Composable
@@ -204,12 +346,23 @@ fun WarningBanner(
         color = WarningSurface,
         border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.55f))
     ) {
-        Text(
+        Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            text = text,
-            color = AppText,
-            style = MaterialTheme.typography.bodySmall
-        )
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                text = "!",
+                color = WarningAmber,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = text,
+                color = AppText,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
     }
 }
 

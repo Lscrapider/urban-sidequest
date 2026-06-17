@@ -39,8 +39,15 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
                 .toList();
 
         if (selectedRoutes.isEmpty()) {
-            context.addWarning("没有路线完全满足约束，已返回约束前候选路线");
-            selectedRoutes = context.getCandidateRoutes().stream().limit(3).toList();
+            context.addWarning("没有路线完全满足约束，已返回最短超时路线");
+            List<CandidateRouteDTO> overtimeRoutes = context.getCandidateRoutes().stream()
+                    .sorted(Comparator.comparingInt(CandidateRouteDTO::totalDurationMinutes))
+                    .limit(3)
+                    .toList();
+            selectedRoutes = new java.util.ArrayList<>();
+            for (int index = 0; index < overtimeRoutes.size(); index++) {
+                selectedRoutes.add(this.withRoutePresentation(overtimeRoutes.get(index), index));
+            }
         }
         context.setSelectedRoutes(selectedRoutes);
     }
@@ -70,5 +77,34 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
                 route.segments(),
                 score
         );
+    }
+
+    private CandidateRouteDTO withRoutePresentation(CandidateRouteDTO route, int index) {
+        String routeCode = switch (index) {
+            case 0 -> "A";
+            case 1 -> "B";
+            default -> "C";
+        };
+        return new CandidateRouteDTO(
+                routeCode,
+                this.routeTitle(routeCode),
+                route.summary(),
+                route.totalDurationMinutes(),
+                route.totalDistanceMeters(),
+                route.budgetCent(),
+                route.riskLevel(),
+                route.explanation(),
+                route.stops(),
+                route.segments(),
+                route.score()
+        );
+    }
+
+    private String routeTitle(String routeCode) {
+        return switch (routeCode) {
+            case "A" -> "路线 A · 兴趣优先线";
+            case "B" -> "路线 B · 节奏平衡线";
+            default -> "路线 C · 轻量备选线";
+        };
     }
 }
