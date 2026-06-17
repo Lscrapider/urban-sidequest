@@ -392,9 +392,9 @@ fun MapSelectScreen(
         if (routes.isNotEmpty() && !isSearchActive) {
             RouteSwitcher(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
+                    .align(Alignment.TopCenter)
                     .statusBarsPadding()
-                    .padding(start = 16.dp, top = 70.dp),
+                    .padding(top = 70.dp),
                 routes = routes,
                 selectedRouteIndex = selectedRouteIndex,
                 visibleRouteIndexes = visibleRouteIndexes,
