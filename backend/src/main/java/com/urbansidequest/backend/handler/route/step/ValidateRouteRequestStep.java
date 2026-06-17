@@ -7,6 +7,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+/**
+ * 校验路线生成请求的基础参数。
+ *
+ * <p>这个步骤只处理后续流程无法自行恢复的输入错误，例如自动范围缺少中心点、
+ * 手动框选缺少多边形；其它业务质量问题会留给后续 Step 通过 warning 表达。</p>
+ */
 @Component
 public class ValidateRouteRequestStep implements RouteGenerationStep {
 

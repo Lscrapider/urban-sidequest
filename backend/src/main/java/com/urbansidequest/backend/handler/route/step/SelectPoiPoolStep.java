@@ -6,6 +6,12 @@ import com.urbansidequest.backend.handler.route.pool.PoiPoolSelector;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
+/**
+ * 将较大的 POI 候选池筛成适合路线编排的小池。
+ *
+ * <p>这个步骤是 LLM 编排前的质量入口：未来会在 {@link PoiPoolSelector}
+ * 中综合兴趣匹配、评分、餐饮/休息保底、空间分布和交通可达性完成筛选。</p>
+ */
 @Component
 public class SelectPoiPoolStep implements RouteGenerationStep {
 

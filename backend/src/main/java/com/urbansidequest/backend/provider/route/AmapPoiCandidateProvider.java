@@ -50,11 +50,13 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
 
     private static final String SEARCH_TYPE_POLYGON = "POLYGON";
 
-    private static final int PAGE_NUM = 1;
+    private static final int FIRST_PAGE_NUM = 1;
 
-    private static final int PAGE_SIZE = 20;
+    private static final int PAGE_SIZE = 25;
 
-    private static final int MAX_CANDIDATE_COUNT = 40;
+    private static final int MAX_PAGE_NUM = 4;
+
+    private static final int MAX_CANDIDATE_COUNT = 100;
 
     private static final int MIN_CANDIDATE_COUNT = 3;
 
@@ -108,25 +110,47 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
             this.putCandidate(candidates, this.fromMustVisitPoint(mustVisitPoint));
         }
 
-        for (PoiSearchPlan plan : this.buildSearchPlans(context)) {
-            JsonNode response;
-            try {
-                response = this.searchWithCache(plan.query());
-            } catch (RestClientException exception) {
-                context.addWarning("部分高德 POI 查询失败，已跳过搜索计划：" + plan.reasonSeed());
-                LOGGER.warn(
-                        "高德 POI 查询计划失败，searchType={}，types={}，keywords={}，pageNum={}，pageSize={}",
-                        plan.query().searchType(),
-                        plan.query().types(),
-                        plan.query().keywords(),
-                        plan.query().pageNum(),
-                        plan.query().pageSize(),
-                        exception
-                );
-                continue;
+        List<PoiSearchPlan> activePlans = this.buildSearchPlans(context);
+        for (int pageNum = FIRST_PAGE_NUM; pageNum <= MAX_PAGE_NUM && candidates.size() < MAX_CANDIDATE_COUNT; pageNum++) {
+            List<PoiSearchPlan> nextActivePlans = new ArrayList<>();
+            for (PoiSearchPlan plan : activePlans) {
+                if (candidates.size() >= MAX_CANDIDATE_COUNT) {
+                    break;
+                }
+                PoiSearchPlan pagedPlan = plan.withQuery(this.withPageNum(plan.query(), pageNum));
+                JsonNode response;
+                try {
+                    response = this.searchWithCache(pagedPlan.query());
+                } catch (RestClientException exception) {
+                    context.addWarning("部分高德 POI 查询失败，已跳过搜索计划：" + pagedPlan.reasonSeed());
+                    LOGGER.warn(
+                            "高德 POI 查询计划失败，searchType={}，types={}，keywords={}，pageNum={}，pageSize={}",
+                            pagedPlan.query().searchType(),
+                            pagedPlan.query().types(),
+                            pagedPlan.query().keywords(),
+                            pagedPlan.query().pageNum(),
+                            pagedPlan.query().pageSize(),
+                            exception
+                    );
+                    continue;
+                }
+                JsonNode pois = response.path("pois");
+                if (!pois.isArray() || pois.isEmpty()) {
+                    continue;
+                }
+                for (JsonNode poiNode : pois) {
+                    this.toPoiCandidate(poiNode, pagedPlan).ifPresent(candidate -> this.putCandidate(candidates, candidate));
+                    if (candidates.size() >= MAX_CANDIDATE_COUNT) {
+                        break;
+                    }
+                }
+                if (pois.size() == PAGE_SIZE) {
+                    nextActivePlans.add(plan);
+                }
             }
-            for (JsonNode poiNode : response.path("pois")) {
-                this.toPoiCandidate(poiNode, plan).ifPresent(candidate -> this.putCandidate(candidates, candidate));
+            activePlans = nextActivePlans;
+            if (activePlans.isEmpty()) {
+                break;
             }
         }
 
@@ -228,8 +252,21 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
                 context.getArea().polygonGcj02(),
                 this.normalize(types),
                 this.normalize(keywords),
-                PAGE_NUM,
+                FIRST_PAGE_NUM,
                 PAGE_SIZE
+        );
+    }
+
+    private AmapPoiSearchQueryDTO withPageNum(AmapPoiSearchQueryDTO query, int pageNum) {
+        return new AmapPoiSearchQueryDTO(
+                query.searchType(),
+                query.center(),
+                query.radiusMeters(),
+                query.polygon(),
+                query.types(),
+                query.keywords(),
+                pageNum,
+                query.pageSize()
         );
     }
 
@@ -546,5 +583,15 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
             List<String> matchedInterestTags,
             String reasonSeed
     ) {
+
+        private PoiSearchPlan withQuery(AmapPoiSearchQueryDTO query) {
+            return new PoiSearchPlan(
+                    query,
+                    this.role,
+                    this.category,
+                    this.matchedInterestTags,
+                    this.reasonSeed
+            );
+        }
     }
 }

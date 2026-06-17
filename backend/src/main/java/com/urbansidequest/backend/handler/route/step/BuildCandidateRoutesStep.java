@@ -6,6 +6,12 @@ import com.urbansidequest.backend.handler.route.search.RouteCandidateComposer;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
+/**
+ * 基于筛选后的 POI 池生成候选路线草案。
+ *
+ * <p>当前实现通过 {@link RouteCandidateComposer} 调用大模型做路线编排；
+ * 真实路段耗时、距离和 polyline 不在本步骤计算，后续由校准步骤处理。</p>
+ */
 @Component
 public class BuildCandidateRoutesStep implements RouteGenerationStep {
 

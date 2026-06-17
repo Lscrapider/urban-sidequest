@@ -15,6 +15,12 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
+/**
+ * 对最终选中的路线逐段补真实路径规划结果。
+ *
+ * <p>前置步骤只生成 stop 顺序和推荐交通方式；本步骤优先读取路段缓存，
+ * 未命中时调用高德路线规划，补齐真实距离、耗时、polyline 和 steps。</p>
+ */
 @Component
 public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
 
@@ -54,6 +60,7 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
                 continue;
             }
             RouteStopDTO next = stops.get(index + 1);
+            // 模型未给出下一段交通方式时，使用请求中允许的第一个方式作为兜底。
             SegmentTransportMode mode = current.transportToNext() == null
                     ? context.getGenerateParam().getTransportProfile().getAllowedSegmentModes().get(0)
                     : current.transportToNext();
@@ -98,6 +105,7 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
             SegmentTransportMode mode,
             RouteGenerationContext context
     ) {
+        // 路段规划先查缓存，再调高德；外部规划失败时用模型/估算值兜底，保证路线仍可返回。
         return this.findCachedPlan(origin, destination, mode)
                 .or(() -> this.fetchAndCachePlan(origin, destination, mode, context))
                 .map(plan -> this.toRouteSegment(order, origin, destination, mode, plan))
