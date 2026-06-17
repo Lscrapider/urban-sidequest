@@ -307,6 +307,8 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
                 avgPriceCent,
                 plan.matchedInterestTags(),
                 this.parsePhotoUrls(poiNode),
+                List.of(),
+                "UNKNOWN",
                 false,
                 plan.reasonSeed()
         ));
@@ -330,6 +332,8 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
                 null,
                 List.of("MUST_VISIT"),
                 List.of(),
+                List.of(),
+                "UNKNOWN",
                 true,
                 "用户标记为" + switch (mustVisitPoint.getPriority()) {
                     case MUST -> "必须到达";

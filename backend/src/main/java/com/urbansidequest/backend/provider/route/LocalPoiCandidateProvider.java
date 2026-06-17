@@ -62,6 +62,8 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                 null,
                 List.of("MUST_VISIT"),
                 List.of(),
+                List.of(),
+                "UNKNOWN",
                 true,
                 "用户标记为" + switch (mustVisitPoint.getPriority()) {
                     case MUST -> "必须到达";
@@ -257,6 +259,8 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                 avgPriceCent,
                 matchedInterestTags,
                 List.of(),
+                List.of(),
+                "UNKNOWN",
                 false,
                 reasonSeed
         );

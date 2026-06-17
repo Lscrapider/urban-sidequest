@@ -17,6 +17,8 @@ public record PoiCandidateDTO(
         Integer avgPriceCent,
         List<String> matchedInterestTags,
         List<String> imageUrls,
+        List<TransitFacilityDTO> nearestTransit,
+        String transitAccessibility,
         boolean mustVisit,
         String reasonSeed
 ) {

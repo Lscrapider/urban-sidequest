@@ -2,17 +2,17 @@ package com.urbansidequest.backend.handler.route.step;
 
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
-import com.urbansidequest.backend.handler.route.search.BeamSearchRouteSelector;
+import com.urbansidequest.backend.handler.route.search.RouteCandidateComposer;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
 public class BuildCandidateRoutesStep implements RouteGenerationStep {
 
-    private final BeamSearchRouteSelector beamSearchRouteSelector;
+    private final RouteCandidateComposer routeCandidateComposer;
 
-    public BuildCandidateRoutesStep(BeamSearchRouteSelector beamSearchRouteSelector) {
-        this.beamSearchRouteSelector = beamSearchRouteSelector;
+    public BuildCandidateRoutesStep(RouteCandidateComposer routeCandidateComposer) {
+        this.routeCandidateComposer = routeCandidateComposer;
     }
 
     @Override
@@ -22,7 +22,10 @@ public class BuildCandidateRoutesStep implements RouteGenerationStep {
             context.addWarning("当前范围内没有可用候选点");
             return;
         }
-        List<CandidateRouteDTO> routes = this.beamSearchRouteSelector.selectRoutes(context);
+        List<CandidateRouteDTO> routes = this.routeCandidateComposer.composeRoutes(context);
+        if (routes.isEmpty()) {
+            context.addWarning("大模型没有生成可用候选路线");
+        }
         context.setCandidateRoutes(routes);
     }
 }

@@ -66,6 +66,8 @@ class BeamSearchRouteSelectorTest {
                 null,
                 List.of("city"),
                 List.of(),
+                List.of(),
+                "UNKNOWN",
                 mustVisit,
                 "适合路线"
         );
