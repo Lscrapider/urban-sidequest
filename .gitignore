@@ -6,7 +6,7 @@ backend/src/main/resources/application.yml
 .vscode/
 *.swp
 *.swo
-
+.claude
 # Local env
 .env
 .env.*
