@@ -523,6 +523,14 @@ sampleSource
 feedbackType
 ```
 
+其中 `chosenLinearScore` 和 `rejectedLinearScore` 是 Linear Ranker 计算出的固定基线分。首版训练时它们参与最终分数比较，但 Linear 权重本身不参与反向传播，也不被 Neural 训练过程改写。
+
+训练目标不是让 `chosenResidual > rejectedResidual`，而是让最终线上使用的分数满足：
+
+```text
+chosenFinalScore > rejectedFinalScore
+```
+
 训练时两路输入共用同一个模型参数：
 
 ```text
@@ -694,10 +702,12 @@ alignmentWeight:
   来自 POI type、routeRole、上下文一致性。
 
 negativeAlpha:
-  来自反馈强弱。
+  表示负反馈行为本身有多强，回答“这个行为有多负”。
+  它只看反馈类型，不判断这个负反馈是不是能准确归因到当前 POI pair。
 
 feedbackConfidence:
-  来自真实用户反馈置信度或多 LLM judge 一致性。
+  表示当前训练样本的归因可信度，回答“这个反馈能不能放心归因到当前 POI pair”。
+  它看的是 pair 是否可比、理由是否指向点位、多 LLM judge 是否一致、是否存在路线结构干扰。
 
 sourceWeight:
   真实用户反馈高于 synthetic LLM 数据。
@@ -725,24 +735,96 @@ NOT_EXPOSED:
   negativeAlpha = 0
 ```
 
-如果拒绝理由明显是路线结构问题，例如太绕、太赶、饭点错误、缺休息、交通衔接差，则点位 pair 不直接丢弃，但要降低 `feedbackConfidence`。路线结构问题后续进入独立路线评估设计。
+`feedbackConfidence` 的判断依据：
+
+```text
+高 confidence:
+  chosen/rejected 的 POI type 相同。
+  routeRole 相同。
+  上下文相近。
+  拒绝理由明确指向点位本身，例如太贵、质量低、重复、评分差、不是用户兴趣。
+  多 LLM judge 对排序和理由一致。
+
+中 confidence:
+  type 相同，但 routeRole 或上下文不完全一致。
+  拒绝理由既包含点位问题，也包含部分路线结构问题。
+  LLM judge 大体一致，但理由有轻微分歧。
+
+低 confidence:
+  拒绝理由主要是路线结构问题，例如太绕、太赶、饭点错误、缺休息、交通衔接差。
+  POI pair 虽然 type 相同，但上下文差异较大。
+  LLM judge 排序或理由分歧明显。
+
+0 confidence:
+  没有曝光。
+  type 不同，pair 不可比。
+  反馈无法和当前 request 或 route batch 对齐。
+```
+
+二者的区别：
+
+```text
+negativeAlpha:
+  衡量反馈力度。
+  例如 dislike 比 exposed_not_selected 更强。
+
+feedbackConfidence:
+  衡量归因可信度。
+  例如“路线太绕”不能强归因到某个 POI 差。
+```
+
+典型例子：
+
+```text
+用户明确 dislike 某个 POI:
+  negativeAlpha 高。
+  feedbackConfidence 通常也高，因为指向明确。
+
+用户没有选择某条路线:
+  negativeAlpha 低。
+  feedbackConfidence 取决于拒绝理由和 POI pair 对齐质量。
+
+用户拒绝理由是“这条路线太绕”:
+  negativeAlpha 可以表示用户确实拒绝了这条路线。
+  feedbackConfidence 要降低，因为问题可能来自路线结构，不一定来自当前 POI pair。
+
+用户拒绝理由是“这家餐厅太贵”，且 chosen/rejected 都是午饭位置餐厅:
+  negativeAlpha 较高。
+  feedbackConfidence 较高，因为 pair 可比且理由指向点位本身。
+```
+
+如果拒绝理由明显是路线结构问题，点位 pair 不直接丢弃，但要降低 `feedbackConfidence`。路线结构问题后续进入独立路线评估设计。
 
 ### 9.6 Loss
 
-训练分数：
+训练分数必须和线上排序分数保持一致：
 
 ```text
-chosenScore = chosenLinearScore + chosenResidual
-rejectedScore = rejectedLinearScore + rejectedResidual
+chosenFinalScore = chosenLinearScore + chosenResidual
+rejectedFinalScore = rejectedLinearScore + rejectedResidual
 ```
 
 Pairwise logistic ranking loss：
 
 ```text
 loss = sampleWeight * -log sigmoid(
-  beta * (chosenScore - rejectedScore)
+  beta * (chosenFinalScore - rejectedFinalScore)
 )
 ```
+
+展开：
+
+```text
+loss = sampleWeight * -log sigmoid(
+  beta * (
+    (chosenLinearScore + NeuralResidualScorer(chosenInput; theta))
+    -
+    (rejectedLinearScore + NeuralResidualScorer(rejectedInput; theta))
+  )
+)
+```
+
+这里 LinearScore 参与 loss 计算，保证训练目标和线上 `finalScore = linearScore + neuralResidual` 一致。但首版只更新 Neural Residual Scorer 的参数 `theta`，不训练 Linear 矩阵权重。
 
 推荐训练配置：
 
