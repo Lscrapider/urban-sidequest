@@ -531,37 +531,223 @@ goal 语义匹配采用方案 A:
 
 ## 3. 特征规约化规则
 
-所有进入 `X` 的特征必须先规约化。
+所有进入 `X` 的特征必须先规约化。本节是 step 2 的产物:在第 2 节"哪些字段存在"的基础上，
+逐字段定 **取值范围 / 规约化公式 / 默认值 / missing indicator**。第 2 节里 request /
+environment / userPreference 是空段，本节只规约 **真正进 X 的两组:poiFeature 与 derivedFeature**。
+
+### 3.0 类型约定
 
 ```text
-布尔特征:
-  0 或 1。
-
-比例特征:
-  0 到 1。
-
-惩罚特征:
-  0 到 1，由负权重表达扣分。
-
-溢出特征:
-  允许到 1.5 或 2.0，但必须有明确上限。
-
-枚举特征:
-  使用 one-hot、multi-hot 或稳定 ordinal 编码。
-
-缺失特征:
-  必须有默认值，并额外提供 missing indicator。
+布尔(bool):        {0, 1}。one-hot/multi-hot 的每个分量也是 {0,1}。
+比例(ratio):        [0, 1] clamp。
+惩罚(penalty):      [0, 1]，由负权重表达扣分(值越大扣得越多)。
+溢出(overflow):     [0, cap]，cap 必须显式写明(本文用 1.5 或 2.0)。
+枚举(enum):         one-hot / multi-hot / 稳定 ordinal，禁止把无序类别当 ordinal。
+缺失(missing):      必须给默认值 + 额外 missing indicator 列(见 3.1)。
 ```
 
-示例：
+### 3.1 缺失值总则(四条铁律，逐字段不再重复解释)
 
 ```text
-ratingNorm = rating / 5
-distanceNorm = min(distanceMeters / radiusMeters, 1.5)
-avgPriceNorm = min(avgPriceCent / budgetCapCent, 2.0)
-hasImage = imageUrls 非空 ? 1 : 0
-isRatingMissing = rating 为空 ? 1 : 0
+1. 缺失默认 = 中性先验，不是最差值。
+   连续/比例字段缺失取"量纲中点或不奖不罚点"，绝不取 0 当扣分，也不臆测有利值
+   (如 cost 缺失不臆测低价、不臆测免费)。
+
+2. missing indicator 只配"小折扣"权重。
+   缺失本身已由默认值温和体现不确定性;indicator 再叠一个极小负权即可，
+   不得让 "缺失" 在数值上等同 "最差"。
+
+3. 缺失重叠不重复放大(对齐第 6 节)。
+   同一份缺失只允许被主权重打一次:综合缺失走 W_risk.missingInfoRisk(主),
+   W_quality 的 isRatingMissing / hasImage 给"具体但极小"的权重，避免三重计分。
+
+4. "事实性差" ≠ "信息缺失"。
+   无最近交通站、距离远、确定闭店是真实负向事实，可正当扣分(可取 cap),
+   不受第 1 条保护;只有"源里没这个字段"才按中性先验处理。
 ```
+
+### 3.2 参考尺度常量(v1 默认，待 sanity check 校准)
+
+规约化分母集中在此，避免散落。这些是 v1 经验初值，第 9 节样例回归后再调。
+
+```text
+budgetCap        = 150 元/人        # avgPriceNorm 分母(全局常量，v1 不做城市价差)
+effectiveRadius  = 见 2.2 解析       # distanceNorm 分母:transportProfile 档半径封顶，request 半径只能收窄
+transitRef       = 800 m            # nearestTransitDistanceNorm 分母(对齐交通档阈值)
+walkRef          = 1000 m           # walkingAccessibility 步行舒适上限
+fatigueRef       = 随 transportProfile # distanceFatiguePressure 分母(WALK_ONLY 最小→更易疲劳)
+isolationRef     = effectiveRadius / 3 # isolatedDistanceNorm 分母
+neighborR        = 300 m            # clusterConnectivity / 邻域计数半径
+connectFull      = 5 个             # clusterConnectivity 饱和邻域数
+dupFull          = 5 个             # categoryDuplicateRisk 饱和同类数
+affinityNorm     = Σ tagAffinity    # userInterestAffinity 归一分母(按用户问卷权重和);<=0(空问卷)时该列直接取 0,不除零
+```
+
+### 3.3 poiFeature 逐字段规约
+
+#### W_quality
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 | missing indicator |
+| --- | --- | --- | --- | --- | --- |
+| `ratingNorm` | ratio | [0,1] | `clamp(business.rating / 5, 0, 1)` | `0.5`(量纲中点) | `isRatingMissing` |
+| `isRatingMissing` | bool | {0,1} | `rating == null ? 1 : 0` | `0` | 自身即指示列 |
+| `hasImage` | bool | {0,1} | `photos 非空 ? 1 : 0` | `0`(无图) | 无独立列(无图即 0) |
+
+> `ratingNorm` 缺失给中点 0.5 已是相对真实均值(≈0.8)的温和折扣，故 `isRatingMissing`
+> 权重设极小或仅供 `missingInfoRisk` 聚合，**不与 0.5 折扣双算**(铁律 2、3)。
+
+#### W_budget(整组先经 categoryGroup 消费类门控,非消费类四列全 0)
+
+`isConsumable = categoryGroup ∈ 消费类(餐饮/购物/休闲娱乐等)`。**门控前置:非消费类
+(景点/公园/免费场所)`isConsumable=0`,本组四列一律 0(含 isPriceMissing=0),不参与价格评估。**
+仅当 `isConsumable=1` 时才按下表评估;下面公式均已隐含 `isConsumable=1` 的前提。
+
+| 字段 | 类型 | 取值范围 | 规约化公式(仅消费类) | 缺失默认 | missing indicator |
+| --- | --- | --- | --- | --- | --- |
+| `avgPriceNorm` | overflow | [0,2.0] | `min(business.cost / budgetCap, 2.0)` | `0.5`(中性，不臆测低价) | `isPriceMissing` |
+| `isPriceMissing` | bool | {0,1} | `(isConsumable && cost == null) ? 1 : 0` | `0` | 自身即指示列 |
+| `isFree` | bool | {0,1} | `(isConsumable && cost == 0) ? 1 : 0` | `0` | 非消费类恒 0 |
+| `expensivePoiRisk` | ratio | [0,1] | `clamp((avgPriceNorm - 1.0) / 1.0, 0, 1)`(超 budgetCap 后线性升至 2×cap=1) | `0` | 随 `isPriceMissing` 置 0 |
+
+> 关键:`isPriceMissing` **不是** `cost == null`,而是门控后的 `isConsumable && cost == null`。
+> 否则景点/公园(typecode 110000 等本就无 cost)会被误标价格缺失,再叠 `avgPriceNorm=0.5` 当成
+> 中等消费惩罚,与"非消费类 cost 缺失中性、不扣分"自相矛盾。
+> 消费类内部 cost 缺失才取中点 0.5(价格未知,不奖不罚;绝不取 0 被当免费误加分)。
+
+#### W_transport
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 | missing indicator |
+| --- | --- | --- | --- | --- | --- |
+| `transitHigh` | one-hot | {0,1} | `nearestTransit ≤ 300m ? 1 : 0` | — | 见下 |
+| `transitMedium` | one-hot | {0,1} | `300m < nearestTransit ≤ 800m ? 1 : 0` | — | 见下 |
+| `transitLow` | one-hot | {0,1} | `nearestTransit > 800m 或 provider 成功返回空 ? 1 : 0` | 见下区分 | 见下 |
+| `nearestTransitDistanceNorm` | overflow | [0,1.5] | `min(nearestTransit[0].distanceMeters / transitRef, 1.5)` | 见下区分 | 无独立列 |
+
+> 三档严格 one-hot(恰一个为 1)。规约化按 provider 的**结构化状态** `transitLookupStatus` 分流,
+> 不得只看 `nearestTransit` 是否为空(空列表会把"真无站"和"没查到"混为一谈)。
+> 关键区分:**事实性差(扣分)走 POI 列,系统级能力缺失(行失效)走请求级开关**,二者不混用——
+> 系统没拿到交通信号时不能伪装成 `transitMedium=1`(那是一个虚假常数,对全体 POI 同值只是噪音)。
+>
+> | `transitLookupStatus` | 语义 | 规约化处理 |
+> | --- | --- | --- |
+> | `SUCCESS` | 查到站点 | 正常使用交通列:按距离落 High/Medium/Low + `nearestTransitDistanceNorm` |
+> | `SUCCESS_EMPTY` | 成功但范围内确无公交/地铁 | 铁律 4 事实性差:`transitLow=1`、`nearestTransitDistanceNorm=1.5`(cap) |
+> | `UNAVAILABLE` | API 未配置/未跑(系统级能力缺失) | 请求级 `transportSignalAvailable=false`,触发 **transit mask**(见下) |
+> | `FAILED` | 调用异常/超时 | **批量整次失败**→同 `UNAVAILABLE`,触发 transit mask;**(未来)单 POI 局部失败**→仅对失败 POI 中性降级(`transitMedium=1`、distNorm=1.0)并保留其余 POI 的真实交通信号 |
+>
+> **transit mask(`transportSignalAvailable=false` 时的横切门控,跨行生效)**:
+> X 维度固定,不能真的删列。失效时**所有相关列仍保留固定维度、取默认值,由 mask 关闭其对 linearScore
+> 的贡献**(实现上等价于把这些列乘 0 / 把相关权重本次置 0),绝不是真不写列。被 mask 的列**横跨多行**,
+> 凡依赖 `nearestTransit / transitScore / transitHigh|Medium|Low` 的都要关,否则交通维度会从别的行旁路漏回来:
+>
+> ```text
+> 被 mask 关闭(保留维度、置默认、不贡献):
+>   W_transport:       transitHigh / transitMedium / transitLow / nearestTransitDistanceNorm
+>                      / walkingAccessibility / rainTransportRisk
+>   W_personalization: personalizedTransitPressure   ← 关键:它也吃 nearestTransitDistanceNorm，
+>                                                       不 mask 就成了交通维度的旁路漏点
+> 不受 mask 影响、仍正常工作(纯距离/非交通):
+>   W_distance:        distanceNorm / distanceFatiguePressure / heatFatigueRisk
+>                      / isolatedDistanceNorm / clusterConnectivity
+> ```
+>
+> 排序因此退化到"无交通维度"的其余行,而不是给每个 POI 顶一个假的中性档。当前 provider 的失败/未配置
+> 都是**批量级**(`loadTransitPoints` 抛异常或 `!isAvailable()` 时整批返回),故 v1 的 `FAILED` 等同请求级
+> 失效;单 POI 局部失败是未来 provider 支持逐点查询后才出现的情形,届时才走"失败 POI 中性降级、其余保真"。
+>
+> **落地前置依赖(当前代码缺,实现 Linear Ranker 前必须补):**
+> [`AmapTransitPoiDetailProvider`](../backend/src/main/java/com/urbansidequest/backend/provider/route/AmapTransitPoiDetailProvider.java)
+> 现有四个出口(`!isAvailable()` 未配置 / `catch RestClientException` 异常 / `transitPoints.isEmpty()` 真无站 /
+> 正常增强)目前都直接返回原 `candidates`,只靠 `addWarning` 文案区分,下游拿不到状态。需:
+> 1. POI 级 `transitLookupStatus`(SUCCESS / SUCCESS_EMPTY)写入 `PoiCandidateDTO`,用于 transit 列分流;
+> 2. 请求级 `transportSignalAvailable`(false ⟸ UNAVAILABLE 或批量 FAILED)写入 `RouteGenerationContext`
+>    /增强结果,用于跨行 transit mask(关 W_transport 的交通列 + W_personalization 的 personalizedTransitPressure);
+> 3. 规约层据此分流,不再依赖 warning 文案或空 `nearestTransit` 列表。
+
+#### W_risk(POI 自身列)
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 | missing indicator |
+| --- | --- | --- | --- | --- | --- |
+| `missingInfoRisk` | ratio | [0,1] | `0.5*(!hasImage) + 0.5*isRatingMissing`(地址恒有，暂不计) | `0` | 综合缺失主列 |
+| `weatherSensitive` | ratio | [0,1] | typecode 规则:室外=1 / 半室外=0.5 / 室内=0 | `0`(未知→不敏感) | 仅原料，不直接打分 |
+
+> `weatherSensitive` 缺失默认取 0 而非 0.5:它下游进 `weatherOutdoorRisk = badWeatherSeverity *
+> weatherSensitive`,坏天气下被负权扣分。取 0.5 等于让"室内外未知"的 POI 在坏天气里平白吃半档
+> 户外风险,违反"缺失不当负例"。故未知按"不敏感(0)"处理,宁可漏扣不可错扣。
+
+#### 身份标识
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 | missing indicator |
+| --- | --- | --- | --- | --- | --- |
+| `candidateRole` | one-hot | {0,1}×6 | `role ∈ {MUST_VISIT,ANCHOR,MEAL,REST,LOCAL,BACKUP}` 展开 | `BACKUP=1` | 恰一个为 1 |
+| `isMustVisit` | bool | {0,1} | `mustVisit ? 1 : 0` | `0` | — |
+
+#### POI 语义标签(由 typecode/keytag/rectag 映射，缺失统一不臆测语义)
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 | missing indicator |
+| --- | --- | --- | --- | --- | --- |
+| `categoryGroup` | multi-hot | {0,1}×N | typecode 前缀映射到有限大类组 | 全 0(未知) | gating/原料，不直接打分 |
+| `isClassic` / `isLocal` / `isPhotoFriendly` / `isNightFriendly` / `isQuiet` / `isHiddenGem` | bool | {0,1} | 映射表命中 ? 1 : 0 | `0`(不臆测该语义) | 无独立列 |
+
+### 3.4 derivedFeature 逐字段规约
+
+#### A. poolDerived(POI ⊗ 区域/候选池)
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 |
+| --- | --- | --- | --- | --- |
+| `distanceNorm` | overflow | [0,1.5] | `min(distance / effectiveRadius, 1.5)`，distance 取高德 AROUND 顶层或 location 算 | `1.0`(坐标恒有，理论缺→半径边缘) |
+| `isolatedDistanceNorm` | overflow | [0,1.5] | `min(到最近其他候选距离 / isolationRef, 1.5)` | `0`(单点/无邻→不算孤立) |
+| `clusterConnectivity` | ratio | [0,1] | `min(neighborR 内**其他**候选数 / connectFull, 1)`(不含自身) | `0`(无邻=不可连接) |
+| `distanceFatiguePressure` | ratio | [0,1] | `min(distance / fatigueRef, 1)` | `0` |
+| `walkingAccessibility` | ratio | [0,1] | `0.5*clamp(1 - distance/walkRef, 0,1) + 0.5*transitScore`,`transitScore = {High:1, Medium:0.5, Low:0}` | `0.5`(中性) |
+| `categoryDuplicateRisk` | ratio | [0,1] | `min((同 categoryGroup 候选数 - 1) / dupFull, 1)`,categoryGroup 全 0(未知类)→`0` | `0` |
+
+> - `clusterConnectivity` / `categoryDuplicateRisk` 的候选计数均**排除自身**。
+> - `categoryDuplicateRisk`:`categoryGroup` 全 0 的未知类**显式置 0**,不得把所有未知类别当成
+>   同一类互相计数(否则一池未知 POI 会彼此误判"同质化"全体扣分)。同质化只在已知大类内统计。
+> - `walkingAccessibility` 公式已闭合:步行距离分量与交通档分量各占 0.5;落地可按数据再调权重。
+> - `clusterConnectivity` 是**正向**可达性,W_distance 给正权(连接好→降距离成本);
+>   `isolatedDistanceNorm` / `distanceFatiguePressure` / `categoryDuplicateRisk` 是负向,负权扣分。
+
+#### B. requestCross(POI ⊗ 请求)
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 |
+| --- | --- | --- | --- | --- |
+| `interestMatchRatio` | ratio | [0,1] | `|interestTags| == 0 ? 0 : |request.interestTags ∩ POI.matchedInterestTags| / |request.interestTags|` | `0`(无 interestTags→无短期偏好，不加分) |
+
+#### C. envCross(POI ⊗ 环境/路线时间;天气源缺失→severity=0→整列 0，不罚)
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 |
+| --- | --- | --- | --- | --- |
+| `weatherOutdoorRisk` | ratio | [0,1] | `badWeatherSeverity * weatherSensitive` | `0`(无天气源→不罚) |
+| `heatFatigueRisk` | ratio | [0,1] | `heatLevel * distanceFatiguePressure` | `0` |
+| `rainTransportRisk` | ratio | [0,1] | `rainLevel * (1 - walkingAccessibility)` | `0` |
+| `closeRisk` | ratio | [0,1] | 营业内=0 / 确定闭店=1 / opentime 缺失=`0.2`(小先验风险) | `0.2`(opentime 缺失) |
+| `nightMatch` | bool | {0,1} | `routeTimeStructure.isNight * isNightFriendly` | `0` |
+| `mealMatch` | ratio | [0,1] | `routeTimeStructure.mealWindow * isMealCandidate` | `0` |
+
+> `closeRisk` 的 opentime 缺失按铁律 1 取小先验 0.2(不当全闭=1)，避免缺营业时间的 POI 被打死。
+
+#### D. profileCross(POI ⊗ 问卷画像，全部已乘 profileConfidence;新用户→0)
+
+| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 |
+| --- | --- | --- | --- | --- |
+| `userInterestAffinity` | ratio | [0,1] | `(profileConfidence<=0 \|\| affinityNorm<=0) ? 0 : profileConfidence * clamp(Σ(tagAffinity[tag]*poiTagHit[tag]) / affinityNorm, 0, 1)` | `0` |
+| `personalizedDistancePressure` | overflow | [0,1.5] | `profileConfidence * distanceSensitivity * distanceNorm` | `0` |
+| `personalizedBudgetPressure` | overflow | [0,2.0] | `profileConfidence * budgetSensitivity * avgPriceNorm` | `0` |
+| `personalizedTransitPressure` | overflow | [0,1.5] | `profileConfidence * transferSensitivity * nearestTransitDistanceNorm`;**`transportSignalAvailable=false` 时被 transit mask 关闭**(见 W_transport 节) | `0` |
+| `personalizedExplorationMatch` | ratio | [0,1] | `profileConfidence * hiddenGemAffinity * isHiddenGem` | `0` |
+
+> `profileConfidence`(问卷完成度，[0,1])是全局收缩乘子:新用户/跳过问卷→profileConfidence=0
+> →整组 profileCross 自然收缩到 0，不凭空影响排序;故 `profileConfidence` / `isNewUser` 不单列。
+> 三个 pressure 列继承乘子内 distanceNorm/avgPriceNorm/nearestTransitDistanceNorm 的 overflow 上限。
+
+> 规约化示例(挑三个看公式形态):
+> ```text
+> ratingNorm                   = clamp(business.rating / 5, 0, 1)            # ratio，缺失→0.5
+> distanceNorm                 = min(distance / effectiveRadius, 1.5)        # overflow，分母=有效半径
+> personalizedDistancePressure = profileConfidence * distanceSensitivity * distanceNorm  # 乘子收缩
+> ```
 
 ## 4. 矩阵输出行
 
