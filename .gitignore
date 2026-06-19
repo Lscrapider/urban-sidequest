@@ -11,6 +11,8 @@ backend/src/main/resources/application.yml
 .env
 .env.*
 !.env.example
+scripts/route_preference_simulator/config.json
+scripts/route_preference_simulator/requests.json
 
 # Dependencies
 node_modules/

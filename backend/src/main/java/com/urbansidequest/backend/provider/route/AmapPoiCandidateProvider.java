@@ -36,11 +36,9 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 
-@Primary
 @Component
 public class AmapPoiCandidateProvider implements PoiCandidateProvider {
 
@@ -350,6 +348,7 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
                 avgPriceCent,
                 plan.matchedInterestTags(),
                 this.parsePhotoUrls(poiNode),
+                null,
                 rawType,
                 typecode,
                 opentimeToday,

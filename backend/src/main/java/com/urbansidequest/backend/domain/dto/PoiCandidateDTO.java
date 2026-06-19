@@ -18,6 +18,7 @@ public record PoiCandidateDTO(
         Integer avgPriceCent,
         List<String> matchedInterestTags,
         List<String> imageUrls,
+        Integer imageCount,
         String rawType,
         String typecode,
         String opentimeToday,
@@ -35,6 +36,7 @@ public record PoiCandidateDTO(
     public PoiCandidateDTO {
         matchedInterestTags = matchedInterestTags == null ? List.of() : List.copyOf(matchedInterestTags);
         imageUrls = imageUrls == null ? List.of() : List.copyOf(imageUrls);
+        imageCount = imageCount == null ? imageUrls.size() : imageCount;
         nearestTransit = nearestTransit == null ? List.of() : List.copyOf(nearestTransit);
         transitLookupStatus = transitLookupStatus == null ? TransitLookupStatus.UNAVAILABLE : transitLookupStatus;
     }
@@ -70,6 +72,7 @@ public record PoiCandidateDTO(
                 avgPriceCent,
                 matchedInterestTags,
                 imageUrls,
+                imageUrls == null ? 0 : imageUrls.size(),
                 null,
                 null,
                 null,
@@ -103,6 +106,7 @@ public record PoiCandidateDTO(
                 this.avgPriceCent,
                 this.matchedInterestTags,
                 this.imageUrls,
+                this.imageCount,
                 this.rawType,
                 this.typecode,
                 this.opentimeToday,
@@ -116,5 +120,9 @@ public record PoiCandidateDTO(
                 this.mustVisit,
                 this.reasonSeed
         );
+    }
+
+    public boolean hasImage() {
+        return !this.imageUrls.isEmpty() || this.imageCount > 0;
     }
 }

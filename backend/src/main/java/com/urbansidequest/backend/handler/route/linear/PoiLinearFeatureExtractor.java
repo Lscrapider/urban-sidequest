@@ -44,7 +44,7 @@ public class PoiLinearFeatureExtractor {
         double ratingNorm = ratingMissing
                 ? LinearScoreConstants.RATING_MISSING_DEFAULT
                 : LinearScoreConstants.clamp01(candidate.amapRating().doubleValue() / LinearScoreConstants.RATING_FULL);
-        double hasImage = candidate.imageUrls() != null && !candidate.imageUrls().isEmpty() ? 1d : 0d;
+        double hasImage = candidate.hasImage() ? 1d : 0d;
         double missingInfoRisk = 0.5d * (hasImage == 0d ? 1d : 0d) + 0.5d * (ratingMissing ? 1d : 0d);
 
         // —— W_budget（消费类门控）——

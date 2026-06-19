@@ -1,3 +1,25 @@
+CREATE TABLE route_preference_candidate_sets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    request_id UUID NOT NULL,
+    user_id UUID REFERENCES users(id),
+    generation_source VARCHAR(64) NOT NULL DEFAULT 'ONLINE',
+    route_count INTEGER NOT NULL DEFAULT 0,
+    target_judgment_count INTEGER,
+    current_judgment_count INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(32) NOT NULL DEFAULT 'GENERATED',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_route_preference_candidate_sets_request_id
+    ON route_preference_candidate_sets (request_id);
+
+CREATE INDEX idx_route_preference_candidate_sets_user_id
+    ON route_preference_candidate_sets (user_id);
+
+CREATE INDEX idx_route_preference_candidate_sets_status
+    ON route_preference_candidate_sets (status);
+
 CREATE TABLE route_preference_training_samples (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     candidate_set_id UUID NOT NULL,

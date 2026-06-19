@@ -1,0 +1,36 @@
+[
+  {
+    "request": {
+      "areaMode": "AUTO_RADIUS",
+      "areaLabel": "上海人民广场附近",
+      "center": {
+        "longitudeGcj02": 121.4737,
+        "latitudeGcj02": 31.2304
+      },
+      "areaPolygonGcj02": [],
+      "routeCityName": "上海",
+      "routeCityAdcode": "310000",
+      "departureTime": "2026-06-20T06:00:00Z",
+      "durationMinutes": 240,
+      "transportProfile": "WALK_SUBWAY",
+      "routeGoal": "LOCAL",
+      "interestTags": ["LOCAL", "FOOD", "COFFEE"],
+      "mustVisitPoints": []
+    },
+    "persona": {
+      "distanceSensitivity": 0.6,
+      "budgetSensitivity": 0.9,
+      "transferSensitivity": 0.5,
+      "hiddenGemAffinity": 0.7,
+      "profileConfidence": 0.8,
+      "tagAffinities": {
+        "LOCAL": 0.9,
+        "FOOD": 0.8,
+        "COFFEE": 0.7,
+        "CLASSIC": 0.3
+      },
+      "newUser": false,
+      "questionnaireVersion": "sim-persona-v1"
+    }
+  }
+]

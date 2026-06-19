@@ -18,6 +18,10 @@ public class LoadUserPreferenceProfileStep implements RouteGenerationStep {
 
     @Override
     public void execute(RouteGenerationContext context) {
+        if (context.getGenerateParam().getUserPreferenceProfileOverride() != null) {
+            context.setUserPreferenceProfile(context.getGenerateParam().getUserPreferenceProfileOverride());
+            return;
+        }
         context.setUserPreferenceProfile(this.userPreferenceProfileManage.findProfileByUserId(context.getUserId()));
     }
 }

@@ -7,8 +7,10 @@ import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.PoiLinearTraceDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
+import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
 import com.urbansidequest.backend.domain.enums.BudgetLevel;
 import com.urbansidequest.backend.domain.enums.DurationBucket;
+import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
@@ -71,13 +73,14 @@ public class RouteInputFeatureExtractor {
         List<Map<String, Object>> stopMatrix = this.stopMatrix(route, source);
         List<Map<String, Object>> segmentMatrix = this.segmentMatrix(route, context, source);
         Map<String, Object> routeDerivedVector = this.routeDerivedVector(route, context, source, stopMatrix, segmentMatrix);
+        Map<String, Object> contextCrossVector = this.contextCrossVector(context, routeDerivedVector);
         Map<String, Object> contextJson = this.contextJson(context);
         return new RouteInputFeatureSnapshot(
                 RoutePreferenceFeatureSchema.VERSION,
                 this.writeJson(stopMatrix),
                 this.writeJson(segmentMatrix),
                 this.writeJson(routeDerivedVector),
-                "{}",
+                this.writeJson(contextCrossVector),
                 this.writeJson(contextJson)
         );
     }
@@ -127,7 +130,7 @@ public class RouteInputFeatureExtractor {
             row.put("ratingNorm", rating == null ? LinearScoreConstants.RATING_MISSING_DEFAULT
                     : clamp01(rating.doubleValue() / LinearScoreConstants.RATING_FULL));
             row.put("hasImage", bit((stop.imageUrls() != null && !stop.imageUrls().isEmpty())
-                    || (candidate != null && !candidate.imageUrls().isEmpty())));
+                    || (candidate != null && candidate.hasImage())));
             row.put("isRatingMissing", bit(rating == null));
 
             Integer avgPriceCent = candidate == null ? null : candidate.avgPriceCent();
@@ -309,6 +312,66 @@ public class RouteInputFeatureExtractor {
         contextJson.put("weather", context.getRouteWeather());
         contextJson.put("userPreferenceProfile", context.getUserPreferenceProfile());
         return contextJson;
+    }
+
+    private Map<String, Object> contextCrossVector(
+            RouteGenerationContext context,
+            Map<String, Object> routeDerivedVector
+    ) {
+        Map<String, Object> vector = new LinkedHashMap<>();
+        UserPreferenceProfileDTO profile = context.getUserPreferenceProfile();
+        double profileConfidence = profile == null ? 0d : doubleOf(profile.profileConfidence());
+        double distanceSensitivity = profile == null ? 0d : doubleOf(profile.distanceSensitivity());
+        double budgetSensitivity = profile == null ? 0d : doubleOf(profile.budgetSensitivity());
+        double hiddenGemAffinity = profile == null ? 0d : doubleOf(profile.hiddenGemAffinity());
+
+        double totalDistanceNorm = doubleValue(routeDerivedVector.get("totalDistanceNorm"));
+        double maxSegmentDistanceNorm = doubleValue(routeDerivedVector.get("maxSegmentDistanceNorm"));
+        double budgetPressure = doubleValue(routeDerivedVector.get("budgetPressure"));
+        double hiddenGemStopRatio = doubleValue(routeDerivedVector.get("hiddenGemStopRatio"));
+        double avgPersonalizationScore = doubleValue(routeDerivedVector.get("avgPersonalizationScore"));
+        double localStopRatio = doubleValue(routeDerivedVector.get("localStopRatio"));
+        double classicStopRatio = doubleValue(routeDerivedVector.get("classicStopRatio"));
+        double photoFriendlyStopRatio = doubleValue(routeDerivedVector.get("photoFriendlyStopRatio"));
+        double nightFriendlyStopRatio = doubleValue(routeDerivedVector.get("nightFriendlyStopRatio"));
+        double highRiskStopRatio = doubleValue(routeDerivedVector.get("highRiskStopRatio"));
+        double requiresLunchFlag = doubleValue(routeDerivedVector.get("requiresLunchFlag"));
+        double requiresDinnerFlag = doubleValue(routeDerivedVector.get("requiresDinnerFlag"));
+        double lunchCoveredFlag = doubleValue(routeDerivedVector.get("lunchCoveredFlag"));
+        double dinnerCoveredFlag = doubleValue(routeDerivedVector.get("dinnerCoveredFlag"));
+
+        vector.put("profileDistanceTotalPressure", profileConfidence * distanceSensitivity * totalDistanceNorm);
+        vector.put("profileDistanceMaxSegmentPressure", profileConfidence * distanceSensitivity * maxSegmentDistanceNorm);
+        vector.put("profileBudgetPressure", profileConfidence * budgetSensitivity * budgetPressure);
+        vector.put("profileHiddenGemMatch", profileConfidence * hiddenGemAffinity * hiddenGemStopRatio);
+        vector.put("profilePersonalizationAvg", avgPersonalizationScore);
+
+        RouteGoal routeGoal = context.getGenerateParam().getRouteGoal();
+        vector.put("goalLocalMatch", bit(RouteGoal.LOCAL == routeGoal) * localStopRatio);
+        vector.put("goalClassicMatch", bit(RouteGoal.CLASSIC == routeGoal) * classicStopRatio);
+        vector.put("goalPhotoMatch", bit(RouteGoal.PHOTO == routeGoal) * photoFriendlyStopRatio);
+        vector.put("goalNightMatch", bit(RouteGoal.NIGHT == routeGoal) * nightFriendlyStopRatio);
+        vector.put("goalLowBudgetMismatch", bit(RouteGoal.LOW_BUDGET == routeGoal) * budgetPressure);
+        vector.put("goalSteadyDistancePressure", bit(RouteGoal.STEADY == routeGoal) * totalDistanceNorm);
+        vector.put("goalSteadyRiskPressure", bit(RouteGoal.STEADY == routeGoal) * highRiskStopRatio);
+
+        TransportProfile transportProfile = context.getGenerateParam().getTransportProfile();
+        vector.put("walkOnlyTotalDistancePressure", bit(TransportProfile.WALK_ONLY == transportProfile) * totalDistanceNorm);
+        vector.put("walkOnlyMaxSegmentPressure", bit(TransportProfile.WALK_ONLY == transportProfile) * maxSegmentDistanceNorm);
+        vector.put("walkBusDistancePressure", bit(TransportProfile.WALK_BUS == transportProfile) * totalDistanceNorm);
+        vector.put("walkSubwayDistancePressure", bit(TransportProfile.WALK_SUBWAY == transportProfile) * totalDistanceNorm);
+        vector.put("walkTransitDistancePressure", bit(TransportProfile.WALK_TRANSIT == transportProfile) * totalDistanceNorm);
+        vector.put("bikeSubwayDistancePressure", bit(TransportProfile.BIKE_SUBWAY == transportProfile) * totalDistanceNorm);
+        vector.put("walkTaxiBudgetPressure", bit(TransportProfile.WALK_TAXI == transportProfile) * budgetPressure);
+
+        RouteTimeStructure timeStructure = RouteTimeStructure.fromWindow(
+                context.getGenerateParam().getDepartureTime(),
+                context.getGenerateParam().getDurationMinutes()
+        );
+        vector.put("lunchRequiredMissingMeal", requiresLunchFlag * (1d - lunchCoveredFlag));
+        vector.put("dinnerRequiredMissingMeal", requiresDinnerFlag * (1d - dinnerCoveredFlag));
+        vector.put("nightRouteNightFriendlyMatch", bit(timeStructure.isNight()) * nightFriendlyStopRatio);
+        return vector;
     }
 
     private double interestCoverageRatio(RouteGenerationContext context, CandidateRouteDTO route, FeatureSource source) {
@@ -556,6 +619,10 @@ public class RouteInputFeatureExtractor {
 
     private static double doubleValue(Object value) {
         return value instanceof Number number ? number.doubleValue() : 0d;
+    }
+
+    private static double doubleOf(BigDecimal value) {
+        return value == null ? 0d : value.doubleValue();
     }
 
     private static boolean isBlank(String value) {
