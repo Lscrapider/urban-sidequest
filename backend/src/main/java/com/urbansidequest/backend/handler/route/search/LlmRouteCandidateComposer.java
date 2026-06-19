@@ -52,27 +52,55 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
 
     private static final String SYSTEM_PROMPT = """
             你是 Urban Sidequest 的路线编排助手。你只根据输入 JSON 工作，必须返回合法 JSON，不要输出 Markdown、解释文字或代码块。
-            你的任务是从后端筛选过的真实 poiPool 中生成 3-5 条路线草案。
+            你的任务是从后端筛选过的真实 poiPool 中生成 5 条路线草案。
             你不能编造 POI、坐标、距离、交通耗时、评分、营业信息或图片。
-            所有路线 stop 必须引用 poiPool 中存在的 poiId，并必须包含 request.mustVisitPoiIds 中的全部必去点。
+            所有路线 stop 必须引用 poiPool 中存在的 poiId。你不能删除 request.mustVisitPoiIds 中的必去点，不能改变用户选择的城市、出发时间、路线时长、交通方式和路线目标。
             距离、交通耗时和真实路径由后端/地图服务计算，你只能决定选点、排序、停留时间、路线主题、路线说明、节点说明和 warning。
-            每条路线的停留时间总和不得超过 request.durationMinutes 的 85%；不要为了贴近请求时长而吃满上限，跨区域路线应预留更充足交通余量。
+            每条路线的停留时间总和不得超过 request.durationMinutes 的 85%，因为后端还需要预留交通时间；不要为了贴近请求时长而吃满上限，跨区域路线应预留更充足交通余量。
             每个 stop 的 routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP 之一，不能输出其他枚举值。
-            午餐或晚餐 stop 的 routeRole 必须是 MEAL，并优先选择 category=FOOD 或 role=MEAL 的 POI；category=FOOD 或 role=MEAL 就视为可用于午餐/晚餐。
+            每个 stop 的 stayMinutes 必须符合用户 prompt 中的停留时间参考；必去点也要按其 POI category 选择合理停留时间，除非 route.warnings 明确说明原因。
+            午餐或晚餐 stop 的 routeRole 必须是 MEAL，并且必须优先选择 category=FOOD 或 role=MEAL 的 POI；category=FOOD 或 role=MEAL 就视为可用于午餐/晚餐，不要求 tags 中额外包含午餐或晚餐标签，也不要因为缺少这类标签产生 warning。
+            只有候选池没有合适 FOOD/MEAL 时才允许使用其他 POI，并必须在 route.warnings 中说明。每个 MEAL stop 必须填写 intendedMealWindow：LUNCH、DINNER 或 OTHER。
+            WALK_TAXI 可以跨区域，但应按空间相近性组织 stop 顺序，避免远距离片区之间来回跳转；如果路线存在明显折返风险，必须在 backendReviewHints 中说明。
             若无法满足某个需求，返回 warnings 说明原因，不要编造地点。
             """;
 
     private static final String USER_PROMPT_TEMPLATE = """
             请基于下面的真实 POI 候选池生成路线草案。
 
+            目标：
+            1. 从 poiPool 中生成 5 条高质量路线，数量固定为 5 条，不能多也不能少。
+            2. 每条路线都必须包含 request.mustVisitPoiIds 中的所有必去点。
+            3. 每条路线只能引用 poiPool 中存在的 poiId。
+            4. 根据 request.durationMinutes、departureTime、mealWindows 安排午饭、晚饭和咖啡/休息点。
+            5. 8 小时路线应有跨区域感，避免所有 stop 过度聚集在同一小片区。
+            6. 根据 category、role、tags、features、rating、avgPriceCent、nearestTransit 和 transitAccessibility 选择 POI。
+            7. 每条路线需要有明确主题，A/B/C/D/E 路线应有差异，不要只是换顺序。
+            8. 输出路线草案即可，距离、交通耗时和真实路径由后端之后调用高德路线 API 计算。
+
             硬约束：
             - 只能引用 poiPool 中存在的 poiId。
+            - 不能新增虚构地点。
             - 每条路线都必须包含全部 request.mustVisitPoiIds。
-            - 每条路线 stop 数量建议 5-8 个。
+            - 不能返回自然语言说明，只能返回 JSON。
+            - 每条路线 stop 只能为 6 个。
+            - 每条路线停留时间总和不得超过 request.durationMinutes 的 85%%。
             - estimatedStayMinutes 必须等于该路线所有 stops.stayMinutes 的总和。
-            - routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP。
+            - routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP，不能输出 SCENIC、CULTURE、FOOD、COFFEE 等 schema 外枚举。
+            - 每个 stop 的 stayMinutes 必须符合下面“停留时间参考”；如果确实需要超出参考范围，必须在 route.warnings 中说明原因。
+            - 如果覆盖午饭窗口，优先安排 FOOD/MEAL stop；如果覆盖晚饭窗口，也优先安排 FOOD/MEAL stop。
+            - 如果 stop 用作午餐或晚餐，routeRole 必须是 MEAL，且应优先选择 category=FOOD 或 role=MEAL 的 POI。
+            - category=FOOD 或 role=MEAL 的 POI 可以直接作为午餐/晚餐候选，不要求 tags 额外包含 LUNCH 或 DINNER，不要因此产生 warning。
             - 每个 routeRole=MEAL 的 stop 必须填写 intendedMealWindow，取值为 LUNCH、DINNER 或 OTHER。
+            - 如果没有安排某个饭点，必须在 route.warnings 中说明原因。
+            - WALK_TAXI 模式下可以跨区域，但路线顺序应符合城市移动常识。
+            - 避免远距离片区之间来回折返。路线可以跨多个片区，但同一片区内的 stop 应尽量连续安排；如果必须折返，backendReviewHints 必须说明原因。
             - nearestTransit 只能作为可达性参考，不要把它当作已经计算好的路线耗时。
+
+            饭点判断：
+            - 午饭窗口：11:30-13:30。
+            - 晚饭窗口：17:30-20:00。
+            - 路线时间段与饭点窗口有交集，则认为覆盖饭点。
 
             停留时间参考：
             - 文化展馆/博物馆：60-90 分钟。
@@ -82,7 +110,7 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
             - 拍照点/轻量打卡：15-30 分钟。
             - 普通街区体验：30-60 分钟。
 
-            请按以下 JSON 结构返回：
+            请按以下 JSON Schema 返回：
             {
               "overallVerdict": "COMPOSED | PARTIAL | FAILED",
               "globalWarnings": ["string"],
@@ -193,7 +221,7 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
                 .filter(PoiCandidateDTO::mustVisit)
                 .map(PoiCandidateDTO::poiId)
                 .toList());
-        payload.put("routeCountRange", Map.of("min", 3, "max", MAX_ROUTE_COUNT));
+        payload.put("routeCountRange", Map.of("min", MAX_ROUTE_COUNT, "max", MAX_ROUTE_COUNT));
         return payload;
     }
 
@@ -211,11 +239,29 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
         payload.put("rating", candidate.amapRating());
         payload.put("avgPriceCent", candidate.avgPriceCent());
         payload.put("tags", candidate.matchedInterestTags());
+        payload.put("features", this.featuresPayload(candidate));
         payload.put("nearestTransit", nearestTransit);
         payload.put("transitAccessibility", this.transitAccessibility(candidate, nearestTransit));
         payload.put("mustVisit", candidate.mustVisit());
         payload.put("reasonSeed", candidate.reasonSeed());
         return payload;
+    }
+
+    private List<String> featuresPayload(PoiCandidateDTO candidate) {
+        Set<String> features = new LinkedHashSet<>(candidate.matchedInterestTags());
+        if (candidate.keytag() != null && !candidate.keytag().isBlank()) {
+            features.add(candidate.keytag());
+        }
+        if (candidate.rectag() != null && !candidate.rectag().isBlank()) {
+            features.add(candidate.rectag());
+        }
+        if (candidate.rawType() != null && !candidate.rawType().isBlank()) {
+            features.add(candidate.rawType());
+        }
+        if (candidate.mustVisit()) {
+            features.add("用户指定必去点");
+        }
+        return List.copyOf(features);
     }
 
     private Map<String, Object> locationPayload(GeoPointDTO location) {
