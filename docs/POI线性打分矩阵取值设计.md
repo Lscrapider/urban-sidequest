@@ -764,6 +764,157 @@ training feature**,不在"进入 X 的字段规约"范围内,这里不给取值/
 > personalizedDistancePressure = profileConfidence * distanceSensitivity * distanceNorm  # 乘子收缩
 > ```
 
+### 3.5 X 特征向量契约与示例
+
+后续训练、离线评估、LLM 模拟用户样本生成都应复用同一套 X 规约逻辑。
+线上代码当前用 `PoiLinearFeatures` record 表达 X,而不是直接暴露 `double[]`。
+如果导出训练样本,应显式写出 `featureSchemaVersion + featureNames + featureValues`,
+并保证 `featureNames` 顺序与线上 `PoiLinearFeatures` 字段顺序一致。
+
+#### X v1 字段顺序(36 维)
+
+```text
+featureSchemaVersion = "poi_linear_x_v1"
+
+featureNames = [
+  "interestMatchRatio",
+
+  "isClassic",
+  "isLocal",
+  "isPhotoFriendly",
+  "isNightFriendly",
+  "isQuiet",
+  "isHiddenGem",
+  "nightMatch",
+  "mealMatch",
+
+  "ratingNorm",
+  "hasImage",
+  "isRatingMissing",
+
+  "transitHigh",
+  "transitMedium",
+  "transitLow",
+  "nearestTransitDistanceNorm",
+  "walkingAccessibility",
+  "rainTransportRisk",
+
+  "distanceNorm",
+  "isolatedDistanceNorm",
+  "clusterConnectivity",
+  "distanceFatiguePressure",
+  "heatFatigueRisk",
+
+  "avgPriceNorm",
+  "isPriceMissing",
+  "isFree",
+  "expensivePoiRisk",
+
+  "closeRisk",
+  "weatherOutdoorRisk",
+  "categoryDuplicateRisk",
+  "missingInfoRisk",
+
+  "userInterestAffinity",
+  "personalizedDistancePressure",
+  "personalizedBudgetPressure",
+  "personalizedTransitPressure",
+  "personalizedExplorationMatch"
+]
+```
+
+> `distanceMeters` / `effectiveRadiusMeters` 当前只是 debug metadata,用于解释 `distanceNorm`
+> 和调参,**不属于 X v1 的 36 维训练特征**。如果未来要把它们纳入模型,必须升级
+> `featureSchemaVersion`,不能静默插入。
+
+#### 来源组到 X 的映射
+
+| 来源组 | 进入 X 的字段 | 说明 |
+| --- | --- | --- |
+| `poiFeature` | `isClassic/isLocal/isPhotoFriendly/isNightFriendly/isQuiet/isHiddenGem/ratingNorm/hasImage/isRatingMissing/transitHigh/transitMedium/transitLow/nearestTransitDistanceNorm/avgPriceNorm/isPriceMissing/isFree/expensivePoiRisk/closeRisk/missingInfoRisk` | 单 POI 自身字段或语义映射字段 |
+| `poolDerived` | `isolatedDistanceNorm/clusterConnectivity/categoryDuplicateRisk` | 依赖同一候选池中其他 POI,不能只用单 POI 原始字段复现 |
+| `requestCross` | `interestMatchRatio` | `request.interestTags` 与 `poiTagHits` 交叉 |
+| `envCross` | `walkingAccessibility/rainTransportRisk/distanceNorm/distanceFatiguePressure/heatFatigueRisk/weatherOutdoorRisk` | 请求区域、交通状态、天气、时间窗派生 |
+| `profileCross` | `userInterestAffinity/personalizedDistancePressure/personalizedBudgetPressure/personalizedTransitPressure/personalizedExplorationMatch` | 用户画像与 POI/请求派生量交叉,已乘 `profileConfidence` 收缩 |
+| 不进 X | `requestFeature/userPreferenceVector/environmentFeature` 原始对象 | v1 只作为逻辑来源组、Delta selector、归一基准和 cross 原料 |
+
+#### 示例:本地夜市小吃 POI 的 X
+
+以下是一个说明字段形态的示例,不是固定样本。场景假设:
+`request.interestTags=[FOOD,LOCAL,NIGHT]`,
+用户画像偏本地/美食/夜游,交通信号可用,POI 是有图有评分的本地夜市小吃,
+距离区域中心约 330m,候选池较密集。
+
+```json
+{
+  "featureSchemaVersion": "poi_linear_x_v1",
+  "poiId": "example-night-food-001",
+  "name": "示例夜市小吃",
+  "context": {
+    "routeGoal": "LOCAL",
+    "transportProfile": "WALK_SUBWAY",
+    "budgetLevel": "NORMAL",
+    "routeTimeStructure": "NIGHT",
+    "transportSignalAvailable": true,
+    "transitLookupStatus": "SUCCESS"
+  },
+  "featureValues": [
+    1.00,
+
+    0.00,
+    1.00,
+    0.00,
+    1.00,
+    0.00,
+    0.00,
+    1.00,
+    1.00,
+
+    0.82,
+    1.00,
+    0.00,
+
+    1.00,
+    0.00,
+    0.00,
+    0.28,
+    0.84,
+    0.00,
+
+    0.11,
+    0.04,
+    0.95,
+    0.13,
+    0.00,
+
+    0.21,
+    0.00,
+    0.00,
+    0.00,
+
+    0.00,
+    0.00,
+    0.40,
+    0.00,
+
+    0.90,
+    0.04,
+    0.03,
+    0.05,
+    0.00
+  ],
+  "debugMetadata": {
+    "distanceMeters": 330,
+    "effectiveRadiusMeters": 3000,
+    "poiTagHits": ["FOOD", "LOCAL", "NIGHT"]
+  }
+}
+```
+
+训练样本如果只保存 `linearScore` 或 8 个子分,无法复原 X;必须保存
+`featureNames + featureValues`。8 个子分可以作为 teacher/baseline/debug label 一并保存,
+但不替代原始 X。
+
 ## 4. 矩阵输出行
 
 Linear 矩阵不是输出四个输入组分数，而是输出可解释评分维度。
