@@ -7,6 +7,7 @@ import com.urbansidequest.backend.domain.dto.AmapPoiSearchQueryDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
+import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import java.math.BigDecimal;
@@ -43,20 +44,27 @@ public class AmapTransitPoiDetailProvider implements PoiDetailProvider {
 
     @Override
     public List<PoiCandidateDTO> enrichDetails(RouteGenerationContext context, List<PoiCandidateDTO> candidates) {
-        if (candidates.isEmpty() || !this.amapPoiSearchApi.isAvailable()) {
+        if (candidates.isEmpty()) {
             return candidates;
+        }
+        if (!this.amapPoiSearchApi.isAvailable()) {
+            context.setTransportSignalAvailable(false);
+            return this.withTransitStatus(candidates, TransitLookupStatus.UNAVAILABLE, "UNKNOWN");
         }
         List<TransitPoint> transitPoints;
         try {
             transitPoints = this.loadTransitPoints(candidates);
         } catch (RestClientException | IllegalArgumentException exception) {
             context.addWarning("高德交通设施查询失败，已跳过 POI 交通可达性增强");
-            return candidates;
+            context.setTransportSignalAvailable(false);
+            return this.withTransitStatus(candidates, TransitLookupStatus.FAILED, "UNKNOWN");
         }
         if (transitPoints.isEmpty()) {
             context.addWarning("当前 POI 范围内未查询到公交或地铁设施");
-            return candidates;
+            context.setTransportSignalAvailable(true);
+            return this.withTransitStatus(candidates, TransitLookupStatus.SUCCESS_EMPTY, "LOW");
         }
+        context.setTransportSignalAvailable(true);
         return candidates.stream()
                 .map(candidate -> this.withTransitAccess(candidate, transitPoints))
                 .toList();
@@ -83,6 +91,9 @@ public class AmapTransitPoiDetailProvider implements PoiDetailProvider {
                     pageNum,
                     PAGE_SIZE
             ));
+            if (!this.isSuccess(response)) {
+                throw new IllegalArgumentException("高德交通设施查询返回失败");
+            }
             JsonNode pois = response == null ? null : response.path("pois");
             if (pois == null || !pois.isArray() || pois.isEmpty()) {
                 break;
@@ -95,6 +106,10 @@ public class AmapTransitPoiDetailProvider implements PoiDetailProvider {
             }
         }
         return transitPoints;
+    }
+
+    private boolean isSuccess(JsonNode response) {
+        return response != null && "1".equals(response.path("status").asText());
     }
 
     private java.util.Optional<TransitPoint> toTransitPoint(JsonNode poi, String type) {
@@ -136,24 +151,21 @@ public class AmapTransitPoiDetailProvider implements PoiDetailProvider {
                 .sorted(Comparator.comparing(TransitFacilityDTO::distanceMeters))
                 .limit(NEAREST_TRANSIT_LIMIT)
                 .toList();
-        return new PoiCandidateDTO(
-                candidate.poiId(),
-                candidate.amapPoiId(),
-                candidate.name(),
-                candidate.category(),
-                candidate.role(),
-                candidate.location(),
-                candidate.address(),
-                candidate.description(),
-                candidate.amapRating(),
-                candidate.avgPriceCent(),
-                candidate.matchedInterestTags(),
-                candidate.imageUrls(),
+        return candidate.withTransitDetails(
                 nearestTransit,
                 this.transitAccessibility(nearestTransit),
-                candidate.mustVisit(),
-                candidate.reasonSeed()
+                TransitLookupStatus.SUCCESS
         );
+    }
+
+    private List<PoiCandidateDTO> withTransitStatus(
+            List<PoiCandidateDTO> candidates,
+            TransitLookupStatus transitLookupStatus,
+            String transitAccessibility
+    ) {
+        return candidates.stream()
+                .map(candidate -> candidate.withTransitDetails(List.of(), transitAccessibility, transitLookupStatus))
+                .toList();
     }
 
     private String transitAccessibility(List<TransitFacilityDTO> nearestTransit) {

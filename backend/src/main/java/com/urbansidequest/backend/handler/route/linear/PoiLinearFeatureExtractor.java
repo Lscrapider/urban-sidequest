@@ -1,0 +1,320 @@
+package com.urbansidequest.backend.handler.route.linear;
+
+import cn.hutool.core.util.StrUtil;
+import com.urbansidequest.backend.domain.dto.GeoPointDTO;
+import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
+import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
+import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
+import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
+import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
+import com.urbansidequest.backend.handler.route.support.GeoMath;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Set;
+import org.springframework.stereotype.Component;
+
+/**
+ * 把 POI + 请求/环境/画像派生量规约成 {@link PoiLinearFeatures}。
+ *
+ * <p>已在此应用 transit mask（transportSignalAvailable=false 时关闭交通相关列）与 W_budget 消费类门控，
+ * 使下游 {@link PoiLinearScorer} 只需做权重相乘。</p>
+ */
+@Component
+public class PoiLinearFeatureExtractor {
+
+    public PoiLinearFeatures extract(
+            int index,
+            List<PoiCandidateDTO> candidates,
+            List<PoiSemanticProfile> semanticProfiles,
+            double[] distanceToCenter,
+            List<String> matchedRequestTags,
+            LinearScoringContext env
+    ) {
+        PoiCandidateDTO candidate = candidates.get(index);
+        PoiSemanticProfile semantic = semanticProfiles.get(index);
+        boolean transportOn = env.transportSignalAvailable();
+
+        // —— W_quality ——
+        boolean ratingMissing = candidate.amapRating() == null;
+        double ratingNorm = ratingMissing
+                ? LinearScoreConstants.RATING_MISSING_DEFAULT
+                : LinearScoreConstants.clamp01(candidate.amapRating().doubleValue() / LinearScoreConstants.RATING_FULL);
+        double hasImage = candidate.imageUrls() != null && !candidate.imageUrls().isEmpty() ? 1d : 0d;
+        double missingInfoRisk = 0.5d * (hasImage == 0d ? 1d : 0d) + 0.5d * (ratingMissing ? 1d : 0d);
+
+        // —— W_budget（消费类门控）——
+        boolean consumable = semantic.isConsumable();
+        double avgPriceNorm = 0d;
+        double isPriceMissing = 0d;
+        double isFree = 0d;
+        double expensivePoiRisk = 0d;
+        if (consumable) {
+            Integer cost = candidate.avgPriceCent();
+            if (cost == null) {
+                avgPriceNorm = LinearScoreConstants.PRICE_MISSING_DEFAULT;
+                isPriceMissing = 1d;
+            } else {
+                avgPriceNorm = Math.min(cost / LinearScoreConstants.BUDGET_CAP_CENT, LinearScoreConstants.PRICE_NORM_CAP);
+                isFree = cost == 0 ? 1d : 0d;
+            }
+            expensivePoiRisk = LinearScoreConstants.clamp01(avgPriceNorm - 1.0d);
+        }
+
+        // —— W_distance（distanceNorm + pool-derived）——
+        double effectiveRadius = Math.max(1d, env.effectiveRadiusMeters());
+        double distanceMeters = distanceToCenter[index];
+        double distanceNorm = distanceMeters < 0d
+                ? 1.0d
+                : Math.min(distanceMeters / effectiveRadius, LinearScoreConstants.DISTANCE_NORM_CAP);
+        double fatigueRef = Math.max(1d, env.fatigueRefMeters());
+        double distanceFatiguePressure = distanceMeters < 0d ? 0d : LinearScoreConstants.clamp01(distanceMeters / fatigueRef);
+
+        PoolDerived poolDerived = this.poolDerived(index, candidates, semanticProfiles, effectiveRadius);
+
+        // —— W_transport ——
+        double transitHigh = 0d;
+        double transitMedium = 0d;
+        double transitLow = 0d;
+        double nearestTransitDistanceNorm = 0d;
+        double walkingAccessibility = 0d;
+        if (transportOn) {
+            TransitResult transit = this.transitFeatures(candidate);
+            transitHigh = transit.high();
+            transitMedium = transit.medium();
+            transitLow = transit.low();
+            nearestTransitDistanceNorm = transit.distanceNorm();
+            walkingAccessibility = this.walkingAccessibility(distanceMeters, transit.transitScore());
+        }
+        double rainTransportRisk = transportOn ? env.rainLevel() * (1d - walkingAccessibility) : 0d;
+
+        // —— env cross ——
+        double weatherOutdoorRisk = env.badWeatherSeverity() * semantic.weatherSensitive();
+        double heatFatigueRisk = env.heatLevel() * distanceFatiguePressure;
+        double closeRisk = this.closeRisk(candidate, env.routeStartMinutes());
+
+        // —— W_goal 时间窗 cross ——
+        RouteTimeStructure timeStructure = env.routeTimeStructure();
+        double nightMatch = timeStructure.isNight() && semantic.nightFriendly() ? 1d : 0d;
+        boolean mealCandidate = semantic.isMealCandidate()
+                || candidate.role() == com.urbansidequest.backend.domain.enums.PoiCandidateRole.MEAL;
+        double mealMatch = timeStructure.isMealWindow() && mealCandidate ? 1d : 0d;
+
+        // —— W_interest ——
+        double interestMatchRatio = this.interestMatchRatio(candidate, matchedRequestTags);
+
+        // —— W_personalization（× profileConfidence；guard 见各项）——
+        UserPreferenceProfileDTO profile = env.profile();
+        double confidence = profile.profileConfidence() == null ? 0d : profile.profileConfidence().doubleValue();
+        double userInterestAffinity = this.userInterestAffinity(profile, semantic.poiTagHits(), env.affinityNorm(), confidence);
+        double personalizedDistancePressure = confidence * doubleOf(profile.distanceSensitivity()) * distanceNorm;
+        double personalizedBudgetPressure = confidence * doubleOf(profile.budgetSensitivity()) * avgPriceNorm;
+        double personalizedTransitPressure = transportOn
+                ? confidence * doubleOf(profile.transferSensitivity()) * nearestTransitDistanceNorm
+                : 0d;
+        double personalizedExplorationMatch = confidence * doubleOf(profile.hiddenGemAffinity()) * (semantic.hiddenGem() ? 1d : 0d);
+
+        return new PoiLinearFeatures(
+                interestMatchRatio,
+                semantic.classic() ? 1d : 0d,
+                semantic.local() ? 1d : 0d,
+                semantic.photoFriendly() ? 1d : 0d,
+                semantic.nightFriendly() ? 1d : 0d,
+                semantic.quiet() ? 1d : 0d,
+                semantic.hiddenGem() ? 1d : 0d,
+                nightMatch,
+                mealMatch,
+                ratingNorm,
+                hasImage,
+                ratingMissing ? 1d : 0d,
+                transitHigh,
+                transitMedium,
+                transitLow,
+                nearestTransitDistanceNorm,
+                walkingAccessibility,
+                rainTransportRisk,
+                distanceNorm,
+                poolDerived.isolatedDistanceNorm(),
+                poolDerived.clusterConnectivity(),
+                distanceFatiguePressure,
+                heatFatigueRisk,
+                avgPriceNorm,
+                isPriceMissing,
+                isFree,
+                expensivePoiRisk,
+                closeRisk,
+                weatherOutdoorRisk,
+                poolDerived.categoryDuplicateRisk(),
+                missingInfoRisk,
+                userInterestAffinity,
+                personalizedDistancePressure,
+                personalizedBudgetPressure,
+                personalizedTransitPressure,
+                personalizedExplorationMatch
+        );
+    }
+
+    private PoolDerived poolDerived(
+            int index,
+            List<PoiCandidateDTO> candidates,
+            List<PoiSemanticProfile> semanticProfiles,
+            double effectiveRadius
+    ) {
+        GeoPointDTO origin = candidates.get(index).location();
+        Set<String> myGroups = semanticProfiles.get(index).categoryGroups();
+        if (origin == null) {
+            return new PoolDerived(0d, 0d, 0d);
+        }
+        double nearestOther = Double.MAX_VALUE;
+        int neighborCount = 0;
+        int duplicateCount = 0;
+        for (int other = 0; other < candidates.size(); other++) {
+            if (other == index) {
+                continue;
+            }
+            GeoPointDTO otherLocation = candidates.get(other).location();
+            if (otherLocation != null) {
+                double d = GeoMath.distanceMeters(origin, otherLocation);
+                nearestOther = Math.min(nearestOther, d);
+                if (d <= LinearScoreConstants.NEIGHBOR_RADIUS_METERS) {
+                    neighborCount++;
+                }
+            }
+            if (!myGroups.isEmpty() && this.sharesGroup(myGroups, semanticProfiles.get(other).categoryGroups())) {
+                duplicateCount++;
+            }
+        }
+        double isolationRef = Math.max(1d, effectiveRadius / 3d);
+        double isolatedDistanceNorm = nearestOther == Double.MAX_VALUE
+                ? 0d
+                : Math.min(nearestOther / isolationRef, LinearScoreConstants.DISTANCE_NORM_CAP);
+        double clusterConnectivity = Math.min(neighborCount / LinearScoreConstants.CONNECT_FULL, 1d);
+        double categoryDuplicateRisk = myGroups.isEmpty()
+                ? 0d
+                : Math.min(duplicateCount / LinearScoreConstants.DUP_FULL, 1d);
+        return new PoolDerived(isolatedDistanceNorm, clusterConnectivity, categoryDuplicateRisk);
+    }
+
+    private boolean sharesGroup(Set<String> a, Set<String> b) {
+        for (String group : a) {
+            if (b.contains(group)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private TransitResult transitFeatures(PoiCandidateDTO candidate) {
+        TransitLookupStatus status = candidate.transitLookupStatus();
+        if (status == TransitLookupStatus.UNAVAILABLE || status == TransitLookupStatus.FAILED) {
+            // 批量不可用/失败会由 transportSignalAvailable=false 整体 mask；若未来出现单 POI 局部失败，按中性交通档降级。
+            return new TransitResult(0d, 1d, 0d, 1.0d, 0.5d);
+        }
+        List<TransitFacilityDTO> nearestTransit = candidate.nearestTransit();
+        Integer nearestMeters = nearestTransit == null || nearestTransit.isEmpty()
+                ? null
+                : nearestTransit.get(0).distanceMeters();
+        // SUCCESS_EMPTY / SUCCESS 但无站点：事实性差，归 transitLow + 站距 cap。
+        if (nearestMeters == null) {
+            return new TransitResult(0d, 0d, 1d, LinearScoreConstants.TRANSIT_DIST_CAP, 0d);
+        }
+        double distanceNorm = Math.min(nearestMeters / LinearScoreConstants.TRANSIT_REF_METERS, LinearScoreConstants.TRANSIT_DIST_CAP);
+        if (nearestMeters <= 300) {
+            return new TransitResult(1d, 0d, 0d, distanceNorm, 1d);
+        }
+        if (nearestMeters <= 800) {
+            return new TransitResult(0d, 1d, 0d, distanceNorm, 0.5d);
+        }
+        return new TransitResult(0d, 0d, 1d, distanceNorm, 0d);
+    }
+
+    private double walkingAccessibility(double distanceMeters, double transitScore) {
+        double walkPart = distanceMeters < 0d
+                ? 0.5d
+                : LinearScoreConstants.clamp01(1d - distanceMeters / LinearScoreConstants.WALK_REF_METERS);
+        return 0.5d * walkPart + 0.5d * transitScore;
+    }
+
+    private double closeRisk(PoiCandidateDTO candidate, int routeStartMinutes) {
+        String opentime = candidate.opentimeToday();
+        if (StrUtil.isBlank(opentime) || routeStartMinutes < 0) {
+            return LinearScoreConstants.CLOSE_RISK_MISSING_DEFAULT;
+        }
+        // opentimeToday 形如 "08:00-16:30" 或 "09:00-12:00,13:00-18:00"；路线开始时刻落在任一营业段内→0，否则→1。
+        boolean parsedAny = false;
+        for (String segment : opentime.split(",")) {
+            int dash = segment.indexOf('-');
+            if (dash < 0) {
+                continue;
+            }
+            Integer open = this.toMinutes(segment.substring(0, dash));
+            Integer close = this.toMinutes(segment.substring(dash + 1));
+            if (open == null || close == null) {
+                continue;
+            }
+            parsedAny = true;
+            boolean within = close > open
+                    ? routeStartMinutes >= open && routeStartMinutes < close
+                    : routeStartMinutes >= open || routeStartMinutes < close; // 跨夜营业
+            if (within) {
+                return 0d;
+            }
+        }
+        return parsedAny ? 1d : LinearScoreConstants.CLOSE_RISK_MISSING_DEFAULT;
+    }
+
+    private Integer toMinutes(String hhmm) {
+        String value = hhmm == null ? "" : hhmm.trim();
+        int colon = value.indexOf(':');
+        if (colon < 0) {
+            return null;
+        }
+        try {
+            int hour = Integer.parseInt(value.substring(0, colon).trim());
+            int minute = Integer.parseInt(value.substring(colon + 1).trim());
+            return hour * 60 + minute;
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private double interestMatchRatio(PoiCandidateDTO candidate, List<String> requestTags) {
+        if (requestTags == null || requestTags.isEmpty()) {
+            return 0d;
+        }
+        List<String> matched = candidate.matchedInterestTags();
+        if (matched == null || matched.isEmpty()) {
+            return 0d;
+        }
+        long hit = requestTags.stream().filter(matched::contains).count();
+        return LinearScoreConstants.clamp01((double) hit / requestTags.size());
+    }
+
+    private double userInterestAffinity(
+            UserPreferenceProfileDTO profile,
+            Set<String> poiTagHits,
+            double affinityNorm,
+            double confidence
+    ) {
+        if (confidence <= 0d || affinityNorm <= 0d || poiTagHits.isEmpty()) {
+            return 0d;
+        }
+        double sum = 0d;
+        for (String tag : poiTagHits) {
+            BigDecimal affinity = profile.tagAffinities().get(tag);
+            if (affinity != null) {
+                sum += affinity.doubleValue();
+            }
+        }
+        return confidence * LinearScoreConstants.clamp01(sum / affinityNorm);
+    }
+
+    private static double doubleOf(BigDecimal value) {
+        return value == null ? 0d : value.doubleValue();
+    }
+
+    private record PoolDerived(double isolatedDistanceNorm, double clusterConnectivity, double categoryDuplicateRisk) {
+    }
+
+    private record TransitResult(double high, double medium, double low, double distanceNorm, double transitScore) {
+    }
+}

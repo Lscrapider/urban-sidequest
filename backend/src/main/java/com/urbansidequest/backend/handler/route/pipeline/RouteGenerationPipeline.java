@@ -6,6 +6,9 @@ import com.urbansidequest.backend.handler.route.step.CalibrateSelectedRouteSegme
 import com.urbansidequest.backend.handler.route.step.EnrichPoiDetailsStep;
 import com.urbansidequest.backend.handler.route.step.LoadInterestTagsStep;
 import com.urbansidequest.backend.handler.route.step.LoadPoiCandidatesStep;
+import com.urbansidequest.backend.handler.route.step.LoadPoiSemanticMappingsStep;
+import com.urbansidequest.backend.handler.route.step.LoadRouteWeatherStep;
+import com.urbansidequest.backend.handler.route.step.LoadUserPreferenceProfileStep;
 import com.urbansidequest.backend.handler.route.step.ResolveAreaStep;
 import com.urbansidequest.backend.handler.route.step.ScoreAndSelectRoutesStep;
 import com.urbansidequest.backend.handler.route.step.SelectPoiPoolStep;
@@ -20,6 +23,12 @@ public class RouteGenerationPipeline {
     private final ResolveAreaStep resolveAreaStep;
 
     private final LoadInterestTagsStep loadInterestTagsStep;
+
+    private final LoadUserPreferenceProfileStep loadUserPreferenceProfileStep;
+
+    private final LoadPoiSemanticMappingsStep loadPoiSemanticMappingsStep;
+
+    private final LoadRouteWeatherStep loadRouteWeatherStep;
 
     private final LoadPoiCandidatesStep loadPoiCandidatesStep;
 
@@ -37,6 +46,9 @@ public class RouteGenerationPipeline {
             ValidateRouteRequestStep validateRouteRequestStep,
             ResolveAreaStep resolveAreaStep,
             LoadInterestTagsStep loadInterestTagsStep,
+            LoadUserPreferenceProfileStep loadUserPreferenceProfileStep,
+            LoadPoiSemanticMappingsStep loadPoiSemanticMappingsStep,
+            LoadRouteWeatherStep loadRouteWeatherStep,
             LoadPoiCandidatesStep loadPoiCandidatesStep,
             EnrichPoiDetailsStep enrichPoiDetailsStep,
             SelectPoiPoolStep selectPoiPoolStep,
@@ -47,6 +59,9 @@ public class RouteGenerationPipeline {
         this.validateRouteRequestStep = validateRouteRequestStep;
         this.resolveAreaStep = resolveAreaStep;
         this.loadInterestTagsStep = loadInterestTagsStep;
+        this.loadUserPreferenceProfileStep = loadUserPreferenceProfileStep;
+        this.loadPoiSemanticMappingsStep = loadPoiSemanticMappingsStep;
+        this.loadRouteWeatherStep = loadRouteWeatherStep;
         this.loadPoiCandidatesStep = loadPoiCandidatesStep;
         this.enrichPoiDetailsStep = enrichPoiDetailsStep;
         this.selectPoiPoolStep = selectPoiPoolStep;
@@ -64,6 +79,15 @@ public class RouteGenerationPipeline {
 
         // 加载兴趣标签映射，用于 POI 搜索计划和候选点标签标记。
         this.loadInterestTagsStep.execute(context);
+
+        // 加载用户问卷画像，用于后续 Linear Ranker 个性化 cross。
+        this.loadUserPreferenceProfileStep.execute(context);
+
+        // 加载 POI 语义映射规则，供后续 Linear Ranker extractor 使用。
+        this.loadPoiSemanticMappingsStep.execute(context);
+
+        // 加载天气环境原料；缺失时后续 Linear 特征默认不扣分。
+        this.loadRouteWeatherStep.execute(context);
 
         // 拉取较大的真实 POI 候选池，包含必去点、兴趣点、餐饮、休息和兜底点。
         this.loadPoiCandidatesStep.execute(context);

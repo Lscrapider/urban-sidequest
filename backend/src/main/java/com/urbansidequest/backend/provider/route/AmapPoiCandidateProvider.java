@@ -331,6 +331,12 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
         String address = this.firstText(poiNode, "address", "business.business_area", "adname");
         BigDecimal rating = this.parseRating(poiNode);
         Integer avgPriceCent = this.parseAvgPriceCent(poiNode);
+        String rawType = this.firstText(poiNode, "type");
+        String typecode = this.firstText(poiNode, "typecode");
+        String opentimeToday = this.firstText(poiNode, "business.opentime_today", "biz_ext.opentime_today", "opentime_today");
+        String opentimeWeek = this.firstText(poiNode, "business.opentime_week", "biz_ext.opentime_week", "opentime_week");
+        String keytag = this.firstText(poiNode, "business.keytag", "biz_ext.keytag", "keytag");
+        String rectag = this.firstText(poiNode, "business.rectag", "biz_ext.rectag", "rectag");
         return java.util.Optional.of(new PoiCandidateDTO(
                 poiId,
                 amapPoiId,
@@ -344,8 +350,16 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
                 avgPriceCent,
                 plan.matchedInterestTags(),
                 this.parsePhotoUrls(poiNode),
+                rawType,
+                typecode,
+                opentimeToday,
+                opentimeWeek,
+                keytag,
+                rectag,
+                this.parseInteger(this.firstText(poiNode, "distance")),
                 List.of(),
                 "UNKNOWN",
+                null,
                 false,
                 plan.reasonSeed()
         ));
@@ -462,6 +476,17 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
             return null;
         }
         return new BigDecimal(cost).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue();
+    }
+
+    private Integer parseInteger(String value) {
+        if (StrUtil.isBlank(value) || "[]".equals(value)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private String buildPoiDescription(

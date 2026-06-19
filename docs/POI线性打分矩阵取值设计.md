@@ -341,6 +341,7 @@ userPreferenceVector v1 是问卷来源的逻辑来源组，不提供独立打�
 
 约束 2:单一标签体系。
   问卷兴趣项必须对齐 InterestTagCatalogPO.tagCode;新增/下线标签走 catalog 版本管理。
+  v1 catalog seed 包含 LOCAL;本地生活偏好不另造 LOCAL_FOOD 等画像 tag。
   否则 tagAffinity、typecode 映射、request.interestTags 会分裂成三套标签。
 ```
 

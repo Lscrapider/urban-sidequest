@@ -1,6 +1,7 @@
 package com.urbansidequest.backend.domain.param;
 
 import com.urbansidequest.backend.domain.enums.AreaMode;
+import com.urbansidequest.backend.domain.enums.BudgetLevel;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import jakarta.validation.Valid;
@@ -47,6 +48,8 @@ public class RouteGenerateParam {
 
     @NotNull
     private RouteGoal routeGoal;
+
+    private BudgetLevel budgetLevel = BudgetLevel.NORMAL;
 
     private List<String> interestTags = new ArrayList<>();
 
@@ -147,6 +150,14 @@ public class RouteGenerateParam {
 
     public void setRouteGoal(RouteGoal routeGoal) {
         this.routeGoal = routeGoal;
+    }
+
+    public BudgetLevel getBudgetLevel() {
+        return this.budgetLevel == null ? BudgetLevel.NORMAL : this.budgetLevel;
+    }
+
+    public void setBudgetLevel(BudgetLevel budgetLevel) {
+        this.budgetLevel = budgetLevel == null ? BudgetLevel.NORMAL : budgetLevel;
     }
 
     public List<String> getInterestTags() {

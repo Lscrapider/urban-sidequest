@@ -11,17 +11,6 @@ CREATE TABLE users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE user_preferences (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id),
-    default_transport_modes TEXT[] NOT NULL DEFAULT ARRAY['WALK', 'SUBWAY'],
-    default_route_goal VARCHAR(64) NOT NULL DEFAULT 'STEADY',
-    interest_tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uk_user_preferences_user UNIQUE (user_id)
-);
-
 CREATE TABLE poi_cache (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     amap_poi_id VARCHAR(128) NOT NULL UNIQUE,
