@@ -51,6 +51,12 @@ class PoiLinearPrescreenManualTest {
 
     private static final int RUNS_PER_SCENARIO = 3;
 
+    private static final List<TransportProfile> TRANSPORT_PROFILES = List.of(
+            TransportProfile.WALK_SUBWAY,
+            TransportProfile.WALK_BUS,
+            TransportProfile.WALK_TRANSIT
+    );
+
     private static final Path OUTPUT_PATH = Path.of(
             "target",
             "poi-linear-ranker",
@@ -123,36 +129,40 @@ class PoiLinearPrescreenManualTest {
     void savesRepeatablePoiLinearPrescreenResultWithoutLlm() throws Exception {
         List<Map<String, Object>> scenarioResults = new ArrayList<>();
         for (ScenarioSpec scenario : SCENARIOS) {
-            List<Map<String, Object>> runs = new ArrayList<>();
-            for (int runIndex = 1; runIndex <= RUNS_PER_SCENARIO; runIndex++) {
-                RouteGenerateParam param = fixedLocalFoodParam(scenario);
-                RouteGenerationContext context = new RouteGenerationContext(
-                        requestIdOf(scenario, runIndex), USER_ID, param);
+            List<Map<String, Object>> profileResults = new ArrayList<>();
+            for (TransportProfile transportProfile : TRANSPORT_PROFILES) {
+                List<Map<String, Object>> runs = new ArrayList<>();
+                for (int runIndex = 1; runIndex <= RUNS_PER_SCENARIO; runIndex++) {
+                    RouteGenerateParam param = fixedLocalFoodParam(scenario, transportProfile);
+                    RouteGenerationContext context = new RouteGenerationContext(
+                            requestIdOf(scenario, transportProfile, runIndex), USER_ID, param);
 
-                this.validateRouteRequestStep.execute(context);
-                this.resolveAreaStep.execute(context);
-                this.loadInterestTagsStep.execute(context);
-                this.loadUserPreferenceProfileStep.execute(context);
-                this.loadPoiSemanticMappingsStep.execute(context);
-                this.loadPoiCandidatesStep.execute(context);
-                int candidateCountBeforeSelect = context.getPoiCandidates().size();
+                    this.validateRouteRequestStep.execute(context);
+                    this.resolveAreaStep.execute(context);
+                    this.loadInterestTagsStep.execute(context);
+                    this.loadUserPreferenceProfileStep.execute(context);
+                    this.loadPoiSemanticMappingsStep.execute(context);
+                    this.loadPoiCandidatesStep.execute(context);
+                    int candidateCountBeforeSelect = context.getPoiCandidates().size();
 
-                this.enrichPoiDetailsStep.execute(context);
-                this.selectPoiPoolStep.execute(context);
+                    this.enrichPoiDetailsStep.execute(context);
+                    this.selectPoiPoolStep.execute(context);
 
-                assertThat(candidateCountBeforeSelect).isGreaterThan(0);
-                assertThat(context.getPoiCandidates()).isNotEmpty();
-                assertThat(context.getPoiLinearTraces()).isNotEmpty();
+                    assertThat(candidateCountBeforeSelect).isGreaterThan(0);
+                    assertThat(context.getPoiCandidates()).isNotEmpty();
+                    assertThat(context.getPoiLinearTraces()).isNotEmpty();
 
-                runs.add(this.resultOf(context, candidateCountBeforeSelect, runIndex));
+                    runs.add(this.resultOf(context, candidateCountBeforeSelect, runIndex, transportProfile));
+                }
+                profileResults.add(this.profileResultOf(transportProfile, runs));
             }
-            scenarioResults.add(this.scenarioResultOf(scenario, runs));
+            scenarioResults.add(this.scenarioResultOf(scenario, profileResults));
         }
 
         this.writeResult(scenarioResults);
     }
 
-    private static RouteGenerateParam fixedLocalFoodParam(ScenarioSpec scenario) {
+    private static RouteGenerateParam fixedLocalFoodParam(ScenarioSpec scenario, TransportProfile transportProfile) {
         RouteGenerateParam param = new RouteGenerateParam();
         param.setAreaMode(AreaMode.AUTO_RADIUS);
         param.setAreaLabel(scenario.areaLabel());
@@ -162,7 +172,7 @@ class PoiLinearPrescreenManualTest {
         param.setRouteCityAdcode(scenario.routeCityAdcode());
         param.setDepartureTime(Instant.parse("2026-06-20T10:00:00Z"));
         param.setDurationMinutes(240);
-        param.setTransportProfile(TransportProfile.WALK_SUBWAY);
+        param.setTransportProfile(transportProfile);
         param.setRouteGoal(RouteGoal.LOCAL);
         param.setBudgetLevel(BudgetLevel.NORMAL);
         param.setInterestTags(List.of("FOOD", "LOCAL", "NIGHT"));
@@ -176,21 +186,25 @@ class PoiLinearPrescreenManualTest {
         return point;
     }
 
-    private static UUID requestIdOf(ScenarioSpec scenario, int runIndex) {
-        if (runIndex == 1 && "shanghai-bund".equals(scenario.id())) {
+    private static UUID requestIdOf(ScenarioSpec scenario, TransportProfile transportProfile, int runIndex) {
+        if (runIndex == 1
+                && transportProfile == TransportProfile.WALK_SUBWAY
+                && "shanghai-bund".equals(scenario.id())) {
             return REQUEST_ID;
         }
-        String seed = "poi-linear-prescreen:" + scenario.id() + ":" + runIndex;
+        String seed = "poi-linear-prescreen:" + scenario.id() + ":" + transportProfile.name() + ":" + runIndex;
         return UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8));
     }
 
     private Map<String, Object> resultOf(
             RouteGenerationContext context,
             int candidateCountBeforeSelect,
-            int runIndex
+            int runIndex,
+            TransportProfile transportProfile
     ) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("runIndex", runIndex);
+        result.put("transportProfile", transportProfile);
         result.put("requestId", context.getRequestId());
         result.put("userId", context.getUserId());
         result.put("area", context.getArea());
@@ -204,7 +218,14 @@ class PoiLinearPrescreenManualTest {
         return result;
     }
 
-    private Map<String, Object> scenarioResultOf(ScenarioSpec scenario, List<Map<String, Object>> runs) {
+    private Map<String, Object> profileResultOf(TransportProfile transportProfile, List<Map<String, Object>> runs) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("transportProfile", transportProfile);
+        result.put("runs", runs);
+        return result;
+    }
+
+    private Map<String, Object> scenarioResultOf(ScenarioSpec scenario, List<Map<String, Object>> profileResults) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("scenarioId", scenario.id());
         result.put("areaLabel", scenario.areaLabel());
@@ -212,7 +233,7 @@ class PoiLinearPrescreenManualTest {
         result.put("radiusMeters", scenario.radiusMeters());
         result.put("routeCityName", scenario.routeCityName());
         result.put("routeCityAdcode", scenario.routeCityAdcode());
-        result.put("runs", runs);
+        result.put("profiles", profileResults);
         return result;
     }
 
@@ -220,6 +241,7 @@ class PoiLinearPrescreenManualTest {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("userId", USER_ID);
         result.put("runsPerScenario", RUNS_PER_SCENARIO);
+        result.put("transportProfiles", TRANSPORT_PROFILES);
         result.put("scenarios", scenarioResults);
 
         Files.createDirectories(OUTPUT_PATH.getParent());

@@ -232,7 +232,7 @@ requestFeature v1 不提供独立打分列。
 | 字段 | 角色 | 去向 |
 | --- | --- | --- |
 | `routeGoal(STEADY/CLASSIC/LOCAL/LOW_BUDGET/NIGHT/PHOTO)` | `Delta selector` | 切 W |
-| `transportProfile(WALK_ONLY/WALK_SUBWAY/BIKE_SUBWAY/WALK_TAXI)` | `Delta selector + basis` | 切 W + `effectiveRadius` 上限 |
+| `transportProfile(WALK_ONLY/WALK_SUBWAY/WALK_BUS/WALK_TRANSIT/BIKE_SUBWAY/WALK_TAXI)` | `Delta selector + basis` | 切 W + `effectiveRadius` 上限 |
 | `budgetLevel(LOW/NORMAL/FLEXIBLE，待前端/param 新增)` | `Delta selector + basis` | 切 `W_budget` + `budgetCap` |
 | `interestTags(List<String>)` | `derivedFeature input` | -> `interestMatchRatio(POI.poiTagHits)`；`poiTagHits` 由语义映射表按 `typecode/keytag/rectag/name/category` 规约得到 |
 | `departureTime(Instant)` | `basis + derived input` | `routeTimeWindow` -> `routeTimeStructure(2.4)` + `closeRisk` |
@@ -635,6 +635,13 @@ affinityNorm     = Σ tagAffinity    # userInterestAffinity 归一分母(按用�
 | `transitLow` | one-hot | {0,1} | `nearestTransit > 800m 或 provider 成功返回空 ? 1 : 0` | 见下区分 | 见下 |
 | `nearestTransitDistanceNorm` | overflow | [0,1.5] | `min(nearestTransit[0].distanceMeters / transitRef, 1.5)` | 见下区分 | 无独立列 |
 
+> `nearestTransit` 的输入源随 `transportProfile` 分流:
+> `WALK_BUS` 只取 `type=BUS` 的最近站;若仅有地铁站而无公交站,按无相关交通站处理,
+> 落 `transitLow=1` 与 `nearestTransitDistanceNorm=1.5`。
+> `WALK_SUBWAY` / `BIKE_SUBWAY` 只取 `type=SUBWAY` 的最近站;若仅有公交站而无地铁站,同样按无相关站处理。
+> `WALK_TRANSIT` 使用公交/地铁混合最近站,保留原始 `nearestTransit[0]` 语义。
+> `WALK_ONLY` / `WALK_TAXI` 可继续使用混合最近站作为弱信号,但对应 Delta 会中和站距/无站惩罚。
+>
 > 三档严格 one-hot(恰一个为 1)。规约化按 provider 的**结构化状态** `transitLookupStatus` 分流,
 > 不得只看 `nearestTransit` 是否为空(空列表会把"真无站"和"没查到"混为一谈)。
 > 关键区分:**事实性差(扣分)走 POI 列,系统级能力缺失(行失效)走请求级开关**,二者不混用——
@@ -1215,7 +1222,7 @@ personalizedExplorationMatch
 | --- | --- | --- | --- | --- |
 | `distanceNorm` | **−0.20** | 距离主成本 | Delta_transport/Delta_time | overflow→−0.30;WALK_ONLY 更负 |
 | `isolatedDistanceNorm` | −0.08 | 孤立远点 | Delta_transport/Delta_time | overflow→−0.12;夜间更敏感 |
-| `clusterConnectivity` | +0.03 | 可连接性(降成本,**正权**) | Delta_transport | 出行方式动态调节;WALK_ONLY 净 +0.05,WALK_SUBWAY 净 +0.03,BIKE_SUBWAY 净 +0.02,WALK_TAXI 净 +0.01 |
+| `clusterConnectivity` | +0.03 | 可连接性(降成本,**正权**) | Delta_transport | 出行方式动态调节;WALK_ONLY 净 +0.05,WALK_SUBWAY 净 +0.03,WALK_BUS 净 +0.04,WALK_TRANSIT 净 +0.03,BIKE_SUBWAY 净 +0.02,WALK_TAXI 净 +0.01 |
 | `distanceFatiguePressure` | −0.06 | 体力压力 | Delta_transport | fatigueRef 随档,不受 transit mask |
 | `heatFatigueRisk` | −0.05 | 高温步行风险 | — | envCross;热度在 cross 值里(=heatLevel×...),不靠 Delta 调权重,不受 transit mask |
 
@@ -1317,6 +1324,8 @@ M_final =
 | --- | --- | --- |
 | `WALK_ONLY` | distanceNorm −0.06, isolatedDistanceNorm −0.03, distanceFatiguePressure −0.03, clusterConnectivity +0.02, transitHigh −0.05, **nearestTransitDistanceNorm +0.05, transitLow +0.03**, walkingAccessibility +0.03 | 纯步行,距离/体力最敏感,也最需要 POI 成片可串联;**把公交站距/无站惩罚收回到 ≈0**(步行不依赖公交,不该因离站远扣分) |
 | `WALK_SUBWAY` | transitHigh +0.03, nearestTransitDistanceNorm −0.02, distanceNorm +0.02 | 地铁延展可达,看重近站,略松距离;密集奖励使用 base 净 +0.03 |
+| `WALK_BUS` | nearestTransitDistanceNorm −0.01, distanceNorm +0.01, clusterConnectivity +0.01 | 公交接驳扩展中短距离,只认公交站;无公交站即交通可达性差,不让地铁兜底;近公交只吃 base 加分,不额外抬高 `transitHigh` |
+| `WALK_TRANSIT` | transitHigh +0.01, nearestTransitDistanceNorm −0.01, distanceNorm +0.01 | 混合交通,公交/地铁都可作为可达性信号;相比公交专用档只保留轻量近站偏好,避免过度奖励近公交 |
 | `BIKE_SUBWAY` | distanceNorm +0.04, distanceFatiguePressure +0.02, clusterConnectivity −0.01, transitHigh +0.02 | 骑行扩大范围,距离/体力最不敏感,对点位密集依赖降低 |
 | `WALK_TAXI` | distanceNorm +0.05, isolatedDistanceNorm +0.04, distanceFatiguePressure +0.03, clusterConnectivity −0.02, transitHigh −0.03, **nearestTransitDistanceNorm +0.05, transitLow +0.03** | 打车解距离约束,几乎不看孤立/公交,对密集片区奖励最低;**站距/无站惩罚同样收回 ≈0** |
 

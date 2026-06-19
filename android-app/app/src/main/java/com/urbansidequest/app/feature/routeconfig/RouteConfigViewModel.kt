@@ -188,6 +188,8 @@ val DurationOptions = listOf(
 val TransportOptions = listOf(
     CodeOption("只步行", "WALK_ONLY"),
     CodeOption("步行 + 地铁", "WALK_SUBWAY"),
+    CodeOption("步行 + 公交", "WALK_BUS"),
+    CodeOption("混合交通", "WALK_TRANSIT"),
     CodeOption("骑车 + 地铁", "BIKE_SUBWAY"),
     CodeOption("步行 + 打车", "WALK_TAXI")
 )

@@ -6,12 +6,15 @@ import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
+import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
 import com.urbansidequest.backend.domain.dto.llm.LlmBackendReviewHintDTO;
 import com.urbansidequest.backend.domain.dto.llm.LlmComposedRouteDTO;
 import com.urbansidequest.backend.domain.dto.llm.LlmComposedStopDTO;
 import com.urbansidequest.backend.domain.dto.llm.LlmRouteComposeResponseDTO;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
+import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
+import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -26,6 +29,10 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class LlmRouteCandidateComposer implements RouteCandidateComposer {
+
+    private static final String TRANSIT_TYPE_BUS = "BUS";
+
+    private static final String TRANSIT_TYPE_SUBWAY = "SUBWAY";
 
     private static final int DEFAULT_STAY_MINUTES = 45;
 
@@ -163,9 +170,11 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
                 ),
                 "transportPolicy", Map.of(
                         "profile", context.getGenerateParam().getTransportProfile(),
-                        "notes", "交通设施和空间距离只作为可达性参考，真实路线由后端调用高德路线 API 计算。"
+                        "notes", "交通设施和空间距离只作为可达性参考，真实路线由后端调用高德路线 API 计算。WALK_BUS 只参考 BUS 设施，WALK_SUBWAY/BIKE_SUBWAY 只参考 SUBWAY 设施，WALK_TRANSIT 可混合参考 BUS/SUBWAY。"
                 ),
-                "poiPool", context.getPoiCandidates().stream().map(this::poiPayload).toList()
+                "poiPool", context.getPoiCandidates().stream()
+                        .map(candidate -> this.poiPayload(candidate, context.getGenerateParam().getTransportProfile()))
+                        .toList()
         );
     }
 
@@ -188,7 +197,8 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
         return payload;
     }
 
-    private Map<String, Object> poiPayload(PoiCandidateDTO candidate) {
+    private Map<String, Object> poiPayload(PoiCandidateDTO candidate, TransportProfile transportProfile) {
+        List<TransitFacilityDTO> nearestTransit = this.relevantTransit(candidate, transportProfile);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("poiId", candidate.poiId());
         payload.put("amapPoiId", candidate.amapPoiId());
@@ -201,8 +211,8 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
         payload.put("rating", candidate.amapRating());
         payload.put("avgPriceCent", candidate.avgPriceCent());
         payload.put("tags", candidate.matchedInterestTags());
-        payload.put("nearestTransit", candidate.nearestTransit());
-        payload.put("transitAccessibility", candidate.transitAccessibility());
+        payload.put("nearestTransit", nearestTransit);
+        payload.put("transitAccessibility", this.transitAccessibility(candidate, nearestTransit));
         payload.put("mustVisit", candidate.mustVisit());
         payload.put("reasonSeed", candidate.reasonSeed());
         return payload;
@@ -213,6 +223,53 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
                 "longitudeGcj02", location.longitudeGcj02(),
                 "latitudeGcj02", location.latitudeGcj02()
         );
+    }
+
+    private List<TransitFacilityDTO> relevantTransit(PoiCandidateDTO candidate, TransportProfile transportProfile) {
+        List<TransitFacilityDTO> nearestTransit = candidate.nearestTransit();
+        if (nearestTransit == null || nearestTransit.isEmpty()) {
+            return List.of();
+        }
+        String requiredType = this.requiredTransitType(transportProfile);
+        if (requiredType == null) {
+            return nearestTransit;
+        }
+        return nearestTransit.stream()
+                .filter(transit -> requiredType.equals(transit.type()))
+                .toList();
+    }
+
+    private String transitAccessibility(PoiCandidateDTO candidate, List<TransitFacilityDTO> nearestTransit) {
+        if (nearestTransit == null || nearestTransit.isEmpty()) {
+            return this.transportUnavailable(candidate) ? "UNKNOWN" : "LOW";
+        }
+        Integer nearestMeters = nearestTransit.get(0).distanceMeters();
+        if (nearestMeters == null) {
+            return this.transportUnavailable(candidate) ? "UNKNOWN" : "LOW";
+        }
+        if (nearestMeters <= 300) {
+            return "HIGH";
+        }
+        if (nearestMeters <= 800) {
+            return "MEDIUM";
+        }
+        return "LOW";
+    }
+
+    private boolean transportUnavailable(PoiCandidateDTO candidate) {
+        return candidate.transitLookupStatus() == TransitLookupStatus.UNAVAILABLE
+                || candidate.transitLookupStatus() == TransitLookupStatus.FAILED;
+    }
+
+    private String requiredTransitType(TransportProfile transportProfile) {
+        if (transportProfile == null) {
+            return null;
+        }
+        return switch (transportProfile) {
+            case WALK_BUS -> TRANSIT_TYPE_BUS;
+            case WALK_SUBWAY, BIKE_SUBWAY -> TRANSIT_TYPE_SUBWAY;
+            case WALK_ONLY, WALK_TRANSIT, WALK_TAXI -> null;
+        };
     }
 
     private List<CandidateRouteDTO> toCandidateRoutes(RouteGenerationContext context, String responseContent) {

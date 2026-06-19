@@ -7,6 +7,7 @@ import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
 import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
 import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
+import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import java.math.BigDecimal;
 import java.util.List;
@@ -21,6 +22,10 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class PoiLinearFeatureExtractor {
+
+    private static final String TRANSIT_TYPE_BUS = "BUS";
+
+    private static final String TRANSIT_TYPE_SUBWAY = "SUBWAY";
 
     public PoiLinearFeatures extract(
             int index,
@@ -78,7 +83,7 @@ public class PoiLinearFeatureExtractor {
         double nearestTransitDistanceNorm = 0d;
         double walkingAccessibility = 0d;
         if (transportOn) {
-            TransitResult transit = this.transitFeatures(candidate);
+            TransitResult transit = this.transitFeatures(candidate, env.transportProfile());
             transitHigh = transit.high();
             transitMedium = transit.medium();
             transitLow = transit.low();
@@ -208,16 +213,13 @@ public class PoiLinearFeatureExtractor {
         return false;
     }
 
-    private TransitResult transitFeatures(PoiCandidateDTO candidate) {
+    private TransitResult transitFeatures(PoiCandidateDTO candidate, TransportProfile transportProfile) {
         TransitLookupStatus status = candidate.transitLookupStatus();
         if (status == TransitLookupStatus.UNAVAILABLE || status == TransitLookupStatus.FAILED) {
             // 批量不可用/失败会由 transportSignalAvailable=false 整体 mask；若未来出现单 POI 局部失败，按中性交通档降级。
             return new TransitResult(0d, 1d, 0d, 1.0d, 0.5d);
         }
-        List<TransitFacilityDTO> nearestTransit = candidate.nearestTransit();
-        Integer nearestMeters = nearestTransit == null || nearestTransit.isEmpty()
-                ? null
-                : nearestTransit.get(0).distanceMeters();
+        Integer nearestMeters = this.nearestTransitMeters(candidate.nearestTransit(), transportProfile);
         // SUCCESS_EMPTY / SUCCESS 但无站点：事实性差，归 transitLow + 站距 cap。
         if (nearestMeters == null) {
             return new TransitResult(0d, 0d, 1d, LinearScoreConstants.TRANSIT_DIST_CAP, 0d);
@@ -230,6 +232,30 @@ public class PoiLinearFeatureExtractor {
             return new TransitResult(0d, 1d, 0d, distanceNorm, 0.5d);
         }
         return new TransitResult(0d, 0d, 1d, distanceNorm, 0d);
+    }
+
+    private Integer nearestTransitMeters(List<TransitFacilityDTO> nearestTransit, TransportProfile transportProfile) {
+        if (nearestTransit == null || nearestTransit.isEmpty()) {
+            return null;
+        }
+        String requiredType = this.requiredTransitType(transportProfile);
+        return nearestTransit.stream()
+                .filter(transit -> requiredType == null || requiredType.equals(transit.type()))
+                .map(TransitFacilityDTO::distanceMeters)
+                .filter(distanceMeters -> distanceMeters != null)
+                .min(Integer::compareTo)
+                .orElse(null);
+    }
+
+    private String requiredTransitType(TransportProfile transportProfile) {
+        if (transportProfile == null) {
+            return null;
+        }
+        return switch (transportProfile) {
+            case WALK_BUS -> TRANSIT_TYPE_BUS;
+            case WALK_SUBWAY, BIKE_SUBWAY -> TRANSIT_TYPE_SUBWAY;
+            case WALK_ONLY, WALK_TRANSIT, WALK_TAXI -> null;
+        };
     }
 
     private double walkingAccessibility(double distanceMeters, double transitScore) {

@@ -1,0 +1,411 @@
+{
+  "overallVerdict": "COMPOSED",
+  "globalWarnings": [],
+  "routes": [
+    {
+      "routeCode": "A",
+      "title": "浦东人文与陆家嘴滨江",
+      "theme": "跨越黄浦江，从浦西经典到浦东新地标，结合博物馆和滨江用餐",
+      "summary": "上午从外滩出发，经豫园后前往上海博物馆(东馆)，在陆家嘴滨江午餐，下午漫步浦东美术馆及外滩源，晚餐于外滩特色餐厅。",
+      "explanation": "路线以必去点为核心，从浦西外滩开始，经豫园后打车至浦东，串联东馆和陆家嘴片区，再返回浦西完成晚餐。交通上虽然跨江，但通过打车可高效连接。",
+      "estimatedStayMinutes": 370,
+      "routeTags": [
+        "MUST_VISIT",
+        "SCENIC",
+        "MUSEUM",
+        "FOOD",
+        "LOCAL"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "poiId": "amap-f739fd3026",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "清晨游览外滩，欣赏黄浦江晨景和万国建筑群。",
+          "reason": "作为上海标志性景观，适合早晨开始一天的行程。"
+        },
+        {
+          "order": 2,
+          "poiId": "amap-755f0a7aaa",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "参观上海豫园，感受江南园林和城隍庙商圈的烟火气。",
+          "reason": "紧邻外滩，空间上合理衔接，丰富文化体验。"
+        },
+        {
+          "order": 3,
+          "poiId": "amap-cbfc663240",
+          "routeRole": "MUST_VISIT",
+          "intendedMealWindow": null,
+          "stayMinutes": 90,
+          "description": "必去点，参观上海博物馆(东馆)，深度体验中国古代艺术与文化。",
+          "reason": "用户指定必须包含的POI。"
+        },
+        {
+          "order": 4,
+          "poiId": "amap-41872dc6e7",
+          "routeRole": "MEAL",
+          "intendedMealWindow": "LUNCH",
+          "stayMinutes": 60,
+          "description": "在1886德国汽车餐厅(陆家嘴滨江店)享用午餐，欣赏滨江景致。",
+          "reason": "午餐窗口内，陆家嘴地区高评分餐饮，category=FOOD，适合MEAL。"
+        },
+        {
+          "order": 5,
+          "poiId": "amap-177f3b6c36",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "参观浦东美术馆，欣赏现代艺术展览及建筑。",
+          "reason": "位于陆家嘴，与东馆和午餐点空间连续，增强文化艺术体验。"
+        },
+        {
+          "order": 6,
+          "poiId": "amap-98a8b67b75",
+          "routeRole": "MEAL",
+          "intendedMealWindow": "DINNER",
+          "stayMinutes": 40,
+          "description": "在李百蟹·蟹黄面·江景餐厅(外滩·豫园店)享用晚餐，体验本帮特色。",
+          "reason": "晚餐窗口内，位于外滩，返回浦西后方便结束行程，category=FOOD。停留时间略低于常规正餐，因路线整体停留需控制。"
+        }
+      ],
+      "warnings": [],
+      "backendReviewHints": [
+        {
+          "type": "ROUTE_DISTANCE",
+          "message": "路线跨江，从外滩/豫园区到浦东东馆、陆家嘴再返回外滩，需注意打车耗时，确保总时间在8小时内。"
+        }
+      ],
+      "needsBackendReview": true
+    },
+    {
+      "routeCode": "B",
+      "title": "浦西经典文化街区漫游",
+      "theme": "深入浦西历史街区，从博物馆到里弄，体验本地生活与咖啡文化",
+      "summary": "从上海自然博物馆开始，串联静安、复兴公园、思南公馆、田子坊，午餐本帮菜，下午咖啡小憩，以必去点上海博物馆(东馆)收尾（跨区安排）。",
+      "explanation": "由于必去点在浦东，路线主要安排在浦西历史文化街区，最后前往东馆。空间上浦西片区连续，最后跨江至东馆，虽有折返但东馆周边无更合适的晚餐，故将晚餐设在浦西。",
+      "estimatedStayMinutes": 380,
+      "routeTags": [
+        "MUST_VISIT",
+        "MUSEUM",
+        "LOCAL",
+        "COFFEE",
+        "FOOD"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "poiId": "amap-c023dee57a",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 90,
+          "description": "参观上海自然博物馆，探索自然历史与生物多样性。",
+          "reason": "位于静安区，交通便利，适合作为起点。"
+        },
+        {
+          "order": 2,
+          "poiId": "amap-8c5202e636",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "在复兴公园散步，体验法式园林和本地市民休闲。",
+          "reason": "邻近思南公馆，增添公园漫步元素。"
+        },
+        {
+          "order": 3,
+          "poiId": "amap-b0e56ff94a",
+          "routeRole": "LOCAL",
+          "intendedMealWindow": null,
+          "stayMinutes": 50,
+          "description": "漫步思南公馆，欣赏历史建筑群，感受老上海风情。",
+          "reason": "标志性本地街区，符合LOCAL目标。"
+        },
+        {
+          "order": 4,
+          "poiId": "amap-bb16912e5e",
+          "routeRole": "MEAL",
+          "intendedMealWindow": "LUNCH",
+          "stayMinutes": 60,
+          "description": "在HOMES上海本帮菜(必吃榜店)享用午餐，品尝地道本帮风味。",
+          "reason": "午餐窗口内，附近高评分本帮菜，category=FOOD。"
+        },
+        {
+          "order": 5,
+          "poiId": "amap-5b8f542338",
+          "routeRole": "LOCAL",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "逛上海田子坊，体验石库门里弄的创意小店和艺术氛围。",
+          "reason": "典型LOCAL街区，与思南公馆风格互补，停留时间符合街区体验。"
+        },
+        {
+          "order": 6,
+          "poiId": "amap-cbfc663240",
+          "routeRole": "MUST_VISIT",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "傍晚前往上海博物馆(东馆)，完成必去点参观（因时间限制，停留较短）。",
+          "reason": "必去点，必须包含，但因路线总停留接近上限，缩短至60分钟。"
+        }
+      ],
+      "warnings": [
+        "上海博物馆(东馆)停留时间缩短至60分钟，因浦西活动较多，但用户指定必须访问。",
+        "路线未安排晚饭窗口（17:30-20:00），因最后安排在浦东东馆，周边无合适FOOD且时间可能不足。"
+      ],
+      "backendReviewHints": [
+        {
+          "type": "ROUTE_DISTANCE",
+          "message": "从田子坊到浦东东馆距离较远，需打车跨江，交通时间需预留充足。"
+        }
+      ],
+      "needsBackendReview": true
+    },
+    {
+      "routeCode": "C",
+      "title": "上海全景：从展览到外滩夜色",
+      "theme": "融合室内展览、都市街区与外滩经典，紧凑一日看尽上海多元面貌",
+      "summary": "上午上海展览中心，中午GM巨人展，午餐面馆，下午咖啡小憩后前往外滩观景，最后以必去点东馆结束（跨区）。",
+      "explanation": "路线从静安区开始，利用展览和文化点，午餐和咖啡穿插，下午转外滩，最后跨江至东馆。东馆安排在最后因其位置较偏，但晚餐空缺。",
+      "estimatedStayMinutes": 365,
+      "routeTags": [
+        "MUST_VISIT",
+        "CULTURE",
+        "COFFEE",
+        "SCENIC",
+        "FOOD"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "poiId": "amap-3c4970c49f",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 75,
+          "description": "参观上海展览中心，欣赏宏伟的俄罗斯古典主义建筑。",
+          "reason": "静安区标志性文化地标，适合上午开始。"
+        },
+        {
+          "order": 2,
+          "poiId": "amap-f8130edcc9",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "前往GM巨人展，体验当代艺术与商业结合的展览。",
+          "reason": "位于淮海中路，与展览中心空间相近，丰富文化体验。"
+        },
+        {
+          "order": 3,
+          "poiId": "amap-2d32997e26",
+          "routeRole": "MEAL",
+          "intendedMealWindow": "LUNCH",
+          "stayMinutes": 60,
+          "description": "在味香斋面馆(南京东路店)午餐，品尝上海传统面食。",
+          "reason": "午餐窗口内，就近选择高评分面馆，category=FOOD。"
+        },
+        {
+          "order": 4,
+          "poiId": "amap-32b7cf0777",
+          "routeRole": "REST",
+          "intendedMealWindow": null,
+          "stayMinutes": 30,
+          "description": "在AREA31区咖啡店小憩，享受精品咖啡。",
+          "reason": "下午休息缓冲，符合咖啡/休息停留时间，空间上由淮海中路移至常熟路附近。"
+        },
+        {
+          "order": 5,
+          "poiId": "amap-e3c871e7ca",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 50,
+          "description": "游览外滩-观景大道，从北端欣赏浦江两岸风光。",
+          "reason": "衔接咖啡店后前往外滩，空间上合理，但需从浦西腹地到外滩。"
+        },
+        {
+          "order": 6,
+          "poiId": "amap-cbfc663240",
+          "routeRole": "MUST_VISIT",
+          "intendedMealWindow": null,
+          "stayMinutes": 90,
+          "description": "最后前往上海博物馆(东馆)，完成必去点深度参观。",
+          "reason": "必须包含，安排在最后，因东馆较远且需跨江。"
+        }
+      ],
+      "warnings": [
+        "路线未安排晚饭窗口，因最后在浦东东馆且之后无合适餐饮，时间可能超出晚饭窗口。"
+      ],
+      "backendReviewHints": [
+        {
+          "type": "ROUTE_DISTANCE",
+          "message": "从外滩到浦东东馆跨江，交通耗时可能较长，需预留时间。"
+        }
+      ],
+      "needsBackendReview": true
+    },
+    {
+      "routeCode": "D",
+      "title": "博物馆与文艺街区慢行",
+      "theme": "以博物馆为核心，穿插文艺街区和咖啡，节奏舒缓，适合深度体验",
+      "summary": "上午浦东东馆（必去），之后返回浦西世博会博物馆，午餐在田子坊附近，下午思南公馆、复兴公园、咖啡店，晚餐本帮菜。",
+      "explanation": "以东馆为起点，距离较远，因此先完成跨江，之后集中在浦西南部。空间上世博会博物馆到田子坊、思南、复兴公园连续。",
+      "estimatedStayMinutes": 400,
+      "routeTags": [
+        "MUST_VISIT",
+        "MUSEUM",
+        "LOCAL",
+        "COFFEE",
+        "FOOD"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "poiId": "amap-cbfc663240",
+          "routeRole": "MUST_VISIT",
+          "intendedMealWindow": null,
+          "stayMinutes": 90,
+          "description": "早晨直接前往上海博物馆(东馆)，作为一天的开端。",
+          "reason": "必去点，必须包含。位于浦东，先完成跨江行程。"
+        },
+        {
+          "order": 2,
+          "poiId": "amap-97ca29d751",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 75,
+          "description": "参观上海世博会博物馆，回顾世博历史与城市发展。",
+          "reason": "博物馆主题延伸，空间上由浦东返回浦西南部后可达。"
+        },
+        {
+          "order": 3,
+          "poiId": "amap-5b8f542338",
+          "routeRole": "LOCAL",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "逛田子坊，体验弄堂小店和手工艺。",
+          "reason": "LOCAL目标核心点，停留时间合理。"
+        },
+        {
+          "order": 4,
+          "poiId": "amap-2d32997e26",
+          "routeRole": "MEAL",
+          "intendedMealWindow": "LUNCH",
+          "stayMinutes": 60,
+          "description": "在田子坊附近味香斋面馆午餐，简单快捷。",
+          "reason": "午餐窗口内，面馆快速用餐，但实际空间上田子坊到味香斋需短途打车。"
+        },
+        {
+          "order": 5,
+          "poiId": "amap-b0e56ff94a",
+          "routeRole": "LOCAL",
+          "intendedMealWindow": null,
+          "stayMinutes": 45,
+          "description": "漫步思南公馆，欣赏历史建筑。",
+          "reason": "与田子坊相邻片区，连续游览。"
+        },
+        {
+          "order": 6,
+          "poiId": "amap-bb16912e5e",
+          "routeRole": "MEAL",
+          "intendedMealWindow": "DINNER",
+          "stayMinutes": 70,
+          "description": "在HOMES上海本帮菜(必吃榜店)享用晚餐，为本帮菜之旅画上句号。",
+          "reason": "晚餐窗口内，category=FOOD，位于附近，但需注意晚餐后结束行程的地点。"
+        }
+      ],
+      "warnings": [
+        "午餐点味香斋面馆与田子坊有一定距离，需打车或步行衔接。",
+        "晚餐后结束点可能在静安区，若出发点在浦东需注意返回。"
+      ],
+      "backendReviewHints": [
+        {
+          "type": "ROUTE_DISTANCE",
+          "message": "从浦东东馆到浦西世博会博物馆距离较远，需跨江打车。"
+        }
+      ],
+      "needsBackendReview": true
+    },
+    {
+      "routeCode": "E",
+      "title": "江景与都市烟火",
+      "theme": "沿黄浦江两岸，上午浦西经典、下午浦东艺术，晚餐江景",
+      "summary": "从外滩源开始，经外滩观景平台，上午豫园老街，午餐后前往浦东美术馆和东馆，最后在陆家嘴滨江餐厅晚餐。",
+      "explanation": "路线覆盖外滩-豫园-陆家嘴，跨江一次。东馆和浦东美术馆都在浦东，空间连续。午餐安排在浦西，晚餐在浦东。",
+      "estimatedStayMinutes": 395,
+      "routeTags": [
+        "MUST_VISIT",
+        "SCENIC",
+        "MUSEUM",
+        "FOOD",
+        "LOCAL"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "poiId": "amap-2615dda79d",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 40,
+          "description": "清晨漫步益丰外滩源，感受外滩源的历史建筑群。",
+          "reason": "早晨人少，适合打卡拍照。"
+        },
+        {
+          "order": 2,
+          "poiId": "amap-e317edb9e2",
+          "routeRole": "PHOTO",
+          "intendedMealWindow": null,
+          "stayMinutes": 30,
+          "description": "前往外滩-观景平台，拍摄陆家嘴天际线全景。",
+          "reason": "轻量打卡，适合拍照，停留时间符合PHOTO角色。"
+        },
+        {
+          "order": 3,
+          "poiId": "amap-755f0a7aaa",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 75,
+          "description": "参观豫园，游览园林和城隍庙商圈。",
+          "reason": "经典景点，停留时间符合SCENIC。"
+        },
+        {
+          "order": 4,
+          "poiId": "amap-98a8b67b75",
+          "routeRole": "MEAL",
+          "intendedMealWindow": "LUNCH",
+          "stayMinutes": 60,
+          "description": "在李百蟹·蟹黄面·江景餐厅午餐，品尝蟹黄面。",
+          "reason": "午餐窗口内，位于外滩附近，category=FOOD。"
+        },
+        {
+          "order": 5,
+          "poiId": "amap-177f3b6c36",
+          "routeRole": "ANCHOR",
+          "intendedMealWindow": null,
+          "stayMinutes": 60,
+          "description": "下午参观浦东美术馆，欣赏艺术展览。",
+          "reason": "跨江后连续安排浦东景点。"
+        },
+        {
+          "order": 6,
+          "poiId": "amap-cbfc663240",
+          "routeRole": "MUST_VISIT",
+          "intendedMealWindow": null,
+          "stayMinutes": 90,
+          "description": "最后参观上海博物馆(东馆)，完成必去点。",
+          "reason": "必去点，与浦东美术馆同在浦东，空间连续。"
+        }
+      ],
+      "warnings": [
+        "晚餐未安排，因路线在浦东结束且东馆附近无合适FOOD，晚饭窗口可能错过。"
+      ],
+      "backendReviewHints": [
+        {
+          "type": "ROUTE_DISTANCE",
+          "message": "从浦西外滩/豫园跨江到浦东陆家嘴，需注意交通时间。"
+        }
+      ],
+      "needsBackendReview": true
+    }
+  ]
+}

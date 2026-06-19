@@ -19,7 +19,7 @@ SYSTEM_PROMPT = """你是 Urban Sidequest 的路线编排助手。你只根据�
 USER_PROMPT_TEMPLATE = """请基于下面的真实 POI 候选池生成路线草案。
 
 目标：
-1. 从 poiPool 中生成 request.routeCountRange 指定数量范围内的路线，优先生成 3 条高质量路线，最多 5 条。
+1. 从 poiPool 中生成 request.routeCountRange 指定数量范围内的路线，生成 5 条高质量路线。
 2. 每条路线都必须包含 request.mustVisitPoiIds 中的所有必去点。
 3. 每条路线只能引用 poiPool 中存在的 poiId。
 4. 根据 request.durationMinutes、departureTime、mealWindows 安排午饭、晚饭和咖啡/休息点。
@@ -33,7 +33,7 @@ USER_PROMPT_TEMPLATE = """请基于下面的真实 POI 候选池生成路线草�
 - 不能新增虚构地点。
 - 每条路线都必须包含全部 request.mustVisitPoiIds。
 - 不能返回自然语言说明，只能返回 JSON。
-- 每条路线 stop 数量建议 5-8 个。
+- 每条路线 stop 只能为6个。
 - 每条路线停留时间总和不得超过 request.durationMinutes 的 85%。
 - estimatedStayMinutes 必须等于该路线所有 stops.stayMinutes 的总和。
 - routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP，不能输出 SCENIC、CULTURE、FOOD、COFFEE 等 schema 外枚举。

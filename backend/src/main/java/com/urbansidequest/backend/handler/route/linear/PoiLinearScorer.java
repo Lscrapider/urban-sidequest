@@ -207,6 +207,18 @@ public class PoiLinearScorer {
                 case "distanceNorm" -> 0.02d;
                 default -> 0d;
             };
+            case WALK_BUS -> switch (target) {
+                case "transitDist" -> -0.01d;
+                case "distanceNorm" -> 0.01d;
+                case "cluster" -> 0.01d;
+                default -> 0d;
+            };
+            case WALK_TRANSIT -> switch (target) {
+                case "high" -> 0.01d;
+                case "transitDist" -> -0.01d;
+                case "distanceNorm" -> 0.01d;
+                default -> 0d;
+            };
             case BIKE_SUBWAY -> switch (target) {
                 case "high" -> 0.02d;
                 case "distanceNorm" -> 0.04d;

@@ -10,7 +10,19 @@ public enum TransportProfile {
             4000
     ),
     WALK_SUBWAY(
-            List.of(SegmentTransportMode.WALK, SegmentTransportMode.TRANSIT),
+            List.of(SegmentTransportMode.SUBWAY),
+            2500,
+            4000,
+            8000
+    ),
+    WALK_BUS(
+            List.of(SegmentTransportMode.BUS),
+            2200,
+            3500,
+            6500
+    ),
+    WALK_TRANSIT(
+            List.of(SegmentTransportMode.TRANSIT),
             2500,
             4000,
             8000
