@@ -137,15 +137,22 @@ X = concat(
 > 只作原料,真正进 W_risk 的是 `weatherOutdoorRisk = badWeatherSeverity * weatherSensitive`(derivedFeature)。
 > `closeRisk`(POI.opentime ⊗ 请求时间窗)、`categoryDuplicateRisk`(候选池同类计数)均属 derivedFeature。
 
-#### 身份标识(POI 自身 raw，进 poiFeature，给保守的小解释性权重)
+#### 身份标识(Gate/trace metadata,**不进 X / ONNX / 训练**;留在业务 DTO)
 
 | 字段名 | 含义 | 类型 | 数据档 | 来源/合成 |
 | --- | --- | --- | --- | --- |
 | `candidateRole` | 候选角色 one-hot | `bool(one-hot)` | 0 | `role(MUST_VISIT/ANCHOR/MEAL/REST/LOCAL/BACKUP)` |
 | `isMustVisit` | 是否必去点 | `bool` | 0 | `mustVisit` |
 
-> `isMustVisit`/`candidateRole` 的真正保留由 Hard Constraint Gate 保证;这里只给很小的
-> 解释性加分，权重保守，避免角色直接主导排序。
+> 注:本组虽源自 POI 自身,但**不作为 X 的 poiFeature 列**(v1 权重 0、不进模型输入与训练),
+> 仅以原始字段留在 `PoiCandidateDTO` 供 Gate/trace 使用。规约细节见 §3.3 身份标识小节。
+
+> 两者的真正保留由 Hard Constraint Gate 保证。v1 取舍(见 §6.2):
+> **`isMustVisit` 与 `candidateRole` 均权重 0,不参与 Linear 打分**——必去点强保留交给 Gate 就够了,
+> 不在 linearScore 里叠加;角色 one-hot 还会与语义 bool(isLocal/MEAL 等)及 Gate 三重计分,
+> 故 v1 身份组一律不直接打分,避免角色主导排序。
+> 进一步:**`isMustVisit` 也不进后续训练**(成对偏好排序 / Neural residual 都不把它当特征)——
+> mustVisit 恒被 Gate 强留,作训练特征会造成目标泄漏(模型学成"mustVisit→必留"的循环),无信息增益。
 
 #### POI 语义标签(POI 自身派生，进 poiFeature，可被 W_goal / W_personalization 消费)
 
@@ -675,12 +682,15 @@ affinityNorm     = Σ tagAffinity    # userInterestAffinity 归一分母(按用�
 > weatherSensitive`,坏天气下被负权扣分。取 0.5 等于让"室内外未知"的 POI 在坏天气里平白吃半档
 > 户外风险,违反"缺失不当负例"。故未知按"不敏感(0)"处理,宁可漏扣不可错扣。
 
-#### 身份标识
+#### 身份标识(Gate/trace metadata,**不进 X**,本节不规约)
 
-| 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 | missing indicator |
-| --- | --- | --- | --- | --- | --- |
-| `candidateRole` | one-hot | {0,1}×6 | `role ∈ {MUST_VISIT,ANCHOR,MEAL,REST,LOCAL,BACKUP}` 展开 | `BACKUP=1` | 恰一个为 1 |
-| `isMustVisit` | bool | {0,1} | `mustVisit ? 1 : 0` | `0` | — |
+`candidateRole` / `isMustVisit` 是 **Hard Constraint Gate 与 trace 的 metadata**,v1 权重 0、不参与
+Linear,`isMustVisit` 亦不进 Neural / 训练(§2.1)。因此它们**不属于 `X_model` / ONNX input /
+training feature**,不在"进入 X 的字段规约"范围内,这里不给取值/规约/默认值;它们以原始业务字段
+形态留在 `PoiCandidateDTO`,仅供 Gate 判断保留与 trace 解释。X 的身份维度为空段。
+
+> 这样 §3 "只规约真正进 X 的 poiFeature + derivedFeature" 的定义保持自洽:身份标识既然零贡献、
+> 不进任何模型输入,就不该混在 X 的规约表里造成"它是不是 X 列"的歧义。
 
 #### POI 语义标签(由 typecode/keytag/rectag 映射，缺失统一不臆测语义)
 
@@ -840,6 +850,8 @@ mealMatch
 
 > 语义 bool 是 poiFeature 列，权重由 Delta_goal(routeGoal) 切换;`nightMatch/mealMatch`
 > 是 derivedFeature 的时间窗 cross。本行不直接消费 routeGoal(routeGoal 只走 Delta)。
+> 身份组 `isMustVisit` / `candidateRole` **不进本行、不参与 Linear**(v1 权重 0):必去点的
+> 强保留完全交给 Hard Constraint Gate,不在打分里叠加,避免与语义 bool / Gate 重复计分。
 
 ### 5.3 W_quality
 
@@ -966,11 +978,139 @@ personalizedExplorationMatch
   存在重叠，给 missingInfoRisk 主权重、具体列权重小，避免对同一缺失重复放大。
 ```
 
-待定权重表：
+### 6.1 设计方法:贡献预算
+
+权重不是逐个拍脑袋,而是按"每行对 linearScore 的典型贡献"分配预算,使第 8 节尺度自然成立:
 
 ```text
-矩阵行 | feature | baseWeight | 业务解释 | 是否允许动态增量 | 备注
+目标(profileConfidence=0 的冷启动也要成立):
+  常规优质 POI  →  各行贡献加总 ≈ +0.45      (落在 0.3~0.7)
+  强命中 POI    →  base ≈ +0.73，叠 Delta_goal 后 ≈ +0.85，极端满命中逼近上界 +1.0
+                   (必去点不靠分数,由 Hard Constraint Gate 强保留)
+  明显不合适     →  ≤ −0.6                     (落在 -0.5 以下)
+
+以正贡献为主的混合行: W_interest / W_goal / W_quality / W_transport / W_personalization
+  (其中 W_transport / W_personalization 内部含负权压力列——transitLow/站距/雨天、
+   各 personalizedXxxPressure——并非整行只加分,解释子分数时注意)
+以负贡献(成本)为主的行: W_distance / W_budget / W_risk
+  (其中 W_distance.clusterConnectivity 是行内唯一正权)
+
+下列 baseWeight 是 M_base(未叠 Delta)的人工初值,v1 经验值,
+第 9 节 sanity 样例回归后再微调;调整尺度时 residualScale(0.15)必须同步复查。
 ```
+
+### 6.2 逐行 baseWeight 表
+
+> 约定:`feature × baseWeight` 求和成该行子分;overflow 列乘 cap 即该列贡献上界。
+> "允许 Delta" 指第 7 节哪个增量可改本列(不在表内的列 Delta 不动)。
+
+#### W_interest(无 Delta)
+
+| feature | baseWeight | 业务解释 | 允许 Delta | 备注 |
+| --- | --- | --- | --- | --- |
+| `interestMatchRatio` | **+0.25** | 短期兴趣命中,主正权之一 | — | 空 interestTags→0,不加分 |
+
+#### W_goal(Delta_goal 切换命中项;时间窗由 cross 值表达,不调 Delta)
+
+| feature | baseWeight | 业务解释 | 允许 Delta | 备注 |
+| --- | --- | --- | --- | --- |
+| `isClassic` | +0.06 | 经典地标贡献 | Delta_goal | 语义 bool |
+| `isLocal` | +0.05 | 本地特色 | Delta_goal | |
+| `isPhotoFriendly` | +0.04 | 出片 | Delta_goal | |
+| `isNightFriendly` | +0.03 | 夜游适配(静态) | Delta_goal | 动态夜间走 nightMatch |
+| `isQuiet` | +0.02 | 安静/休息 | Delta_goal | |
+| `isHiddenGem` | +0.03 | 小众 | Delta_goal | |
+| `nightMatch` | +0.05 | 夜间时间窗命中 | — | envCross;时段在 cross **值**里(=isNight×isNightFriendly),不靠 Delta_time 调权重,免双算 |
+| `mealMatch` | +0.05 | 饭点时间窗命中 | — | envCross;同上,时段在 cross 值里 |
+
+> base 全小正,靠 `Delta_goal` 把当前 routeGoal 命中的那 1 项放大;单 POI 通常命中 1~3 个语义,
+> 多命中自然叠加但有限,不会盖过质量行。
+> **身份组 `isMustVisit` / `candidateRole` 不是本行(也不是任何行)的列**(§2.1/§3.3:Gate/trace
+> metadata,不进 X):故不出现在上表,对 linearScore 零贡献。必去点强保留由 Gate 兜底,不叠 Linear。
+
+#### W_quality(无 Delta)
+
+| feature | baseWeight | 业务解释 | 允许 Delta | 备注 |
+| --- | --- | --- | --- | --- |
+| `ratingNorm` | **+0.20** | 评分主质量信号 | — | rating0.8→+0.16;缺失默认0.5→+0.10(中性先验,非奖励) |
+| `hasImage` | +0.05 | 有图小正 | — | |
+| `isRatingMissing` | −0.03 | 缺评分小折扣 | — | 铁律3:主缺失走 missingInfoRisk,此处极小不双算 |
+
+#### W_transport(Delta_transport;受 transit mask)
+
+| feature | baseWeight | 业务解释 | 允许 Delta | 备注 |
+| --- | --- | --- | --- | --- |
+| `transitHigh` | +0.10 | 近站高可达 | Delta_transport | mask 时关 |
+| `transitMedium` | +0.05 | 中可达 | Delta_transport | mask 时关 |
+| `transitLow` | −0.03 | 远站/无站小负 | Delta_transport | mask 时关 |
+| `nearestTransitDistanceNorm` | −0.05 | 站距惩罚 | Delta_transport/Delta_time | overflow→−0.075;mask 关;夜间更敏感 |
+| `walkingAccessibility` | +0.06 | 步行可达正权 | Delta_transport | mask 关 |
+| `rainTransportRisk` | −0.08 | 雨天交通风险 | — | envCross;mask 关 |
+
+> `transportProfile=WALK_ONLY/WALK_TAXI` 时 Delta_transport 不只降 transitHigh 加分,还把
+> `nearestTransitDistanceNorm`/`transitLow` 的站距惩罚中和到 ≈0(步行/打车不依赖公交),
+> 并加重 W_distance 距离惩罚(见 §7.2)。`transportSignalAvailable=false` 时整组被 transit mask 关闭。
+
+#### W_distance(Delta_transport 调交通档、Delta_time 调夜间敏感;纯距离列不受 transit mask)
+
+| feature | baseWeight | 业务解释 | 允许 Delta | 备注 |
+| --- | --- | --- | --- | --- |
+| `distanceNorm` | **−0.20** | 距离主成本 | Delta_transport/Delta_time | overflow→−0.30;WALK_ONLY 更负 |
+| `isolatedDistanceNorm` | −0.08 | 孤立远点 | Delta_transport/Delta_time | overflow→−0.12;夜间更敏感 |
+| `clusterConnectivity` | +0.05 | 可连接性(降成本,**正权**) | Delta_transport | 正向特征 |
+| `distanceFatiguePressure` | −0.06 | 体力压力 | Delta_transport | fatigueRef 随档,不受 transit mask |
+| `heatFatigueRisk` | −0.05 | 高温步行风险 | — | envCross;热度在 cross 值里(=heatLevel×...),不靠 Delta 调权重,不受 transit mask |
+
+#### W_budget(Delta_budget;categoryGroup 消费类门控,非消费类整组 0)
+
+| feature | baseWeight | 业务解释 | 允许 Delta | 备注 |
+| --- | --- | --- | --- | --- |
+| `avgPriceNorm` | −0.10 | 人均压力 | Delta_budget | overflow→−0.20;仅消费类 |
+| `isPriceMissing` | −0.01 | 缺价极小折扣 | — | 中性0.5已折扣,不双算 |
+| `isFree` | +0.04 | 免费小正 | Delta_budget | 仅消费类 cost==0 |
+| `expensivePoiRisk` | −0.10 | 高消费风险 | Delta_budget | |
+
+#### W_risk(v1 无 Delta,效应已由 cross 注入)
+
+| feature | baseWeight | 业务解释 | 允许 Delta | 备注 |
+| --- | --- | --- | --- | --- |
+| `closeRisk` | **−0.20** | 闭店主风险 | — | opentime 缺→0.2→−0.04 温和 |
+| `weatherOutdoorRisk` | −0.10 | 坏天气户外风险 | — | badWeatherSeverity×weatherSensitive |
+| `categoryDuplicateRisk` | −0.08 | 同质化 | — | 未知类→0 |
+| `missingInfoRisk` | −0.12 | 综合缺失**主权** | — | 铁律3:具体列让权于此 |
+
+#### W_personalization(无 Delta;全列已×profileConfidence;personalizedTransitPressure 受 transit mask)
+
+| feature | baseWeight | 业务解释 | 允许 Delta | 备注 |
+| --- | --- | --- | --- | --- |
+| `userInterestAffinity` | +0.15 | 长期口味命中 | — | conf=0(新用户)→整组≈0 |
+| `personalizedDistancePressure` | −0.05 | 个性化距离敏感 | — | overflow |
+| `personalizedBudgetPressure` | −0.05 | 个性化预算敏感 | — | overflow |
+| `personalizedTransitPressure` | −0.03 | 个性化换乘敏感 | — | transit mask 时关 |
+| `personalizedExplorationMatch` | +0.05 | 小众探索匹配 | — | |
+
+### 6.3 预算自洽校验(三档算术,新用户 profileConfidence=0)
+
+```text
+A. 常规优质消费类(rating0.8+图, interestMatch0.5, isLocal+isClassic, transitHigh+walkAcc0.7,
+   distNorm0.4+cluster0.5, price0.6, 风险全低):
+   interest +0.125 | goal +0.11 | quality +0.21 | transport +0.132 | distance −0.073
+   budget −0.06   | risk 0      | personalization 0
+   linearScore ≈ +0.44        ✓ 落在 0.3~0.7
+
+B. 强命中+老用户(conf0.8, interestMatch1.0, userAffinity 命中, isLocal+isClassic+photo,
+   rating0.9, transitHigh;mustVisit 不计分,仅 Gate 保留):
+   interest +0.25 | goal +0.15 | quality +0.23 | transport +0.14 | distance −0.073
+   budget −0.06   | risk 0      | personalization +0.09
+   base linearScore ≈ +0.727，叠 Delta_goal 命中项后 ≈ +0.85，极端满命中逼近 1.0   ✓
+
+C. 明显不合适(WALK_ONLY, distNorm1.5+isolated1.2, 确定闭店, 缺图缺评分):
+   quality +0.07 | transport −0.105 | distance −0.456 | risk −0.32 | 其余 0
+   linearScore ≈ −0.81，WALK_ONLY Delta 再加重距离  ✓ 远低于 -0.5
+```
+
+> 校验确认无图无评分但强匹配的 POI(§9 样例)不会被打死:质量缺失仅温和折扣
+> (ratingNorm 中性 +0.10 − isRatingMissing 0.03 − missingInfoRisk 半档),兴趣/目标命中仍能拉回正区。
 
 ## 7. 动态增量
 
@@ -993,25 +1133,85 @@ M_final =
 > `derivedFeature` 的 cross 列(画像 ⊗ POI)进入 `X`，由固定的 `W_personalization` 行打分。
 > 原则一句话:小枚举切矩阵，连续与大基数进向量。
 
-示例：
+设计约束:增量幅度保守(典型 ±0.02~0.06,约 base 的半档),只动"允许 Delta"标过的列;
+叠加后单 POI linearScore 仍须落在 §8 的 [-1,1],改完跑 §7.5 复查。下表只列**非零增量**,空白=0。
+
+### 7.1 Delta_goal(routeGoal)— 只放大 W_goal 命中语义,不碰其他行
+
+| routeGoal | 调整(列 += 增量) | 说明 |
+| --- | --- | --- |
+| `STEADY` | isQuiet +0.04, isHiddenGem +0.01 | 平稳休闲,偏安静 |
+| `CLASSIC` | isClassic +0.06, isHiddenGem −0.02 | 经典优先,压小众 |
+| `LOCAL` | isLocal +0.06, isHiddenGem +0.02, isClassic −0.02 | 本地优先,略压地标 |
+| `LOW_BUDGET` | (v1 no-op) | 预算交 `Delta_budget`,**本枚举不重复调 W_budget**(见 §2.2 职责边界) |
+| `NIGHT` | isNightFriendly +0.05 | 夜游适配静态加权;动态"是否夜间"由 nightMatch cross 值承担,不在此叠 |
+| `PHOTO` | isPhotoFriendly +0.06, isClassic +0.02 | 出片优先 |
+
+> 命中项大致翻倍(如 CLASSIC 下 isClassic 0.06→0.12),足以让目标命中突出,又不盖过质量行。
+> `LOW_BUDGET` v1 置 no-op 以避免与 budgetLevel 双调 W_budget;若未来启用,只表达目标偏好不调预算行。
+
+### 7.2 Delta_transport(transportProfile)— 调 W_transport + W_distance 的敏感度
+
+> 注:有效半径差异已在 `distanceNorm` 的分母 `effectiveRadius`(§3.2)体现;这里只调**权重敏感度**,
+> 不重复表达半径。距离列为负权,"更负"=加负增量,"更不敏感"=加正增量(往 0 收)。
+
+| transportProfile | 调整(列 += 增量) | 说明 |
+| --- | --- | --- |
+| `WALK_ONLY` | distanceNorm −0.06, isolatedDistanceNorm −0.03, distanceFatiguePressure −0.03, transitHigh −0.05, **nearestTransitDistanceNorm +0.05, transitLow +0.03**, walkingAccessibility +0.03 | 纯步行,距离/体力最敏感;**把公交站距/无站惩罚收回到 ≈0**(步行不依赖公交,不该因离站远扣分) |
+| `WALK_SUBWAY` | transitHigh +0.03, nearestTransitDistanceNorm −0.02, distanceNorm +0.02 | 地铁延展可达,看重近站,略松距离 |
+| `BIKE_SUBWAY` | distanceNorm +0.04, distanceFatiguePressure +0.02, transitHigh +0.02 | 骑行扩大范围,距离/体力最不敏感 |
+| `WALK_TAXI` | distanceNorm +0.05, isolatedDistanceNorm +0.04, distanceFatiguePressure +0.03, transitHigh −0.03, **nearestTransitDistanceNorm +0.05, transitLow +0.03** | 打车解距离约束,几乎不看孤立/公交;**站距/无站惩罚同样收回 ≈0** |
+
+> WALK_ONLY/WALK_TAXI 的 `nearestTransitDistanceNorm +0.05`(抵消 base −0.05)与 `transitLow +0.03`
+> (抵消 base −0.03)把"离站远"的负权净化到 ≈0——否则只降 transitHigh 仍会让纯步行/打车点因站距被扣。
+> `transportSignalAvailable=false`(transit mask)时,涉及 transit 的增量列同样随该列被关闭,不单独生效。
+
+### 7.3 Delta_budget(budgetLevel)— 调 W_budget(**v1 reserved**,budgetLevel 未接入前不生效)
+
+| budgetLevel | 调整(列 += 增量) | 说明 |
+| --- | --- | --- |
+| `LOW` | avgPriceNorm −0.06, expensivePoiRisk −0.06, isFree +0.04 | 预算紧,重罚高消费、奖励免费 |
+| `NORMAL` | (no-op,基线) | M_base 即常态 |
+| `FLEXIBLE` | avgPriceNorm +0.04, expensivePoiRisk +0.04 | 预算宽,松价格惩罚 |
+
+> `RouteGenerateParam` 暂无 `budgetLevel`,落地前 `Delta_budget` 恒为 NORMAL(no-op),budgetCap 用全局常量。
+> 同样只作用于消费类 POI(W_budget 已被 categoryGroup 门控,非消费类整组 0,Delta 不会误伤景点)。
+
+### 7.4 Delta_time(routeTimeStructure)— 只做**非语义**的时段敏感位移
+
+> 铁律(§2.4):POI 语义时段匹配(夜游/饭点)走 cross **值**(nightMatch/mealMatch),不在此调权重;
+> Delta_time 只负责"整体上夜间对距离/可达更敏感"这类非语义位移,二者不双算。
+
+| routeTimeStructure | 调整(列 += 增量) | 说明 |
+| --- | --- | --- |
+| `morning` / `afternoon` | (no-op,基线) | — |
+| `lunch` / `dinner` | (no-op) | 用餐适配由 `mealMatch` cross 值承担,不调权重 |
+| `night` | distanceNorm −0.04, isolatedDistanceNorm −0.03, nearestTransitDistanceNorm −0.03 | 夜间更看重短距离、不孤立、近站(安全/可达) |
+
+> 夜间闭店风险由 `closeRisk` cross 值(时间窗 ⊗ opentime)表达,W_risk 不设 Delta(§6.2),故此处不调风险行。
+
+### 7.5 叠加后尺度复查(挑两档极端组合,确认仍在 [-1,1])
 
 ```text
-transportProfile = WALK_ONLY:
-  W_distance.distanceNorm 更负
-  W_distance.isolatedDistanceNorm 更负
-  W_distance.distanceFatiguePressure 更负
-  W_transport.transitHigh 加分降低
+B′. 强命中 + CLASSIC + WALK_SUBWAY + 老用户(在 §6.3-B base≈+0.727 上叠 Delta):
+    Delta_goal=CLASSIC:  isClassic +0.06                                → +0.06
+    Delta_transport=WALK_SUBWAY: transitHigh +0.03, distanceNorm +0.02(distNorm0.4→+0.008)
+                                                                         → ≈ +0.038
+    linearScore ≈ 0.727 + 0.06 + 0.038 ≈ +0.825      ✓ < 1.0，仍留出满命中逼近 1.0 的余量
 
-routeGoal = LOCAL:
-  W_goal.isLocal 更正
-  W_goal.isClassic 可略降或不变
-  W_goal.isHiddenGem 可略升
-
-budgetLevel = LOW:
-  W_budget.avgPriceNorm 更负
-  W_budget.isFree 更正
-  W_budget.expensivePoiRisk 更负
+C′. 不合适 + WALK_ONLY + night(在 §6.3-C base≈−0.81 上叠 Delta;交通信号可用、站距 cap1.5):
+    Delta_transport=WALK_ONLY 交通中和: transitLow +0.03(×1→+0.03), nearestTransitDistanceNorm +0.05(×1.5→+0.075)
+                               → 抵消 §6.3-C base 的交通罚 ≈ +0.105
+    Delta_transport=WALK_ONLY 距离加重: distanceNorm −0.06(×1.5→−0.09), isolated −0.03(×1.2→−0.036),
+                               fatigue −0.03(×1→−0.03)                  → ≈ −0.156
+    Delta_time=night:    distanceNorm −0.04(×1.5→−0.06), isolated −0.03(×1.2→−0.036),
+                         nearestTransitDistanceNorm −0.03(×1.5→−0.045)  → ≈ −0.141
+    linearScore ≈ −0.81 + 0.105 − 0.156 − 0.141 ≈ −1.00 → clamp 到 −1.0    ✓ 触底,符合"明显不合适"
+    (若该坏点交通信号不可用,nearestTransitDistanceNorm/transitLow 走 transit mask 全关,结果同样触底)
 ```
+
+> 极端坏样例叠满 Delta 会略微越过 −1.0,由最终 clamp 收口(§8);这是有意的——差点本就该贴地板。
+> 优质样例叠 Delta 后约 +0.83,距上界 1.0 仍有余量,残差 residualScale=0.15 不会把好点顶出界。
 
 ## 8. 分值尺度
 
@@ -1027,17 +1227,32 @@ linearScore:
 明显不合适 POI:
   大致落在 -0.5 以下。
 
-强兴趣命中或 mustVisit:
+强兴趣命中 / 强目标命中:
   可以接近 1.0。
+
+mustVisit:
+  由 Hard Constraint Gate 强保留,不依赖分数,**不要求 linearScore 接近 1.0**。
+```
+
+安全 clamp(收口,非常态):
+
+```text
+linearScore = clamp(Σ(M_final * X), -1.0, +1.0)
+
+  极端坏样例叠满 Delta 可能略越 -1.0(见 §7.5 C′),由该 clamp 兜到 -1.0;
+  常态优质/普通 POI 远在界内,不触 clamp。clamp 只是安全栏,不参与日常区分。
+  代价:多个触底差点会并到 -1.0 丢失彼此次序——可接受,它们本就在"明显不合适"区、会被降权/过滤。
 ```
 
 和 Neural residual 的尺度关系：
 
 ```text
+finalScore   = linearScore + neuralResidual
 neuralResidual = tanh(output) * residualScale
 
 residualScale:
   首版建议 0.15。
+  linearScore 已 clamp 到 [-1,1],叠残差后 finalScore ∈ [-1.15, 1.15],尺度可控。
 ```
 
 含义：

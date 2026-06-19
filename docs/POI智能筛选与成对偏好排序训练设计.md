@@ -146,7 +146,10 @@ budgetLevel = LOW
 
 ```text
 基础信息:
-  类别、子类别、候选角色、是否必去、是否兜底。
+  类别、子类别、候选角色、是否兜底。
+  注:`是否必去(isMustVisit)` 不作训练特征——它恒被 Hard Constraint Gate 强保留,
+  当特征会造成目标泄漏(模型学成 mustVisit→必留 的循环),无信息增益;
+  必去保留逻辑见下文 mustVisit 保留小节,与 Linear 文档 §2.1 口径一致。
 
 质量信息:
   评分、图片、描述完整度、地址完整度、品牌可信度、信息缺失风险。
@@ -524,6 +527,10 @@ feedbackType
 ```
 
 其中 `chosenLinearScore` 和 `rejectedLinearScore` 是 Linear Ranker 计算出的固定基线分。首版训练时它们参与最终分数比较，但 Linear 权重本身不参与反向传播，也不被 Neural 训练过程改写。
+
+> 口径对齐:这两个分必须是与**线上同口径的 clamped linearScore**,即 `clamp(Σ(M_final*X), -1, +1)`
+> (见 Linear 文档《POI线性打分矩阵取值设计》§7/§8:含 Delta 叠加 + 安全 clamp)。训练样本若用未 clamp
+> 的原始分,会与线上 `finalScore = clamp 后 linearScore + neuralResidual` 错位,导致训练目标和上线行为不一致。
 
 训练目标不是让 `chosenResidual > rejectedResidual`，而是让最终线上使用的分数满足：
 
