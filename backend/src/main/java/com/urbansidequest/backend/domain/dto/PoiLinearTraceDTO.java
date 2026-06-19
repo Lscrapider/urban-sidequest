@@ -18,6 +18,12 @@ public record PoiLinearTraceDTO(
         double budgetCost,
         double riskCost,
         double personalizationScore,
+        double distanceMeters,
+        double effectiveRadiusMeters,
+        double distanceNorm,
+        double isolatedDistanceNorm,
+        double clusterConnectivity,
+        double distanceFatiguePressure,
         double linearScore
 ) {
 
@@ -39,6 +45,12 @@ public record PoiLinearTraceDTO(
                 score.budgetCost(),
                 score.riskCost(),
                 score.personalizationScore(),
+                score.distanceMeters(),
+                score.effectiveRadiusMeters(),
+                score.distanceNorm(),
+                score.isolatedDistanceNorm(),
+                score.clusterConnectivity(),
+                score.distanceFatiguePressure(),
                 score.linearScore()
         );
     }

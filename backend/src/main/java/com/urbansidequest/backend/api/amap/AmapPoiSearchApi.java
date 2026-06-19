@@ -8,6 +8,8 @@ import com.urbansidequest.backend.domain.dto.AmapPoiSearchQueryDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -22,9 +24,16 @@ public class AmapPoiSearchApi {
 
     private static final String SHOW_FIELDS = "business,photos";
 
+    /**
+     * 高德 Place 搜索接口按 3 QPS 控制。350ms 留出少量余量，避免边界抖动触发限流。
+     */
+    private static final long MIN_REQUEST_INTERVAL_NANOS = 350_000_000L;
+
     private final AmapWebProperties amapWebProperties;
 
     private final RestTemplate restTemplate;
+
+    private final FixedIntervalRateLimiter rateLimiter = new FixedIntervalRateLimiter(MIN_REQUEST_INTERVAL_NANOS);
 
     public AmapPoiSearchApi(AmapWebProperties amapWebProperties, RestTemplateBuilder restTemplateBuilder) {
         this.amapWebProperties = amapWebProperties;
@@ -40,6 +49,7 @@ public class AmapPoiSearchApi {
             case SEARCH_TYPE_POLYGON -> this.buildPolygonUri(query);
             default -> throw new IllegalArgumentException("不支持的高德 POI 搜索类型：" + query.searchType());
         };
+        this.rateLimiter.acquire();
         return this.restTemplate.getForObject(uri, JsonNode.class);
     }
 
@@ -93,5 +103,32 @@ public class AmapPoiSearchApi {
                 .map(this::toLocation)
                 .reduce((left, right) -> left + "|" + right)
                 .orElse("");
+    }
+
+    private static final class FixedIntervalRateLimiter {
+
+        private final long minIntervalNanos;
+
+        private final AtomicLong nextAllowedAtNanos = new AtomicLong(0L);
+
+        private FixedIntervalRateLimiter(long minIntervalNanos) {
+            this.minIntervalNanos = minIntervalNanos;
+        }
+
+        private void acquire() {
+            while (true) {
+                long now = System.nanoTime();
+                long current = this.nextAllowedAtNanos.get();
+                long scheduled = Math.max(now, current);
+                long next = scheduled + this.minIntervalNanos;
+                if (this.nextAllowedAtNanos.compareAndSet(current, next)) {
+                    long waitNanos = scheduled - now;
+                    if (waitNanos > 0L) {
+                        LockSupport.parkNanos(waitNanos);
+                    }
+                    return;
+                }
+            }
+        }
     }
 }

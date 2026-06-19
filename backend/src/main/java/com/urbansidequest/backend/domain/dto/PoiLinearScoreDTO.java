@@ -16,6 +16,12 @@ public record PoiLinearScoreDTO(
         double budgetCost,
         double riskCost,
         double personalizationScore,
+        double distanceMeters,
+        double effectiveRadiusMeters,
+        double distanceNorm,
+        double isolatedDistanceNorm,
+        double clusterConnectivity,
+        double distanceFatiguePressure,
         double linearScore
 ) {
 }

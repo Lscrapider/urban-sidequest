@@ -234,7 +234,7 @@ requestFeature v1 不提供独立打分列。
 | `routeGoal(STEADY/CLASSIC/LOCAL/LOW_BUDGET/NIGHT/PHOTO)` | `Delta selector` | 切 W |
 | `transportProfile(WALK_ONLY/WALK_SUBWAY/BIKE_SUBWAY/WALK_TAXI)` | `Delta selector + basis` | 切 W + `effectiveRadius` 上限 |
 | `budgetLevel(LOW/NORMAL/FLEXIBLE，待前端/param 新增)` | `Delta selector + basis` | 切 `W_budget` + `budgetCap` |
-| `interestTags(List<String>)` | `derivedFeature input` | -> `interestMatchRatio(POI.matchedInterestTags)` 现成 |
+| `interestTags(List<String>)` | `derivedFeature input` | -> `interestMatchRatio(POI.poiTagHits)`；`poiTagHits` 由语义映射表按 `typecode/keytag/rectag/name/category` 规约得到 |
 | `departureTime(Instant)` | `basis + derived input` | `routeTimeWindow` -> `routeTimeStructure(2.4)` + `closeRisk` |
 | `durationMinutes(Integer)` | `basis` | `durationBucket`(选 transport 半径档) + `routeTimeWindow` 终点 |
 | `center(GeoPointParam)` | `basis` | `distanceOrigin(AUTO_RADIUS)` |
@@ -281,6 +281,7 @@ interestTags:
   -> derivedFeature.interestMatchRatio。
   注意数据语义:POI.matchedInterestTags 首版表示"命中的搜索计划标签"，
   由搜索计划赋值，不是 POI 完整内容标签;不能误以为它表达了 POI 的全量兴趣覆盖。
+  Linear v1 改用语义映射得到的 POI.poiTagHits 计算兴趣命中，matchedInterestTags 仅保留为搜索/展示线索。
 
 departureTime / durationMinutes:
   routeTimeWindow = [departureTime, departureTime + durationMinutes]
@@ -373,9 +374,12 @@ userInterestAffinity:
   语义 = 用户长期口味
 ```
 
-> 长期画像**不要复用 `POI.matchedInterestTags`**:它现在是"搜索计划命中的标签"，受本次 request 影响。
+> `interestMatchRatio` 与长期画像都**不要复用 `POI.matchedInterestTags`**:它现在是"搜索计划命中的入口标签"，受本次 request/search plan 影响，
+> 通常每个 POI 只有 1 个，会把短期兴趣 ratio 锁死在 `1 / |request.interestTags|`。
 > 长期亲和应用 `POI.typecode/keytag/rectag/categoryGroup` 对齐
 > `InterestTagCatalogPO.tagCode/amapTypeCodes/amapKeywords` **重新算 `poiTagHit[tagCode]`**。
+> v1 统一使用语义映射出的 `poiTagHits` 作为 POI 全量兴趣标签，`interestMatchRatio` 只统计
+> `poiTagHits ∩ request.interestTags`，语义标签丰富不等于请求命中多。
 
 #### cross 预登记(derivedFeature → W_personalization;均乘 profileConfidence 收缩)
 
@@ -501,7 +505,7 @@ extractor 把前四组交叉/池内派生出来的 **per-POI** 列。除 `poiFea
 
 | 字段 | 合成 | 数据档 | 归属行 |
 | --- | --- | --- | --- |
-| `interestMatchRatio` | `request.interestTags` ⊗ `POI.matchedInterestTags`(本次搜索计划命中标签) | 派生 | `W_interest` |
+| `interestMatchRatio` | `request.interestTags` ⊗ `POI.poiTagHits`(语义映射出的 POI 全量兴趣标签) | 派生 | `W_interest` |
 
 #### C. envCross(POI ⊗ 环境 / 路线时间)
 
@@ -724,7 +728,7 @@ training feature**,不在"进入 X 的字段规约"范围内,这里不给取值/
 
 | 字段 | 类型 | 取值范围 | 规约化公式 | 缺失默认 |
 | --- | --- | --- | --- | --- |
-| `interestMatchRatio` | ratio | [0,1] | `|interestTags| == 0 ? 0 : |request.interestTags ∩ POI.matchedInterestTags| / |request.interestTags|` | `0`(无 interestTags→无短期偏好，不加分) |
+| `interestMatchRatio` | ratio | [0,1] | `|interestTags| == 0 ? 0 : |request.interestTags ∩ POI.poiTagHits| / |request.interestTags|` | `0`(无 interestTags→无短期偏好，不加分) |
 
 #### C. envCross(POI ⊗ 环境/路线时间;天气源缺失→severity=0→整列 0，不罚)
 
@@ -903,6 +907,8 @@ heatFatigueRisk
 
 > 全部是 derivedFeature(poolDerived + envCross),非 poiFeature。`walkingSegmentRisk`
 > 已改名 `distanceFatiguePressure`(预筛无前后点 segment);`heatFatigueRisk` 是 envCross。
+> `clusterConnectivity` 是密集片区可串联奖励,随 `transportProfile` 通过 Delta_transport 调整:
+> 纯步行最高,步行+地铁中等,骑行+地铁/打车更低。
 
 ### 5.6 W_budget
 
@@ -1058,7 +1064,7 @@ personalizedExplorationMatch
 | --- | --- | --- | --- | --- |
 | `distanceNorm` | **−0.20** | 距离主成本 | Delta_transport/Delta_time | overflow→−0.30;WALK_ONLY 更负 |
 | `isolatedDistanceNorm` | −0.08 | 孤立远点 | Delta_transport/Delta_time | overflow→−0.12;夜间更敏感 |
-| `clusterConnectivity` | +0.05 | 可连接性(降成本,**正权**) | Delta_transport | 正向特征 |
+| `clusterConnectivity` | +0.03 | 可连接性(降成本,**正权**) | Delta_transport | 出行方式动态调节;WALK_ONLY 净 +0.05,WALK_SUBWAY 净 +0.03,BIKE_SUBWAY 净 +0.02,WALK_TAXI 净 +0.01 |
 | `distanceFatiguePressure` | −0.06 | 体力压力 | Delta_transport | fatigueRef 随档,不受 transit mask |
 | `heatFatigueRisk` | −0.05 | 高温步行风险 | — | envCross;热度在 cross 值里(=heatLevel×...),不靠 Delta 调权重,不受 transit mask |
 
@@ -1158,10 +1164,10 @@ M_final =
 
 | transportProfile | 调整(列 += 增量) | 说明 |
 | --- | --- | --- |
-| `WALK_ONLY` | distanceNorm −0.06, isolatedDistanceNorm −0.03, distanceFatiguePressure −0.03, transitHigh −0.05, **nearestTransitDistanceNorm +0.05, transitLow +0.03**, walkingAccessibility +0.03 | 纯步行,距离/体力最敏感;**把公交站距/无站惩罚收回到 ≈0**(步行不依赖公交,不该因离站远扣分) |
-| `WALK_SUBWAY` | transitHigh +0.03, nearestTransitDistanceNorm −0.02, distanceNorm +0.02 | 地铁延展可达,看重近站,略松距离 |
-| `BIKE_SUBWAY` | distanceNorm +0.04, distanceFatiguePressure +0.02, transitHigh +0.02 | 骑行扩大范围,距离/体力最不敏感 |
-| `WALK_TAXI` | distanceNorm +0.05, isolatedDistanceNorm +0.04, distanceFatiguePressure +0.03, transitHigh −0.03, **nearestTransitDistanceNorm +0.05, transitLow +0.03** | 打车解距离约束,几乎不看孤立/公交;**站距/无站惩罚同样收回 ≈0** |
+| `WALK_ONLY` | distanceNorm −0.06, isolatedDistanceNorm −0.03, distanceFatiguePressure −0.03, clusterConnectivity +0.02, transitHigh −0.05, **nearestTransitDistanceNorm +0.05, transitLow +0.03**, walkingAccessibility +0.03 | 纯步行,距离/体力最敏感,也最需要 POI 成片可串联;**把公交站距/无站惩罚收回到 ≈0**(步行不依赖公交,不该因离站远扣分) |
+| `WALK_SUBWAY` | transitHigh +0.03, nearestTransitDistanceNorm −0.02, distanceNorm +0.02 | 地铁延展可达,看重近站,略松距离;密集奖励使用 base 净 +0.03 |
+| `BIKE_SUBWAY` | distanceNorm +0.04, distanceFatiguePressure +0.02, clusterConnectivity −0.01, transitHigh +0.02 | 骑行扩大范围,距离/体力最不敏感,对点位密集依赖降低 |
+| `WALK_TAXI` | distanceNorm +0.05, isolatedDistanceNorm +0.04, distanceFatiguePressure +0.03, clusterConnectivity −0.02, transitHigh −0.03, **nearestTransitDistanceNorm +0.05, transitLow +0.03** | 打车解距离约束,几乎不看孤立/公交,对密集片区奖励最低;**站距/无站惩罚同样收回 ≈0** |
 
 > WALK_ONLY/WALK_TAXI 的 `nearestTransitDistanceNorm +0.05`(抵消 base −0.05)与 `transitLow +0.03`
 > (抵消 base −0.03)把"离站远"的负权净化到 ≈0——否则只降 transitHigh 仍会让纯步行/打车点因站距被扣。

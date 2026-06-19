@@ -47,7 +47,7 @@ public class PoiLinearScorer {
     // —— W_distance base ——
     private static final double W_DISTANCE_NORM = -0.20d;
     private static final double W_ISOLATED = -0.08d;
-    private static final double W_CLUSTER = 0.05d;
+    private static final double W_CLUSTER = 0.03d;
     private static final double W_FATIGUE = -0.06d;
     private static final double W_HEAT_FATIGUE = -0.05d;
 
@@ -104,7 +104,7 @@ public class PoiLinearScorer {
         double distanceCost =
                 (W_DISTANCE_NORM + transportDelta(transport, "distanceNorm") + (night ? -0.04d : 0d)) * x.distanceNorm()
                 + (W_ISOLATED + transportDelta(transport, "isolated") + (night ? -0.03d : 0d)) * x.isolatedDistanceNorm()
-                + W_CLUSTER * x.clusterConnectivity()
+                + (W_CLUSTER + transportDelta(transport, "cluster")) * x.clusterConnectivity()
                 + (W_FATIGUE + transportDelta(transport, "fatigue")) * x.distanceFatiguePressure()
                 + W_HEAT_FATIGUE * x.heatFatigueRisk();
 
@@ -142,6 +142,12 @@ public class PoiLinearScorer {
                 budgetCost,
                 riskCost,
                 personalizationScore,
+                x.distanceMeters(),
+                x.effectiveRadiusMeters(),
+                x.distanceNorm(),
+                x.isolatedDistanceNorm(),
+                x.clusterConnectivity(),
+                x.distanceFatiguePressure(),
                 linearScore
         );
     }
@@ -192,6 +198,7 @@ public class PoiLinearScorer {
                 case "distanceNorm" -> -0.06d;
                 case "isolated" -> -0.03d;
                 case "fatigue" -> -0.03d;
+                case "cluster" -> 0.02d;
                 default -> 0d;
             };
             case WALK_SUBWAY -> switch (target) {
@@ -204,6 +211,7 @@ public class PoiLinearScorer {
                 case "high" -> 0.02d;
                 case "distanceNorm" -> 0.04d;
                 case "fatigue" -> 0.02d;
+                case "cluster" -> -0.01d;
                 default -> 0d;
             };
             case WALK_TAXI -> switch (target) {
@@ -213,6 +221,7 @@ public class PoiLinearScorer {
                 case "distanceNorm" -> 0.05d;
                 case "isolated" -> 0.04d;
                 case "fatigue" -> 0.03d;
+                case "cluster" -> -0.02d;
                 default -> 0d;
             };
         };

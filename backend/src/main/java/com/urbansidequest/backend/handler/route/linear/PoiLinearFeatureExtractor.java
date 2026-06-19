@@ -100,7 +100,10 @@ public class PoiLinearFeatureExtractor {
         double mealMatch = timeStructure.isMealWindow() && mealCandidate ? 1d : 0d;
 
         // —— W_interest ——
-        double interestMatchRatio = this.interestMatchRatio(candidate, matchedRequestTags);
+        // POI 侧用语义映射出的 poiTagHits（POI 全量标签）而非 matchedInterestTags（仅入口标签，
+        // 恒约 1 个会把 ratio 锁死在 1/|requestTags|）。只数与 request.interestTags 相交的部分，
+        // 语义丰富不等于请求命中多。
+        double interestMatchRatio = this.interestMatchRatio(semantic.poiTagHits(), matchedRequestTags);
 
         // —— W_personalization（× profileConfidence；guard 见各项）——
         UserPreferenceProfileDTO profile = env.profile();
@@ -149,7 +152,9 @@ public class PoiLinearFeatureExtractor {
                 personalizedDistancePressure,
                 personalizedBudgetPressure,
                 personalizedTransitPressure,
-                personalizedExplorationMatch
+                personalizedExplorationMatch,
+                distanceMeters,
+                effectiveRadius
         );
     }
 
@@ -277,15 +282,11 @@ public class PoiLinearFeatureExtractor {
         }
     }
 
-    private double interestMatchRatio(PoiCandidateDTO candidate, List<String> requestTags) {
-        if (requestTags == null || requestTags.isEmpty()) {
+    private double interestMatchRatio(Set<String> poiTagHits, List<String> requestTags) {
+        if (requestTags == null || requestTags.isEmpty() || poiTagHits.isEmpty()) {
             return 0d;
         }
-        List<String> matched = candidate.matchedInterestTags();
-        if (matched == null || matched.isEmpty()) {
-            return 0d;
-        }
-        long hit = requestTags.stream().filter(matched::contains).count();
+        long hit = requestTags.stream().filter(poiTagHits::contains).count();
         return LinearScoreConstants.clamp01((double) hit / requestTags.size());
     }
 

@@ -50,6 +50,9 @@ public record PoiLinearFeatures(
         double personalizedDistancePressure,
         double personalizedBudgetPressure,
         double personalizedTransitPressure,
-        double personalizedExplorationMatch
+        double personalizedExplorationMatch,
+        // debug metadata（不参与 M*X，仅用于 distance 调参 trace）
+        double distanceMeters,
+        double effectiveRadiusMeters
 ) {
 }
