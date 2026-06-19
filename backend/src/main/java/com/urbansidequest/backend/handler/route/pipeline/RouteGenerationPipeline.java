@@ -10,6 +10,7 @@ import com.urbansidequest.backend.handler.route.step.LoadPoiSemanticMappingsStep
 import com.urbansidequest.backend.handler.route.step.LoadRouteWeatherStep;
 import com.urbansidequest.backend.handler.route.step.LoadUserPreferenceProfileStep;
 import com.urbansidequest.backend.handler.route.step.ResolveAreaStep;
+import com.urbansidequest.backend.handler.route.step.SaveRoutePreferenceTrainingSamplesStep;
 import com.urbansidequest.backend.handler.route.step.ScoreAndSelectRoutesStep;
 import com.urbansidequest.backend.handler.route.step.SelectPoiPoolStep;
 import com.urbansidequest.backend.handler.route.step.ValidateRouteRequestStep;
@@ -38,6 +39,8 @@ public class RouteGenerationPipeline {
 
     private final BuildCandidateRoutesStep buildCandidateRoutesStep;
 
+    private final SaveRoutePreferenceTrainingSamplesStep saveRoutePreferenceTrainingSamplesStep;
+
     private final ScoreAndSelectRoutesStep scoreAndSelectRoutesStep;
 
     private final CalibrateSelectedRouteSegmentsStep calibrateSelectedRouteSegmentsStep;
@@ -53,6 +56,7 @@ public class RouteGenerationPipeline {
             EnrichPoiDetailsStep enrichPoiDetailsStep,
             SelectPoiPoolStep selectPoiPoolStep,
             BuildCandidateRoutesStep buildCandidateRoutesStep,
+            SaveRoutePreferenceTrainingSamplesStep saveRoutePreferenceTrainingSamplesStep,
             ScoreAndSelectRoutesStep scoreAndSelectRoutesStep,
             CalibrateSelectedRouteSegmentsStep calibrateSelectedRouteSegmentsStep
     ) {
@@ -66,6 +70,7 @@ public class RouteGenerationPipeline {
         this.enrichPoiDetailsStep = enrichPoiDetailsStep;
         this.selectPoiPoolStep = selectPoiPoolStep;
         this.buildCandidateRoutesStep = buildCandidateRoutesStep;
+        this.saveRoutePreferenceTrainingSamplesStep = saveRoutePreferenceTrainingSamplesStep;
         this.scoreAndSelectRoutesStep = scoreAndSelectRoutesStep;
         this.calibrateSelectedRouteSegmentsStep = calibrateSelectedRouteSegmentsStep;
     }
@@ -100,6 +105,9 @@ public class RouteGenerationPipeline {
 
         // 调用 LLM 从 POI 池生成路线草案；真实交通距离和耗时不在这里计算。
         this.buildCandidateRoutesStep.execute(context);
+
+        // 保存同批候选路线的训练特征快照；v1 先落 stopMatrix/segmentMatrix/routeDerivedVector。
+        this.saveRoutePreferenceTrainingSamplesStep.execute(context);
 
         // 后端复核模型草案，执行必去点、时长等约束，并最多选出 3 条路线。
         this.scoreAndSelectRoutesStep.execute(context);

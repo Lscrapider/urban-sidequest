@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public record RouteGenerationVO(
         UUID requestId,
+        UUID candidateSetId,
         RouteRequestStatus status,
         RouteAreaVO area,
         List<GeneratedRouteVO> routes,

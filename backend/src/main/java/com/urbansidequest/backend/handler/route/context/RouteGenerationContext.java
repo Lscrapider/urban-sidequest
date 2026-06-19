@@ -18,6 +18,8 @@ public class RouteGenerationContext {
 
     private final UUID requestId;
 
+    private final UUID candidateSetId;
+
     private final UUID userId;
 
     private final RouteGenerateParam generateParam;
@@ -48,12 +50,17 @@ public class RouteGenerationContext {
 
     public RouteGenerationContext(UUID requestId, UUID userId, RouteGenerateParam generateParam) {
         this.requestId = requestId;
+        this.candidateSetId = UUID.randomUUID();
         this.userId = userId;
         this.generateParam = generateParam;
     }
 
     public UUID getRequestId() {
         return this.requestId;
+    }
+
+    public UUID getCandidateSetId() {
+        return this.candidateSetId;
     }
 
     public UUID getUserId() {

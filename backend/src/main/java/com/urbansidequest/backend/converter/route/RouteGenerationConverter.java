@@ -23,6 +23,7 @@ public class RouteGenerationConverter {
     public RouteGenerationVO toRouteGenerationVO(RouteGenerationContext context) {
         return new RouteGenerationVO(
                 context.getRequestId(),
+                context.getCandidateSetId(),
                 RouteRequestStatus.SUCCESS,
                 this.toAreaVO(context.getArea(), context.getGenerateParam().getDurationMinutes()),
                 context.getSelectedRoutes().stream().map(this::toGeneratedRouteVO).toList(),

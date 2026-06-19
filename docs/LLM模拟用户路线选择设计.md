@@ -183,12 +183,12 @@ route_preference_judgment:
   modelName
 
   inputContextJson
-  candidateRouteIds
+  candidateRouteCodes
 
   ranking
   pairwisePreferences
-  acceptedRouteIds
-  rejectedRouteIds
+  acceptedRouteCodes
+  rejectedRouteCodes
   routeReasonCodes
   freeTextReason
 
@@ -205,11 +205,11 @@ route_preference_judgment:
 | `judgeVersion` | judge 版本，例如 `llm-sim-user-v1` |
 | `promptVersion` | 模拟用户 prompt 版本 |
 | `inputContextJson` | 本次判断看到的请求、画像、候选摘要和 trace 摘要 |
-| `candidateRouteIds` | 参与判断的候选路线 |
+| `candidateRouteCodes` | 参与判断的候选路线批内编号，例如 `A` / `B` / `C` |
 | `ranking` | 路线从好到差的排序 |
 | `pairwisePreferences` | 可由 `ranking` 自动展开，也可离线生成 |
-| `acceptedRouteIds` | 模拟用户认为愿意推荐/接受的路线 |
-| `rejectedRouteIds` | 模拟用户认为明显不该推荐的路线 |
+| `acceptedRouteCodes` | 模拟用户认为愿意推荐/接受的路线 |
+| `rejectedRouteCodes` | 模拟用户认为明显不该推荐的路线 |
 | `routeReasonCodes` | 每条低质路线对应的固定 reason codes |
 | `confidence` | LLM 自评置信度，只作参考 |
 | `sampleWeight` | 进入训练时的默认样本权重 |
@@ -295,9 +295,9 @@ rejectedRouteIds
 
 这样才能同时生成：
 
-- pairwise 训练样本。
-- pointwise accept/reject 训练样本。
-- listwise 排序样本。
+- v1 的 pairwise 训练样本。
+- 后续的 pointwise accept/reject 样本或概率校准数据。
+- 后续的 listwise 排序样本。
 
 ## 7. 训练样本派生
 
@@ -331,7 +331,7 @@ pairwise:
 训练路线间相对偏好。
 ```
 
-### 7.2 Pointwise accept 样本
+### 7.2 后续 Pointwise accept 样本
 
 由 `acceptedRouteIds` / `rejectedRouteIds` 生成：
 
@@ -348,7 +348,7 @@ route in rejectedRouteIds:
 用途：
 
 ```text
-训练 P(accept)。
+后续训练 P(accept) 或做 score calibration。v1 不把 pointwise accept 作为主训练目标。
 ```
 
 ### 7.3 Listwise 样本
@@ -387,13 +387,13 @@ REAL_USER implicit skip / displayed-not-selected:
   sampleWeight = 0.20 ~ 0.40
 
 LLM_SIM_USER:
-  sampleWeight = 0.10 ~ 0.30
+  sampleWeight = 0.60
 
 HEURISTIC_JUDGE:
   sampleWeight = 0.05 ~ 0.20
 ```
 
-LLM 模拟用户只用于冷启动和数据增强，不应该长期压过真实用户行为。
+LLM 模拟用户在冷启动期可以作为主要监督来源之一，但不应该长期压过真实用户行为。
 
 ## 9. LLM 模拟用户输入 Prompt 原则
 
@@ -523,7 +523,8 @@ LLM 模拟用户有偏差，必须限制使用方式。
   -> LLM 输出 ranking + accepted/rejected + reason codes
   -> 校验输出
   -> 写 route_preference_judgment
-  -> 离线派生 route_accept_training_sample / route_pairwise_training_sample
+  -> 离线写入或更新 route_preference_training_sample
+  -> Python 训练时按 candidateSetId 构造 route pair
 ```
 
 这个流程不阻塞用户拿路线。它可以异步执行，也可以只对采样请求执行。
@@ -563,6 +564,6 @@ LLM 模拟用户是离线或异步数据增强：
 
 ```text
 《路线裁判与软拒绝设计》
-《POI智能筛选与成对偏好排序训练设计》
+《路线偏好排序模型训练设计》
 《推荐路径算法》
 ```
