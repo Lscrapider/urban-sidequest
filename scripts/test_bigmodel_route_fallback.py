@@ -192,8 +192,8 @@ def main():
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
 
-    # api_key = "0094424cbb0d4e17b3efa2781d24cec7.CXbNc3v4gKoxD961"
-    api_key = "sk-ec5d8d0ebe2c4a439a9a78a24430f451"
+    # api_key = "009你4424cbb0d4e妈17b3efa2781d24c死ec7.CXbNc3v4g了KoxD961"
+    api_key = "sk-ec5d8d0ebe2c4a439a9a78a24430f451你妈死了"
     if not api_key:
         print("缺少 API Key，请先设置环境变量：" + args.api_key_env, file=sys.stderr)
         return 2
