@@ -23,6 +23,9 @@ def parse_args():
     generate_parser.add_argument("--output", required=True, help="输出 requests JSON 路径。")
     generate_parser.add_argument("--persona-count", type=int, default=100, help="画像数量，默认 100。")
     generate_parser.add_argument("--requests-per-persona", type=int, default=20, help="每个画像生成 request 数，默认 20。")
+    generate_parser.add_argument("--request-count", type=int, help="按 request 主轴生成的基础 request 数；设置后启用 90/10 探针策略。")
+    generate_parser.add_argument("--probe-ratio", type=float, default=0.1, help="启用 --request-count 时，多 persona 探针 request 占比，默认 0.1。")
+    generate_parser.add_argument("--probe-persona-count", type=int, default=2, help="启用 --request-count 时，每个探针 request 生成的 persona 数，默认 2。")
     generate_parser.add_argument("--seed", type=int, default=20260619, help="随机种子。")
     generate_parser.add_argument(
         "--cities",
@@ -46,6 +49,9 @@ def main() -> int:
             requests_per_persona=args.requests_per_persona,
             seed=args.seed,
             city_keys=city_keys,
+            request_count=args.request_count,
+            probe_ratio=args.probe_ratio,
+            probe_persona_count=args.probe_persona_count,
         )
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
