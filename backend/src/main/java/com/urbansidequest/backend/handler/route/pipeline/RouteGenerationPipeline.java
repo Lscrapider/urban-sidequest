@@ -13,11 +13,16 @@ import com.urbansidequest.backend.handler.route.step.ResolveAreaStep;
 import com.urbansidequest.backend.handler.route.step.SaveRoutePreferenceTrainingSamplesStep;
 import com.urbansidequest.backend.handler.route.step.ScoreAndSelectRoutesStep;
 import com.urbansidequest.backend.handler.route.step.SelectPoiPoolStep;
+import com.urbansidequest.backend.handler.route.step.RouteGenerationStep;
 import com.urbansidequest.backend.handler.route.step.ValidateRouteRequestStep;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 @Component
 public class RouteGenerationPipeline {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(RouteGenerationPipeline.class);
 
     private final ValidateRouteRequestStep validateRouteRequestStep;
 
@@ -76,43 +81,99 @@ public class RouteGenerationPipeline {
     }
 
     public void execute(RouteGenerationContext context) {
+        long pipelineStartedAt = System.nanoTime();
+        LOGGER.info(
+                "路线生成 pipeline 开始，requestId={}，candidateSetId={}，city={}，goal={}，transport={}，durationMinutes={}",
+                context.getRequestId(),
+                context.getCandidateSetId(),
+                context.getGenerateParam().getRouteCityName(),
+                context.getGenerateParam().getRouteGoal(),
+                context.getGenerateParam().getTransportProfile(),
+                context.getGenerateParam().getDurationMinutes()
+        );
+
         // 校验请求基础结构，避免后续 POI 查询和模型编排处理无效输入。
-        this.validateRouteRequestStep.execute(context);
+        this.executeStep("validateRouteRequest", context, this.validateRouteRequestStep);
 
         // 统一解析用户选择的路线区域，后续 POI 搜索都依赖 context.area。
-        this.resolveAreaStep.execute(context);
+        this.executeStep("resolveArea", context, this.resolveAreaStep);
 
         // 加载兴趣标签映射，用于 POI 搜索计划和候选点标签标记。
-        this.loadInterestTagsStep.execute(context);
+        this.executeStep("loadInterestTags", context, this.loadInterestTagsStep);
 
         // 加载用户问卷画像，用于后续 Linear Ranker 个性化 cross。
-        this.loadUserPreferenceProfileStep.execute(context);
+        this.executeStep("loadUserPreferenceProfile", context, this.loadUserPreferenceProfileStep);
 
         // 加载 POI 语义映射规则，供后续 Linear Ranker extractor 使用。
-        this.loadPoiSemanticMappingsStep.execute(context);
+        this.executeStep("loadPoiSemanticMappings", context, this.loadPoiSemanticMappingsStep);
 
         // 加载天气环境原料；缺失时后续 Linear 特征默认不扣分。
-        this.loadRouteWeatherStep.execute(context);
+        this.executeStep("loadRouteWeather", context, this.loadRouteWeatherStep);
 
         // 拉取较大的真实 POI 候选池，包含必去点、兴趣点、餐饮、休息和兜底点。
-        this.loadPoiCandidatesStep.execute(context);
+        this.executeStep("loadPoiCandidates", context, this.loadPoiCandidatesStep);
 
         // 批量增强 POI 详情和交通可达性；不能逐个 POI 调外部详情接口。
-        this.enrichPoiDetailsStep.execute(context);
+        this.executeStep("enrichPoiDetails", context, this.enrichPoiDetailsStep);
 
         // 将大 POI 池筛成适合 LLM 编排的小池；当前实现先占位透传/限量。
-        this.selectPoiPoolStep.execute(context);
+        this.executeStep("selectPoiPool", context, this.selectPoiPoolStep);
 
         // 调用 LLM 从 POI 池生成路线草案；真实交通距离和耗时不在这里计算。
-        this.buildCandidateRoutesStep.execute(context);
+        this.executeStep("buildCandidateRoutes", context, this.buildCandidateRoutesStep);
 
         // 保存同批候选路线的训练特征快照；v1 先落 stopMatrix/segmentMatrix/routeDerivedVector。
-        this.saveRoutePreferenceTrainingSamplesStep.execute(context);
+        this.executeStep("saveRoutePreferenceTrainingSamples", context, this.saveRoutePreferenceTrainingSamplesStep);
 
         // 后端复核模型草案，执行必去点、时长等约束，并最多选出 3 条路线。
-        this.scoreAndSelectRoutesStep.execute(context);
+        this.executeStep("scoreAndSelectRoutes", context, this.scoreAndSelectRoutesStep);
 
         // 对最终选中的路线逐段调用高德路线规划，补真实距离、耗时、polyline 和 steps。
-        this.calibrateSelectedRouteSegmentsStep.execute(context);
+        this.executeStep("calibrateSelectedRouteSegments", context, this.calibrateSelectedRouteSegmentsStep);
+
+        LOGGER.info(
+                "路线生成 pipeline 完成，requestId={}，candidateSetId={}，elapsedMs={}，poiCandidates={}，candidateRoutes={}，selectedRoutes={}，segmentCosts={}，warnings={}",
+                context.getRequestId(),
+                context.getCandidateSetId(),
+                this.elapsedMillis(pipelineStartedAt),
+                context.getPoiCandidates().size(),
+                context.getCandidateRoutes().size(),
+                context.getSelectedRoutes().size(),
+                context.getSegmentCosts().size(),
+                context.getWarnings().size()
+        );
+    }
+
+    private void executeStep(String stepName, RouteGenerationContext context, RouteGenerationStep step) {
+        long startedAt = System.nanoTime();
+        LOGGER.info(
+                "路线生成 step 开始，candidateSetId={}，step={}，poiCandidates={}，candidateRoutes={}，selectedRoutes={}，segmentCosts={}，warnings={}",
+                context.getCandidateSetId(),
+                stepName,
+                context.getPoiCandidates().size(),
+                context.getCandidateRoutes().size(),
+                context.getSelectedRoutes().size(),
+                context.getSegmentCosts().size(),
+                context.getWarnings().size()
+        );
+        try {
+            step.execute(context);
+        } finally {
+            LOGGER.info(
+                    "路线生成 step 结束，candidateSetId={}，step={}，elapsedMs={}，poiCandidates={}，candidateRoutes={}，selectedRoutes={}，segmentCosts={}，warnings={}",
+                    context.getCandidateSetId(),
+                    stepName,
+                    this.elapsedMillis(startedAt),
+                    context.getPoiCandidates().size(),
+                    context.getCandidateRoutes().size(),
+                    context.getSelectedRoutes().size(),
+                    context.getSegmentCosts().size(),
+                    context.getWarnings().size()
+            );
+        }
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 }

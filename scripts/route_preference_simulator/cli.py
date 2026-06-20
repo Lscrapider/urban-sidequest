@@ -7,6 +7,7 @@ import sys
 
 from .config import load_config
 from .job_factory import build_jobs
+from .presets import DEFAULT_CITY_KEYS
 from .runner import load_route_jobs, run
 
 
@@ -18,6 +19,7 @@ def parse_args():
     run_parser.add_argument("--config", required=True, help="配置 JSON，参考 config.example.json。")
     run_parser.add_argument("--requests", required=True, help="路线请求 JSON 数组，参考 requests.example.json。")
     run_parser.add_argument("--dry-run", action="store_true", help="不调用 Java 后端，使用内置假路线并打印 judgment payload。")
+    run_parser.add_argument("--concurrency", type=int, default=1, help="并发执行 job 数，默认 1；本地小批量可设为 2。")
 
     generate_parser = subparsers.add_parser("generate-jobs", help="生成可直接用于 run 的画像 + request 输入文件。")
     generate_parser.add_argument("--output", required=True, help="输出 requests JSON 路径。")
@@ -26,11 +28,11 @@ def parse_args():
     generate_parser.add_argument("--request-count", type=int, help="按 request 主轴生成的基础 request 数；设置后启用 90/10 探针策略。")
     generate_parser.add_argument("--probe-ratio", type=float, default=0.1, help="启用 --request-count 时，多 persona 探针 request 占比，默认 0.1。")
     generate_parser.add_argument("--probe-persona-count", type=int, default=2, help="启用 --request-count 时，每个探针 request 生成的 persona 数，默认 2。")
-    generate_parser.add_argument("--seed", type=int, default=20260619, help="随机种子。")
+    generate_parser.add_argument("--seed", type=int, help="随机种子；不传则每次生成不同，传入后可复现。")
     generate_parser.add_argument(
         "--cities",
-        default="shanghai,beijing,hangzhou,chengdu,guangzhou",
-        help="城市 preset，逗号分隔。默认覆盖上海/北京/杭州/成都/广州。",
+        default=",".join(DEFAULT_CITY_KEYS),
+        help="城市 preset，逗号分隔。默认使用 presets.py 中的全部城市。",
     )
     argv = sys.argv[1:]
     if argv and argv[0].startswith("--"):
@@ -61,7 +63,7 @@ def main() -> int:
 
     config = load_config(Path(args.config), require_api_key=not args.dry_run)
     jobs = load_route_jobs(Path(args.requests))
-    stats = run(config, jobs, dry_run=args.dry_run)
+    stats = run(config, jobs, dry_run=args.dry_run, concurrency=args.concurrency)
     print(
         "完成："
         f"routeRequests={stats.route_requests}, "

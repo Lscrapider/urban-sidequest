@@ -25,10 +25,14 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.template.st.StTemplateRenderer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 @Component
 public class LlmRouteCandidateComposer implements RouteCandidateComposer {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(LlmRouteCandidateComposer.class);
 
     private static final String TRANSIT_TYPE_BUS = "BUS";
 
@@ -168,17 +172,48 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
     @Override
     public List<CandidateRouteDTO> composeRoutes(RouteGenerationContext context) {
         String responseContent;
+        String userPrompt = this.buildUserPrompt(context);
+        long startedAt = System.nanoTime();
+        LOGGER.info(
+                "LLM 路线编排开始，candidateSetId={}，poiPoolSize={}，systemPromptChars={}，userPromptChars={}，targetRouteCount={}",
+                context.getCandidateSetId(),
+                context.getPoiCandidates().size(),
+                SYSTEM_PROMPT.length(),
+                userPrompt.length(),
+                MAX_ROUTE_COUNT
+        );
         try {
             responseContent = this.chatClient.prompt()
                     .system(SYSTEM_PROMPT)
-                    .user(this.buildUserPrompt(context))
+                    .user(userPrompt)
                     .call()
                     .content();
         } catch (RuntimeException exception) {
+            LOGGER.warn(
+                    "LLM 路线编排失败，candidateSetId={}，elapsedMs={}，poiPoolSize={}，userPromptChars={}",
+                    context.getCandidateSetId(),
+                    this.elapsedMillis(startedAt),
+                    context.getPoiCandidates().size(),
+                    userPrompt.length(),
+                    exception
+            );
             context.addWarning("大模型路线编排调用失败：" + exception.getMessage());
             return List.of();
         }
-        return this.toCandidateRoutes(context, responseContent);
+        LOGGER.info(
+                "LLM 路线编排返回，candidateSetId={}，elapsedMs={}，responseChars={}",
+                context.getCandidateSetId(),
+                this.elapsedMillis(startedAt),
+                responseContent == null ? 0 : responseContent.length()
+        );
+        List<CandidateRouteDTO> routes = this.toCandidateRoutes(context, responseContent);
+        LOGGER.info(
+                "LLM 路线编排解析完成，candidateSetId={}，mappedRoutes={}，warnings={}",
+                context.getCandidateSetId(),
+                routes.size(),
+                context.getWarnings().size()
+        );
+        return routes;
     }
 
     private String buildUserPrompt(RouteGenerationContext context) {
@@ -551,5 +586,9 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
 
     private String defaultText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 }

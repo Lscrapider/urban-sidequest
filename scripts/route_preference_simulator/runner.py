@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 import json
 import random
 import sys
+from threading import Lock
+from time import monotonic
 
 from .config import AppConfig
 from .java_client import BackendClient
 from .llm_client import LlmClient
 from .prompt import build_user_prompt
 from .validation import validate_judgment
+
+MAX_LLM_FALLBACK_ATTEMPTS = 3
+PRINT_LOCK = Lock()
 
 
 @dataclass(frozen=True)
@@ -22,6 +28,12 @@ class RunStats:
     judgments_failed: int = 0
 
 
+@dataclass(frozen=True)
+class JobResult:
+    stats: RunStats
+    stdout_payloads: list[str]
+
+
 def load_route_jobs(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as file:
         raw = json.load(file)
@@ -30,64 +42,206 @@ def load_route_jobs(path: Path) -> list[dict]:
     return raw
 
 
-def run(config: AppConfig, jobs: list[dict], dry_run: bool = False) -> RunStats:
+def run(config: AppConfig, jobs: list[dict], dry_run: bool = False, concurrency: int = 1) -> RunStats:
+    if concurrency < 1:
+        raise ValueError("concurrency 必须 >= 1")
     rng = random.Random(config.judge.seed)
     backend = BackendClient(config.backend)
-    stats = RunStats()
+    if not dry_run:
+        backend.ensure_token()
+
+    job_inputs = []
+    for index, job in enumerate(jobs, start=1):
+        persona = job.get("persona")
+        route_request = build_route_request(job, persona)
+        selected_llms = select_llms(config, rng)
+        llm_attempt_groups = [llm_attempt_candidates(config, llm, rng) for llm in selected_llms]
+        job_inputs.append((index, persona, route_request, llm_attempt_groups))
+
+    results: list[JobResult] = []
+    if concurrency == 1:
+        for job_input in job_inputs:
+            result = _run_one_job(config, backend, len(jobs), dry_run, *job_input)
+            _print_job_result(result)
+            results.append(result)
+    else:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [
+                executor.submit(_run_one_job, config, backend, len(jobs), dry_run, *job_input)
+                for job_input in job_inputs
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                _print_job_result(result)
+                results.append(result)
+
+    return RunStats(
+        route_requests=len(jobs),
+        candidate_sets=sum(result.stats.candidate_sets for result in results),
+        judgments_saved=sum(result.stats.judgments_saved for result in results),
+        judgments_failed=sum(result.stats.judgments_failed for result in results),
+    )
+
+
+def _run_one_job(
+    config: AppConfig,
+    backend: BackendClient,
+    total_jobs: int,
+    dry_run: bool,
+    index: int,
+    persona: dict | None,
+    route_request: dict,
+    llm_attempt_groups,
+) -> JobResult:
+    _print_stderr(f"[{index}/{total_jobs}] 生成路线...")
+    stdout_payloads = []
     saved = 0
     failed = 0
     candidate_sets = 0
 
-    for index, job in enumerate(jobs, start=1):
-        persona = job.get("persona")
-        route_request = build_route_request(job, persona)
-        print(f"[{index}/{len(jobs)}] 生成路线...", file=sys.stderr)
+    route_started_at = monotonic()
+    try:
         if dry_run:
             route_generation = _mock_route_generation(index)
         else:
             route_generation = backend.generate_route(route_request)
+    except Exception as exception:
+        failed += len(llm_attempt_groups)
+        _print_stderr(
+            f"[{index}/{total_jobs}] 路线生成失败，用时={monotonic() - route_started_at:.1f}s，"
+            f"跳过本 job: {exception}"
+        )
+        return JobResult(
+            RunStats(
+                route_requests=1,
+                candidate_sets=0,
+                judgments_saved=0,
+                judgments_failed=failed,
+            ),
+            stdout_payloads,
+        )
+    _print_stderr(f"[{index}/{total_jobs}] 路线生成完毕，用时={monotonic() - route_started_at:.1f}s，开始解析响应...")
 
-        route_generation = _unwrap_route_generation(route_generation)
-        candidate_set_id = route_generation.get("candidateSetId")
-        routes = route_generation.get("routes") or []
-        route_codes = [route.get("routeCode") for route in routes if isinstance(route, dict) and route.get("routeCode")]
-        if not candidate_set_id or not route_codes:
-            print("  跳过：路线生成响应不可评价", file=sys.stderr)
-            print(f"    candidateSetIdPresent={bool(candidate_set_id)} routesCount={len(routes) if isinstance(routes, list) else 'not-list'} routeCodes={route_codes}", file=sys.stderr)
-            _print_route_warnings(route_generation)
+    route_generation = _unwrap_route_generation(route_generation)
+    candidate_set_id = route_generation.get("candidateSetId")
+    routes = route_generation.get("routes") or []
+    route_codes = [route.get("routeCode") for route in routes if isinstance(route, dict) and route.get("routeCode")]
+    if not candidate_set_id or not route_codes:
+        _print_stderr(f"[{index}/{total_jobs}] 跳过：路线生成响应不可评价")
+        _print_stderr(
+            f"    candidateSetIdPresent={bool(candidate_set_id)} "
+            f"routesCount={len(routes) if isinstance(routes, list) else 'not-list'} "
+            f"routeCodes={route_codes}"
+        )
+        for line in _route_warning_lines(route_generation):
+            _print_stderr(line)
+        return JobResult(RunStats(route_requests=1), stdout_payloads)
+
+    candidate_sets += 1
+    user_prompt = build_user_prompt(route_request, route_generation, persona)
+    _print_stderr(
+        f"[{index}/{total_jobs}] candidateSetId={candidate_set_id} "
+        f"routes={route_codes} judges={len(llm_attempt_groups)}"
+    )
+    _print_stderr(f"[{index}/{total_jobs}] LLM prompt 构建完毕，准备获取模拟用户评价...")
+
+    for llm_candidates in llm_attempt_groups:
+        primary_llm = llm_candidates[0]
+        judgment = None
+        judgment_llm = primary_llm
+        if dry_run:
+            judgment = fake_judgment(route_codes)
+            _print_stderr(f"[{index}/{total_jobs}] dry-run judgment 已生成")
+        else:
+            for attempt_index, llm in enumerate(llm_candidates, start=1):
+                try:
+                    llm_started_at = monotonic()
+                    _print_stderr(
+                        f"[{index}/{total_jobs}] 调用 LLM 获取评价: {llm.judge_model} "
+                        f"apiAttempt={attempt_index}/{len(llm_candidates)}"
+                    )
+                    judgment = call_once(llm, config, user_prompt, route_codes)
+                    judgment_llm = llm
+                    _print_stderr(
+                        f"[{index}/{total_jobs}] LLM 评价返回且校验通过: {llm.judge_model} "
+                        f"用时={monotonic() - llm_started_at:.1f}s"
+                    )
+                    if attempt_index > 1:
+                        _print_stderr(
+                            f"[{index}/{total_jobs}] fallback judgment succeeded: {llm.judge_model} "
+                            f"apiAttempt={attempt_index}/{len(llm_candidates)}"
+                        )
+                    break
+                except Exception as exception:
+                    _print_stderr(
+                        f"[{index}/{total_jobs}] judgment attempt failed: {llm.judge_model} "
+                        f"apiAttempt={attempt_index}/{len(llm_candidates)} error={exception}"
+                    )
+
+        if judgment is None:
+            failed += 1
+            _print_stderr(
+                f"[{index}/{total_jobs}] failed judgment: {primary_llm.judge_model}: "
+                f"fallback exhausted after {len(llm_candidates)} api attempts"
+            )
             continue
 
-        candidate_sets += 1
-        selected_llms = select_llms(config, rng)
-        user_prompt = build_user_prompt(route_request, route_generation, persona)
-        print(f"  candidateSetId={candidate_set_id} routes={route_codes} judges={len(selected_llms)}", file=sys.stderr)
+        try:
+            payload = {
+                "candidateSetId": candidate_set_id,
+                "judgeType": "LLM_SIM_USER",
+                "judgeModel": judgment_llm.judge_model,
+                "judgePromptVersion": config.judge.prompt_version,
+                **judgment,
+            }
+            if dry_run:
+                stdout_payloads.append(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                _print_stderr(f"[{index}/{total_jobs}] 保存 judgment: {judgment_llm.judge_model}")
+                save_started_at = monotonic()
+                backend.save_judgment(payload)
+                _print_stderr(
+                    f"[{index}/{total_jobs}] judgment 保存接口返回: {judgment_llm.judge_model} "
+                    f"用时={monotonic() - save_started_at:.1f}s"
+                )
+            saved += 1
+            _print_stderr(f"[{index}/{total_jobs}] saved judgment: {judgment_llm.judge_model}")
+        except Exception as exception:
+            failed += 1
+            _print_stderr(f"[{index}/{total_jobs}] failed judgment: {judgment_llm.judge_model}: {exception}")
 
-        for llm in selected_llms:
-            try:
-                judgment = fake_judgment(route_codes) if dry_run else call_with_retry(llm, config, user_prompt, route_codes)
-                payload = {
-                    "candidateSetId": candidate_set_id,
-                    "judgeType": "LLM_SIM_USER",
-                    "judgeModel": llm.judge_model,
-                    "judgePromptVersion": config.judge.prompt_version,
-                    **judgment,
-                }
-                if dry_run:
-                    print(json.dumps(payload, ensure_ascii=False, indent=2))
-                else:
-                    backend.save_judgment(payload)
-                saved += 1
-                print(f"  saved judgment: {llm.judge_model}", file=sys.stderr)
-            except Exception as exception:
-                failed += 1
-                print(f"  failed judgment: {llm.judge_model}: {exception}", file=sys.stderr)
-
-    return RunStats(
-        route_requests=len(jobs),
-        candidate_sets=candidate_sets,
-        judgments_saved=saved,
-        judgments_failed=failed,
+    return JobResult(
+        RunStats(
+            route_requests=1,
+            candidate_sets=candidate_sets,
+            judgments_saved=saved,
+            judgments_failed=failed,
+        ),
+        stdout_payloads,
     )
+
+
+def _print_job_result(result: JobResult) -> None:
+    for payload in result.stdout_payloads:
+        print(payload)
+
+
+def _print_stderr(line: str) -> None:
+    with PRINT_LOCK:
+        print(line, file=sys.stderr, flush=True)
+
+
+def _route_warning_lines(route_generation: dict) -> list[str]:
+    lines = []
+    status = route_generation.get("status")
+    warnings = route_generation.get("warnings") or []
+    if status:
+        lines.append(f"    status={status}")
+    for warning in warnings[:5]:
+        lines.append(f"    warning={warning}")
+    if len(warnings) > 5:
+        lines.append(f"    warning=... 还有 {len(warnings) - 5} 条")
+    return lines
 
 
 def build_route_request(job: dict, persona: dict | None) -> dict:
@@ -107,17 +261,6 @@ def _unwrap_route_generation(response: dict) -> dict:
     return response
 
 
-def _print_route_warnings(route_generation: dict) -> None:
-    status = route_generation.get("status")
-    warnings = route_generation.get("warnings") or []
-    if status:
-        print(f"    status={status}", file=sys.stderr)
-    for warning in warnings[:5]:
-        print(f"    warning={warning}", file=sys.stderr)
-    if len(warnings) > 5:
-        print(f"    warning=... 还有 {len(warnings) - 5} 条", file=sys.stderr)
-
-
 def select_llms(config: AppConfig, rng: random.Random):
     if rng.random() < config.judge.full_judge_ratio:
         return list(config.llm_pool)
@@ -125,24 +268,24 @@ def select_llms(config: AppConfig, rng: random.Random):
     return rng.sample(config.llm_pool, count)
 
 
-def call_with_retry(llm, config: AppConfig, user_prompt: str, route_codes: list[str]) -> dict:
+def llm_attempt_candidates(config: AppConfig, primary_llm, rng: random.Random):
+    candidates = [primary_llm]
+    remaining = [llm for llm in config.llm_pool if llm != primary_llm]
+    fallback_count = min(MAX_LLM_FALLBACK_ATTEMPTS, len(remaining))
+    if fallback_count > 0:
+        candidates.extend(rng.sample(remaining, fallback_count))
+    return candidates
+
+
+def call_once(llm, config: AppConfig, user_prompt: str, route_codes: list[str]) -> dict:
     client = LlmClient(llm, config.judge)
-    last_error = None
-    for attempt in range(config.judge.max_retries + 1):
-        try:
-            raw = client.judge(user_prompt)
-            try:
-                return validate_judgment(raw, route_codes)
-            except Exception as validation_exception:
-                print(
-                    f"  raw judgment invalid: {llm.judge_model} attempt={attempt + 1} error={validation_exception}",
-                    file=sys.stderr,
-                )
-                print(_debug_json(raw), file=sys.stderr)
-                raise
-        except Exception as exception:
-            last_error = exception
-    raise RuntimeError(last_error)
+    raw = client.judge(user_prompt)
+    try:
+        return validate_judgment(raw, route_codes)
+    except Exception as validation_exception:
+        raise ValueError(
+            f"raw judgment invalid: {validation_exception}\n{_debug_json(raw)}"
+        ) from validation_exception
 
 
 def _debug_json(value, max_length: int = 3000) -> str:

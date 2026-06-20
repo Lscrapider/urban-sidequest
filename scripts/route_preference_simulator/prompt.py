@@ -17,6 +17,10 @@ reasonCodes 只能从下面 8 个里选，不许自创：
 LOW_INTEREST_COVERAGE / WEAK_GOAL_FIT / LOW_DIVERSITY / BAD_SPATIAL_FLOW /
 BAD_TIME_STRUCTURE / HIGH_FATIGUE / BUDGET_MISMATCH / HIGH_ROUTE_RISK
 
+ranking 必须包含本批所有候选 routeCode，按从最想选到最不想选排序；
+acceptedRouteCodes 和 rejectedRouteCodes 只是从 ranking 中分别摘出值得推荐和明显不该推荐的路线。
+即使路线被拒绝，也必须出现在 ranking 的靠后位置，不能从 ranking 里省略。
+
 只输出 JSON，不要任何解释性文字。JSON 只能包含 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence 五个字段。
 输出示例：
 {
@@ -54,11 +58,14 @@ TAG_LABELS = {
 
 
 def build_user_prompt(route_request: dict, route_generation: dict, persona: dict | None) -> str:
+    routes = route_generation.get("routes") or []
+    route_codes = [route.get("routeCode") for route in routes if isinstance(route, dict) and route.get("routeCode")]
     return "\n\n".join(
         [
             "【本次请求】\n" + render_request(route_request),
             "【你的偏好】\n" + render_persona(persona),
-            "【候选路线】\n" + render_routes(route_generation.get("routes") or []),
+            "【候选路线】\n" + render_routes(routes),
+            "【输出硬性约束】\n" + render_output_constraints(route_codes),
             "请只输出 JSON，字段为 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence。"
             "reasonCodes 必须是对象，例如 {\"C\": [\"HIGH_FATIGUE\"]}，不能是数组。",
         ]
@@ -112,6 +119,17 @@ def render_routes(routes: list[dict]) -> str:
     if not routes:
         return "无候选路线。"
     return "\n\n".join(render_route(route) for route in routes)
+
+
+def render_output_constraints(route_codes: list[str]) -> str:
+    if not route_codes:
+        return "ranking 必须包含本批所有候选 routeCode，不能只输出推荐路线。"
+    return (
+        f"本批候选 routeCode 共 {len(route_codes)} 条：{', '.join(route_codes)}。\n"
+        f"ranking 必须正好包含这 {len(route_codes)} 个 routeCode，不能缺失、不能重复、不能新增；"
+        "顺序是从最想选到最不想选。\n"
+        "acceptedRouteCodes/rejectedRouteCodes 可以只包含部分路线，但 ranking 不能只输出 acceptedRouteCodes。"
+    )
 
 
 def render_route(route: dict) -> str:

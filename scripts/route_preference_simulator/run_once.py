@@ -15,6 +15,7 @@ from scripts.route_preference_simulator.runner import load_route_jobs, run
 
 CONFIG_FILE = BASE_DIR / "config.json"
 REQUESTS_FILE = BASE_DIR / "requests.json"
+CONCURRENCY = 2
 
 
 def ensure_requests_file() -> None:
@@ -35,7 +36,7 @@ def main() -> int:
     ensure_requests_file()
     config = load_config(CONFIG_FILE)
     jobs = load_route_jobs(REQUESTS_FILE)
-    stats = run(config, jobs, dry_run=False)
+    stats = run(config, jobs, dry_run=False, concurrency=CONCURRENCY)
     print(
         "完成："
         f"routeRequests={stats.route_requests}, "
