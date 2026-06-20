@@ -436,7 +436,9 @@ ranking = [C, A, B, E, D]
    budgetSensitivity   -> personalizedBudgetPressure
    transferSensitivity -> personalizedTransitPressure
    hiddenGemAffinity   -> personalizedExplorationMatch
-   tagAffinities       -> userInterestAffinity
+   tagAffinities       -> POI 侧 userInterestAffinity；
+                          route 侧 profileTagAffinityCoverage / profileTagAffinityPrecision /
+                          profileTagAffinityJaccard / profileTopTagHitRatio
    旧 persona 的 classicAffinity/photoAffinity/pacePreference/riskTolerance 等一个都不读，是死字段。
 2. 模型训练时"用户是谁"来自 context_json.userPreferenceProfile，就是这套结构。
    打标签的 persona 必须就是模型条件的那个用户，X 与 Y 才同一个人。
@@ -451,7 +453,7 @@ transferSensitivity   0~1
 hiddenGemAffinity     0~1
 profileConfidence     0~1   -- 见下方旋钮
 tagAffinities         Map<tagCode, 0~1>，key 必须是 interest_tag_catalog 的合法 tag_code
-                            （如 LOCAL / CLASSIC / PHOTO / NIGHT_MARKET_VIEW / FOOD / COFFEE）
+                            （如 FOOD / COFFEE / MUSEUM / SCENIC / PHOTO / SHOPPING / NIGHT / LOCAL）
 newUser               造数据时设 false（见下）
 questionnaireVersion  标记 persona 来源版本，如 "sim-persona-v1"
 ```
@@ -465,7 +467,7 @@ questionnaireVersion  标记 persona 来源版本，如 "sim-persona-v1"
   "transferSensitivity": 0.5,
   "hiddenGemAffinity": 0.7,
   "profileConfidence": 0.8,
-  "tagAffinities": { "LOCAL": 0.9, "FOOD": 0.8, "COFFEE": 0.7, "CLASSIC": 0.3 },
+  "tagAffinities": { "LOCAL": 0.9, "FOOD": 0.8, "COFFEE": 0.7, "SCENIC": 0.3 },
   "newUser": false,
   "questionnaireVersion": "sim-persona-v1"
 }

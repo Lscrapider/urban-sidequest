@@ -37,6 +37,8 @@ public class RouteInputFeatureExtractor {
 
     private static final int MAX_STOP_COUNT = 8;
 
+    private static final int TOP_TAG_K = 3;
+
     private static final double STAY_BUDGET_RATIO = 0.85d;
 
     private static final double SEGMENT_COMFORT_DURATION_MINUTES = 20d;
@@ -73,7 +75,7 @@ public class RouteInputFeatureExtractor {
         List<Map<String, Object>> stopMatrix = this.stopMatrix(route, source);
         List<Map<String, Object>> segmentMatrix = this.segmentMatrix(route, context, source);
         Map<String, Object> routeDerivedVector = this.routeDerivedVector(route, context, source, stopMatrix, segmentMatrix);
-        Map<String, Object> contextCrossVector = this.contextCrossVector(context, routeDerivedVector);
+        Map<String, Object> contextCrossVector = this.contextCrossVector(context, routeDerivedVector, route, source);
         Map<String, Object> contextJson = this.contextJson(context);
         return new RouteInputFeatureSnapshot(
                 RoutePreferenceFeatureSchema.VERSION,
@@ -264,6 +266,13 @@ public class RouteInputFeatureExtractor {
         vector.put("backtrackingSegmentRatio", segmentCount == 0 ? 0d : segmentMatrix.stream()
                 .filter(row -> doubleValue(row.get("isBacktracking")) > 0d)
                 .count() / (double) segmentCount);
+        long transferSegmentCount = segmentMatrix.stream().filter(this::isTransferSegment).count();
+        double transferDistancePressure = segmentCount == 0 ? 0d : segmentMatrix.stream()
+                .filter(this::isTransferSegment)
+                .mapToDouble(row -> doubleValue(row.get("distancePressure")))
+                .sum() / segmentCount;
+        vector.put("transferSegmentRatio", segmentCount == 0 ? 0d : transferSegmentCount / (double) segmentCount);
+        vector.put("transferDistancePressure", transferDistancePressure);
 
         vector.put("interestCoverageRatio", this.interestCoverageRatio(context, route, source));
         vector.put("localStopRatio", this.avg(stopMatrix, "isLocal"));
@@ -316,17 +325,21 @@ public class RouteInputFeatureExtractor {
 
     private Map<String, Object> contextCrossVector(
             RouteGenerationContext context,
-            Map<String, Object> routeDerivedVector
+            Map<String, Object> routeDerivedVector,
+            CandidateRouteDTO route,
+            FeatureSource source
     ) {
         Map<String, Object> vector = new LinkedHashMap<>();
         UserPreferenceProfileDTO profile = context.getUserPreferenceProfile();
         double profileConfidence = profile == null ? 0d : doubleOf(profile.profileConfidence());
         double distanceSensitivity = profile == null ? 0d : doubleOf(profile.distanceSensitivity());
         double budgetSensitivity = profile == null ? 0d : doubleOf(profile.budgetSensitivity());
+        double transferSensitivity = profile == null ? 0d : doubleOf(profile.transferSensitivity());
         double hiddenGemAffinity = profile == null ? 0d : doubleOf(profile.hiddenGemAffinity());
 
         double totalDistanceNorm = doubleValue(routeDerivedVector.get("totalDistanceNorm"));
         double maxSegmentDistanceNorm = doubleValue(routeDerivedVector.get("maxSegmentDistanceNorm"));
+        double transferDistancePressure = doubleValue(routeDerivedVector.get("transferDistancePressure"));
         double budgetPressure = doubleValue(routeDerivedVector.get("budgetPressure"));
         double hiddenGemStopRatio = doubleValue(routeDerivedVector.get("hiddenGemStopRatio"));
         double avgPersonalizationScore = doubleValue(routeDerivedVector.get("avgPersonalizationScore"));
@@ -342,9 +355,15 @@ public class RouteInputFeatureExtractor {
 
         vector.put("profileDistanceTotalPressure", profileConfidence * distanceSensitivity * totalDistanceNorm);
         vector.put("profileDistanceMaxSegmentPressure", profileConfidence * distanceSensitivity * maxSegmentDistanceNorm);
+        vector.put("profileTransferPressure", profileConfidence * transferSensitivity * transferDistancePressure);
         vector.put("profileBudgetPressure", profileConfidence * budgetSensitivity * budgetPressure);
         vector.put("profileHiddenGemMatch", profileConfidence * hiddenGemAffinity * hiddenGemStopRatio);
         vector.put("profilePersonalizationAvg", avgPersonalizationScore);
+        TagAffinityStats tagAffinityStats = this.profileTagAffinityStats(profile, profileConfidence, route, source);
+        vector.put("profileTagAffinityCoverage", tagAffinityStats.coverage());
+        vector.put("profileTagAffinityPrecision", tagAffinityStats.precision());
+        vector.put("profileTagAffinityJaccard", tagAffinityStats.jaccard());
+        vector.put("profileTopTagHitRatio", tagAffinityStats.topTagHitRatio());
 
         RouteGoal routeGoal = context.getGenerateParam().getRouteGoal();
         vector.put("goalLocalMatch", bit(RouteGoal.LOCAL == routeGoal) * localStopRatio);
@@ -605,6 +624,100 @@ public class RouteInputFeatureExtractor {
         return rows.stream().mapToDouble(row -> doubleValue(row.get(key))).average().orElse(0d);
     }
 
+    private TagAffinityStats profileTagAffinityStats(
+            UserPreferenceProfileDTO profile,
+            double profileConfidence,
+            CandidateRouteDTO route,
+            FeatureSource source
+    ) {
+        if (profile == null || profileConfidence <= 0d || profile.tagAffinities().isEmpty()) {
+            return TagAffinityStats.zero();
+        }
+
+        double profileAffinitySum = profile.tagAffinities().entrySet().stream()
+                .filter(entry -> !isBlank(entry.getKey()))
+                .map(Map.Entry::getValue)
+                .filter(value -> value != null && value.compareTo(BigDecimal.ZERO) > 0)
+                .mapToDouble(BigDecimal::doubleValue)
+                .sum();
+        if (profileAffinitySum <= 0d) {
+            return TagAffinityStats.zero();
+        }
+
+        Map<String, Double> profileWeights = new LinkedHashMap<>();
+        profile.tagAffinities().entrySet().stream()
+                .filter(entry -> !isBlank(entry.getKey()))
+                .filter(entry -> entry.getValue() != null && entry.getValue().compareTo(BigDecimal.ZERO) > 0)
+                .forEach(entry -> profileWeights.put(entry.getKey(), entry.getValue().doubleValue() / profileAffinitySum));
+        if (profileWeights.isEmpty()) {
+            return TagAffinityStats.zero();
+        }
+
+        Map<String, Integer> routeTagCounts = this.routeTagCounts(route, source);
+        int routeTagCountSum = routeTagCounts.values().stream().mapToInt(Integer::intValue).sum();
+        if (routeTagCountSum <= 0) {
+            return TagAffinityStats.zero();
+        }
+
+        Set<String> routeTags = routeTagCounts.keySet();
+        double coverage = routeTags.stream()
+                .mapToDouble(tag -> profileWeights.getOrDefault(tag, 0d))
+                .sum();
+        double precision = routeTagCounts.entrySet().stream()
+                .filter(entry -> profileWeights.containsKey(entry.getKey()))
+                .mapToDouble(entry -> entry.getValue() / (double) routeTagCountSum)
+                .sum();
+
+        Set<String> unionTags = new LinkedHashSet<>(profileWeights.keySet());
+        unionTags.addAll(routeTags);
+        double jaccardNumerator = 0d;
+        double jaccardDenominator = 0d;
+        for (String tag : unionTags) {
+            double profileWeight = profileWeights.getOrDefault(tag, 0d);
+            double routeWeight = routeTagCounts.getOrDefault(tag, 0) / (double) routeTagCountSum;
+            jaccardNumerator += Math.min(profileWeight, routeWeight);
+            jaccardDenominator += Math.max(profileWeight, routeWeight);
+        }
+        double jaccard = jaccardDenominator <= 0d ? 0d : jaccardNumerator / jaccardDenominator;
+
+        List<String> topTags = profile.tagAffinities().entrySet().stream()
+                .filter(entry -> !isBlank(entry.getKey()))
+                .filter(entry -> entry.getValue() != null && entry.getValue().compareTo(BigDecimal.ZERO) > 0)
+                .sorted(Comparator.<Map.Entry<String, BigDecimal>, Double>comparing(entry -> entry.getValue().doubleValue()).reversed())
+                .limit(TOP_TAG_K)
+                .map(Map.Entry::getKey)
+                .toList();
+        int topTagCount = Math.min(TOP_TAG_K, topTags.size());
+        double topTagHitRatio = topTagCount == 0 ? 0d : topTags.stream()
+                .filter(routeTags::contains)
+                .count() / (double) topTagCount;
+
+        return new TagAffinityStats(
+                profileConfidence * clamp01(coverage),
+                profileConfidence * clamp01(precision),
+                profileConfidence * clamp01(jaccard),
+                profileConfidence * clamp01(topTagHitRatio)
+        );
+    }
+
+    private Map<String, Integer> routeTagCounts(CandidateRouteDTO route, FeatureSource source) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (RouteStopDTO stop : route.stops()) {
+            String poiId = this.poiIdFromStopId(stop.stopId(), route.routeCode());
+            PoiSemanticProfile semantic = source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty());
+            for (String tag : semantic.poiTagHits()) {
+                if (!isBlank(tag)) {
+                    counts.merge(tag, 1, Integer::sum);
+                }
+            }
+        }
+        return counts;
+    }
+
+    private boolean isTransferSegment(Map<String, Object> row) {
+        return doubleValue(row.get("transportMode_BUS")) > 0d || doubleValue(row.get("transportMode_SUBWAY")) > 0d;
+    }
+
     private static double bit(boolean value) {
         return value ? 1d : 0d;
     }
@@ -648,5 +761,12 @@ public class RouteInputFeatureExtractor {
     }
 
     private record BudgetStats(double budgetTotalNorm, double budgetPressure, double missingPriceRatio) {
+    }
+
+    private record TagAffinityStats(double coverage, double precision, double jaccard, double topTagHitRatio) {
+
+        private static TagAffinityStats zero() {
+            return new TagAffinityStats(0d, 0d, 0d, 0d);
+        }
     }
 }
