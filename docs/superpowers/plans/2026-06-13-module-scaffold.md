@@ -107,7 +107,7 @@
 
 **Files:**
 - Modify: `README.md`
-- Modify: `docs/technical-design.md`
+- Modify: `docs/overview/technical-design.md`
 
 - [ ] **Step 1: 更新 README 模块结构**
 

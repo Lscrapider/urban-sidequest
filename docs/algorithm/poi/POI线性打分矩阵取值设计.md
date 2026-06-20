@@ -4,6 +4,8 @@
 
 本文只讨论 Linear Ranker，不讨论成对偏好排序训练、Neural residual、路线生成后的结构评分。
 
+当前状态：Java 主链路已通过 `LinearPoiPoolSelector` 使用本设计的 Linear Ranker，并在其上叠加 `PoiDiversitySampler` 做多样性采样。线上尚未接入 Neural residual、POI 级 DPO-like update 或模型文件推理。
+
 ## 1. 目标和边界
 
 Linear Ranker 的目标是提供一个可解释、可控、冷启动可用的基础分：
@@ -233,7 +235,7 @@ requestFeature v1 不提供独立打分列。
 | --- | --- | --- |
 | `routeGoal(STEADY/CLASSIC/LOCAL/LOW_BUDGET/NIGHT/PHOTO)` | `Delta selector` | 切 W |
 | `transportProfile(WALK_ONLY/WALK_SUBWAY/WALK_BUS/WALK_TRANSIT/BIKE_SUBWAY/WALK_TAXI)` | `Delta selector + basis` | 切 W + `effectiveRadius` 上限 |
-| `budgetLevel(LOW/NORMAL/FLEXIBLE，待前端/param 新增)` | `Delta selector + basis` | 切 `W_budget` + `budgetCap` |
+| `budgetLevel(LOW/NORMAL/FLEXIBLE)` | `Delta selector + basis` | 切 `W_budget` + `budgetCap` |
 | `interestTags(List<String>)` | `derivedFeature input` | -> `interestMatchRatio(POI.poiTagHits)`；`poiTagHits` 由语义映射表按 `typecode/keytag/rectag/name/category` 规约得到 |
 | `departureTime(Instant)` | `basis + derived input` | `routeTimeWindow` -> `routeTimeStructure(2.4)` + `closeRisk` |
 | `durationMinutes(Integer)` | `basis` | `durationBucket`(选 transport 半径档) + `routeTimeWindow` 终点 |
@@ -302,8 +304,8 @@ paceLevel:
   Linear 预筛不设 Delta_pace。
 
 budgetLevel:
-  当前 RouteGenerateParam 尚无，需前端/param 新增;落地前 budgetCap 用全局常量降级，
-  Delta_budget 暂不生效。
+  当前 RouteGenerateParam 已有 budgetLevel，默认 NORMAL。
+  Delta_budget 可按 LOW / NORMAL / FLEXIBLE 生效；未传时按 NORMAL no-op。
 
 budgetLevel vs routeGoal=LOW_BUDGET(职责边界，防重复调 W_budget):
   budgetLevel 负责预算强度和 budgetCap / W_budget;
@@ -429,9 +431,10 @@ weatherBucket / temperatureLevel 不在内，不得驱动 Delta，只能走 cros
 > 与 poiFeature 的"档 1(零额外调用)"不同体系;`calendar-1` = 节假日表/算法(本地,无外部调用);
 > `derived` = 由请求字段本地派生,无外部调用。
 
-> 前置依赖:`weatherBucket/temperatureLevel/windLevel/humidityLevel` 需新增高德 `lives` 实况
+> 前置依赖:`weatherBucket/temperatureLevel/windLevel/humidityLevel` 来自高德 `lives` 实况
 > 天气 provider(`weather/temperature/winddirection/windpower/humidity`)。这是**额外调用**
-> (1 次/请求，按 city/adcode 缓存),不同于 poiFeature 的零额外调用。当前代码无天气 provider。
+> (1 次/请求，按 city/adcode 缓存),不同于 poiFeature 的零额外调用。当前代码已有 `LoadRouteWeatherStep`
+> 和 `AmapRouteWeatherProvider`，天气缺失时按不扣分处理。
 
 #### 怎么起作用
 
@@ -1286,7 +1289,7 @@ M_final =
   M_base
   + Delta_goal(routeGoal)
   + Delta_transport(transportProfile)
-  + Delta_budget(budgetLevel)         # budgetLevel 待前端新增，落地前 Delta_budget 不生效
+  + Delta_budget(budgetLevel)
   + Delta_time(routeTimeStructure)
 ```
 
@@ -1333,7 +1336,7 @@ M_final =
 > (抵消 base −0.03)把"离站远"的负权净化到 ≈0——否则只降 transitHigh 仍会让纯步行/打车点因站距被扣。
 > `transportSignalAvailable=false`(transit mask)时,涉及 transit 的增量列同样随该列被关闭,不单独生效。
 
-### 7.3 Delta_budget(budgetLevel)— 调 W_budget(**v1 reserved**,budgetLevel 未接入前不生效)
+### 7.3 Delta_budget(budgetLevel)— 调 W_budget
 
 | budgetLevel | 调整(列 += 增量) | 说明 |
 | --- | --- | --- |
@@ -1341,7 +1344,7 @@ M_final =
 | `NORMAL` | (no-op,基线) | M_base 即常态 |
 | `FLEXIBLE` | avgPriceNorm +0.04, expensivePoiRisk +0.04 | 预算宽,松价格惩罚 |
 
-> `RouteGenerateParam` 暂无 `budgetLevel`,落地前 `Delta_budget` 恒为 NORMAL(no-op),budgetCap 用全局常量。
+> `RouteGenerateParam` 已有 `budgetLevel`，未传时默认为 `NORMAL`，对应 Delta no-op。
 > 同样只作用于消费类 POI(W_budget 已被 categoryGroup 门控,非消费类整组 0,Delta 不会误伤景点)。
 
 ### 7.4 Delta_time(routeTimeStructure)— 只做**非语义**的时段敏感位移
@@ -1465,17 +1468,24 @@ linearScore
 需要调整的行列权重
 ```
 
-## 10. 后续待定
+## 10. 当前状态和后续校准
 
-下一步需要逐项确认：
+当前已对齐并落地：
 
 ```text
-1. poiFeature 字段表。
-2. requestFeature 字段表。
-3. userPreferenceVector 字段表。
-4. environmentFeature 字段表。
-5. M_base 初始权重。
-6. 动态增量规则。
-7. linearScore 分值边界。
-8. sanity check 样例集。
+1. 五组输入来源和 derivedFeature 口径。
+2. 8 个可解释子分数和 linearScore。
+3. LinearScoreConstants 规约化常量。
+4. PoiLinearFeatureExtractor / PoiLinearScorer / PoiLinearRanker。
+5. budgetLevel、routeTimeStructure、天气环境和用户画像的输入口径。
+6. LinearPoiPoolSelector 写入 PoiLinearTraceDTO，供路线级训练特征复用。
+```
+
+后续主要是校准，不是重定义 schema：
+
+```text
+1. 用真实生成样本复查 M_base 和 Delta 幅度。
+2. 回放不同 routeGoal / transportProfile / budgetLevel 下的排序结果。
+3. 按线上 POI Linear trace 分布校准 riskCost、budgetCost、distanceCost 的分位阈值。
+4. 只有字段来源、缺失默认值或矩阵列含义变化时，才升级 schema。
 ```

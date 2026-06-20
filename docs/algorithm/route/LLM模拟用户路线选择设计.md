@@ -95,6 +95,13 @@ userPreferenceProfile : 用户偏好画像，是路线生成/评价的输入之�
 judgments             : 模拟或真实的偏好判断，是后续训练的监督来源，不是推理输入。
 ```
 
+当前代码落地状态：
+
+- `route_preference_training_samples`：已由 `SaveRoutePreferenceTrainingSamplesStep` 在路线生成流程中写入四块 `X`。
+- `route_preference_judgments`：已由 `POST /api/route-preferences/judgments` 保存一次评价。
+- `route_preference_candidate_sets`：表设计已定义，但当前 Java 主链路尚未看到批次行插入、`current_judgment_count` 递增和 status 状态推进服务；下文涉及 candidate_sets 状态机的内容属于目标流程。
+- `RoutePreferenceTrainingServiceImpl.saveJudgment` 当前仍会整批回填 `training_samples.label_json/sample_weight`，与方案 B 的“judgments 作为唯一 Y 真源”目标口径不完全一致，后续需要停用或改为融合标签逻辑。
+
 ## 3. 输入来源（流程内，全部来自内存）
 
 LLM 模拟用户不读库、不重新生成路线，只读流程内已有的对象。
@@ -385,11 +392,18 @@ messages = [ system(6.1) , user(6.2: 请求 + 你的偏好(6.3) + 候选路线(6
 ### 8.1 读取路径
 
 ```text
+目标流程：
 1. 选 status = TRAIN_READY 的 candidate_sets
 2. 用 candidate_set_id 拉 training_samples，得到每条路线的 X（按 route_code）
 3. 用 candidate_set_id 拉该批全部 judgments，得到各 judge 的 ranking / reason / confidence
 4. 用 route_code 对齐 X 与评价
 5. 展开 pairwise 训练样本
+
+当前可用流程：
+1. 直接按 candidate_set_id 聚合 training_samples
+2. 读取同 candidate_set_id 下已保存的 judgments
+3. 用 route_code 对齐 X 与评价
+4. 展开 pairwise 训练样本
 ```
 
 一组路线 × N 个评价 = N 套监督信号。`training_samples` 只提供 X，监督 Y 全部来自 judgments，互不覆盖。
@@ -402,6 +416,8 @@ messages = [ system(6.1) , user(6.2: 请求 + 你的偏好(6.3) + 候选路线(6
 ranking = [C, A, B, E, D]
 => C>A, C>B, C>E, C>D, A>B, A>E, A>D, B>E, B>D, E>D
 ```
+
+为了和《路线偏好排序模型训练设计》对齐，v1 训练可以先展开全量候选 pair，再按 `rankGap >= 2` 过滤或降权。相邻排名 pair 不必强行进入主训练集，避免把轻微排序抖动当成强偏好。
 
 ### 8.3 后续 Pointwise / Listwise
 
@@ -504,6 +520,7 @@ confidence ∈ [0,1]。
 
 ```text
 [离线 / 批量生成流程，路线在内存]
+目标流程：
 1. 生成 N 条路线 -> candidate_sets 落 1 行
      generation_source=OFFLINE_BATCH, route_count=N,
      target_judgment_count=配置(模型×persona)数, status=JUDGING
@@ -518,6 +535,11 @@ confidence ∈ [0,1]。
 4. current_judgment_count >= target_judgment_count
      -> candidate_sets.status = TRAIN_READY
    0 < current < target -> PARTIAL_JUDGED
+
+当前代码已实现的最小闭环：
+1. 路线生成后，training_samples 落 N 行（X）。
+2. 外部调用 `/api/route-preferences/judgments` 保存 1 次 judgment。
+3. 后端当前会整批回填 training_samples 的 label/weight 并置为 TRAIN_READY。
 ```
 
 要点：
@@ -562,9 +584,9 @@ Route Judge（路线级裁判 MLP，见《路线裁判与软拒绝设计》）�
    其余由编排层注入；字段名对齐接口。
 5. reasonCodes 固定为 8 个，落库前白名单校验。
 6. 每条评价的权重按 judge_type 决定；judgments 一次评价一行 append，互不覆盖。
-7. 三张表（candidate_sets / training_samples / judgments）已在 V8 落地。
-8. 方案 B：training_samples 的 label/weight 列 v1 留空，Python 训练时直接读
-   judgments 当 Y、按 candidate_set_id + route_code 关联 X；停用整批回填。
+7. 三张表（candidate_sets / training_samples / judgments）是目标数据分工；当前代码已落地 training_samples 写入和 judgments 保存，candidate_sets 状态机仍待补齐。
+8. 方案 B：training_samples 的 label/weight 列 v1 目标口径是留空，Python 训练时直接读
+   judgments 当 Y、按 candidate_set_id + route_code 关联 X；当前代码仍会整批回填，后续需要停用或改为融合标签逻辑。
 ```
 
 待定：

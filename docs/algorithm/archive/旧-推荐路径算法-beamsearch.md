@@ -1,6 +1,6 @@
 # 旧-推荐路径算法-beamsearch
 
-本文档记录旧版 Beam Search 推荐路径算法，用于和当前 LLM 路线编排主线对照。当前主方案见 `docs/推荐路径算法.md`。
+本文档记录旧版 Beam Search 推荐路径算法，用于和当前 LLM 路线编排主线对照。当前主方案见 `docs/algorithm/推荐路径算法.md`。
 
 ## 目标
 
