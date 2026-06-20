@@ -41,7 +41,7 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
                 .filter(route -> this.passesConstraints(route, context))
                 .map(route -> this.withScore(route, scoringStrategy.score(route, context)))
                 .sorted(Comparator.comparingInt(CandidateRouteDTO::score).reversed())
-                .limit(3)
+                .limit(5)
                 .toList();
 
         if (selectedRoutes.isEmpty()) {
@@ -49,7 +49,7 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
             context.addWarning("没有路线完全满足约束，已返回最短超时路线");
             List<CandidateRouteDTO> overtimeRoutes = context.getCandidateRoutes().stream()
                     .sorted(Comparator.comparingInt(CandidateRouteDTO::totalDurationMinutes))
-                    .limit(3)
+                    .limit(5)
                     .toList();
             selectedRoutes = new java.util.ArrayList<>();
             for (int index = 0; index < overtimeRoutes.size(); index++) {
