@@ -3,6 +3,7 @@ package com.urbansidequest.backend.api.baidu;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.urbansidequest.backend.api.support.FixedIntervalRateLimiter;
 import com.urbansidequest.backend.config.BaiduMapProperties;
 import com.urbansidequest.backend.domain.dto.BaiduPlaceSearchQueryDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
@@ -10,8 +11,6 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -123,32 +122,5 @@ public class BaiduPlaceSearchApi {
                 .max(Comparator.naturalOrder())
                 .orElseThrow();
         return minLat + "," + minLng + "," + maxLat + "," + maxLng;
-    }
-
-    private static final class FixedIntervalRateLimiter {
-
-        private final long minIntervalNanos;
-
-        private final AtomicLong nextAllowedAtNanos = new AtomicLong(0L);
-
-        private FixedIntervalRateLimiter(long minIntervalNanos) {
-            this.minIntervalNanos = minIntervalNanos;
-        }
-
-        private void acquire() {
-            while (true) {
-                long now = System.nanoTime();
-                long current = this.nextAllowedAtNanos.get();
-                long scheduled = Math.max(now, current);
-                long next = scheduled + this.minIntervalNanos;
-                if (this.nextAllowedAtNanos.compareAndSet(current, next)) {
-                    long waitNanos = scheduled - now;
-                    if (waitNanos > 0L) {
-                        LockSupport.parkNanos(waitNanos);
-                    }
-                    return;
-                }
-            }
-        }
     }
 }

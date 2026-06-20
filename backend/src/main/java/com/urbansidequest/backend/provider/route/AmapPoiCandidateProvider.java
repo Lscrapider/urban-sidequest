@@ -6,7 +6,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.urbansidequest.backend.api.amap.AmapPoiSearchApi;
+import com.urbansidequest.backend.api.amap.AmapApi;
 import com.urbansidequest.backend.domain.dto.AmapPoiSearchQueryDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
@@ -74,25 +74,25 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
 
     private static final int HALF_DAY_ROUTE_MINUTES = 360;
 
-    private final AmapPoiSearchApi amapPoiSearchApi;
+    private final AmapApi amapApi;
 
     private final AmapPoiSearchCacheManage amapPoiSearchCacheManage;
 
     private final ObjectMapper objectMapper;
 
     public AmapPoiCandidateProvider(
-            AmapPoiSearchApi amapPoiSearchApi,
+            AmapApi amapApi,
             AmapPoiSearchCacheManage amapPoiSearchCacheManage,
             ObjectMapper objectMapper
     ) {
-        this.amapPoiSearchApi = amapPoiSearchApi;
+        this.amapApi = amapApi;
         this.amapPoiSearchCacheManage = amapPoiSearchCacheManage;
         this.objectMapper = objectMapper;
     }
 
     @Override
     public List<PoiCandidateDTO> loadCandidates(RouteGenerationContext context) {
-        if (!this.amapPoiSearchApi.isAvailable()) {
+        if (!this.amapApi.isAvailable()) {
             throw new IllegalStateException("未配置高德 Web Key，无法生成真实路线");
         }
         try {
@@ -290,7 +290,7 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
             String typesHash,
             String keywordsHash
     ) {
-        JsonNode response = this.amapPoiSearchApi.search(query);
+        JsonNode response = this.amapApi.searchPoi(query);
         if (!this.isSuccess(response)) {
             ObjectNode emptyResponse = this.objectMapper.createObjectNode();
             emptyResponse.putArray("pois");

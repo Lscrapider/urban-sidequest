@@ -1,6 +1,6 @@
 package com.urbansidequest.backend.handler.route.step;
 
-import com.urbansidequest.backend.api.amap.AmapRoutePlanningApi;
+import com.urbansidequest.backend.api.amap.AmapApi;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.RoutePlanDTO;
@@ -24,15 +24,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
 
-    private final AmapRoutePlanningApi amapRoutePlanningApi;
+    private final AmapApi amapApi;
 
     private final RouteSegmentCostCacheManage routeSegmentCostCacheManage;
 
     public CalibrateSelectedRouteSegmentsStep(
-            AmapRoutePlanningApi amapRoutePlanningApi,
+            AmapApi amapApi,
             RouteSegmentCostCacheManage routeSegmentCostCacheManage
     ) {
-        this.amapRoutePlanningApi = amapRoutePlanningApi;
+        this.amapApi = amapApi;
         this.routeSegmentCostCacheManage = routeSegmentCostCacheManage;
     }
 
@@ -121,7 +121,7 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
             SegmentTransportMode mode
     ) {
         return this.routeSegmentCostCacheManage.findLatestRawPayload(origin.location(), destination.location(), mode)
-                .flatMap(rawPayload -> this.amapRoutePlanningApi.parseCachedPlan(rawPayload, mode));
+                .flatMap(rawPayload -> this.amapApi.parseCachedPlan(rawPayload, mode));
     }
 
     private java.util.Optional<RoutePlanDTO> fetchAndCachePlan(
@@ -130,7 +130,7 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
             SegmentTransportMode mode,
             RouteGenerationContext context
     ) {
-        java.util.Optional<RoutePlanDTO> plan = this.amapRoutePlanningApi.plan(
+        java.util.Optional<RoutePlanDTO> plan = this.amapApi.planRoute(
                 origin.location(),
                 destination.location(),
                 mode,

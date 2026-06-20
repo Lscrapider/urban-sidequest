@@ -2,7 +2,7 @@ package com.urbansidequest.backend.provider.route;
 
 import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.urbansidequest.backend.api.amap.AmapPoiSearchApi;
+import com.urbansidequest.backend.api.amap.AmapApi;
 import com.urbansidequest.backend.domain.dto.AmapPoiSearchQueryDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
@@ -36,10 +36,10 @@ public class AmapTransitPoiDetailProvider implements PoiDetailProvider {
 
     private static final int NEAREST_BUS_LIMIT = 2;
 
-    private final AmapPoiSearchApi amapPoiSearchApi;
+    private final AmapApi amapApi;
 
-    public AmapTransitPoiDetailProvider(AmapPoiSearchApi amapPoiSearchApi) {
-        this.amapPoiSearchApi = amapPoiSearchApi;
+    public AmapTransitPoiDetailProvider(AmapApi amapApi) {
+        this.amapApi = amapApi;
     }
 
     @Override
@@ -47,7 +47,7 @@ public class AmapTransitPoiDetailProvider implements PoiDetailProvider {
         if (candidates.isEmpty()) {
             return candidates;
         }
-        if (!this.amapPoiSearchApi.isAvailable()) {
+        if (!this.amapApi.isAvailable()) {
             context.setTransportSignalAvailable(false);
             return this.withTransitStatus(candidates, TransitLookupStatus.UNAVAILABLE, "UNKNOWN");
         }
@@ -81,7 +81,7 @@ public class AmapTransitPoiDetailProvider implements PoiDetailProvider {
     private List<TransitPoint> searchTransit(List<GeoPointDTO> polygon, String type, List<String> keywords) {
         List<TransitPoint> transitPoints = new ArrayList<>();
         for (int pageNum = 1; pageNum <= MAX_PAGE_NUM; pageNum++) {
-            JsonNode response = this.amapPoiSearchApi.search(new AmapPoiSearchQueryDTO(
+            JsonNode response = this.amapApi.searchPoi(new AmapPoiSearchQueryDTO(
                     SEARCH_TYPE_POLYGON,
                     null,
                     null,
