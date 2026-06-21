@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * 对候选路线执行后端约束复核、打分和最终筛选。
  *
  * <p>LLM 只负责给出路线草案，是否满足必去点、时长等硬约束仍由后端判断；
- * 通过约束的路线按当前目标策略打分，最多选出 3 条进入真实路径校准。</p>
+ * 通过约束的路线按当前目标策略打分，最多选出 5 条进入真实路径校准。</p>
  */
 @Component
 public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
@@ -45,16 +45,7 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
                 .toList();
 
         if (selectedRoutes.isEmpty()) {
-            // 所有候选都没过约束时，仍返回耗时最短的草案，避免接口空结果。
-            context.addWarning("没有路线完全满足约束，已返回最短超时路线");
-            List<CandidateRouteDTO> overtimeRoutes = context.getCandidateRoutes().stream()
-                    .sorted(Comparator.comparingInt(CandidateRouteDTO::totalDurationMinutes))
-                    .limit(5)
-                    .toList();
-            selectedRoutes = new java.util.ArrayList<>();
-            for (int index = 0; index < overtimeRoutes.size(); index++) {
-                selectedRoutes.add(this.withRoutePresentation(overtimeRoutes.get(index), index));
-            }
+            throw new IllegalStateException("没有候选路线通过约束，已跳过本批路线偏好训练数据");
         }
         context.setSelectedRoutes(selectedRoutes);
     }
@@ -86,32 +77,4 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
         );
     }
 
-    private CandidateRouteDTO withRoutePresentation(CandidateRouteDTO route, int index) {
-        String routeCode = switch (index) {
-            case 0 -> "A";
-            case 1 -> "B";
-            default -> "C";
-        };
-        return new CandidateRouteDTO(
-                routeCode,
-                this.routeTitle(routeCode),
-                route.summary(),
-                route.totalDurationMinutes(),
-                route.totalDistanceMeters(),
-                route.budgetCent(),
-                route.riskLevel(),
-                route.explanation(),
-                route.stops(),
-                route.segments(),
-                route.score()
-        );
-    }
-
-    private String routeTitle(String routeCode) {
-        return switch (routeCode) {
-            case "A" -> "路线 A · 兴趣优先线";
-            case "B" -> "路线 B · 节奏平衡线";
-            default -> "路线 C · 轻量备选线";
-        };
-    }
 }

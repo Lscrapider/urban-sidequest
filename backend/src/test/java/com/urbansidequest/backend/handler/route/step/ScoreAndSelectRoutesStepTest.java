@@ -1,6 +1,7 @@
 package com.urbansidequest.backend.handler.route.step;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.enums.AreaMode;
@@ -19,7 +20,7 @@ import org.junit.jupiter.api.Test;
 class ScoreAndSelectRoutesStepTest {
 
     @Test
-    void fallsBackToShortestOvertimeRouteWhenAllRoutesFailDurationConstraint() {
+    void throwsWhenAllRoutesFailDurationConstraint() {
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -34,12 +35,10 @@ class ScoreAndSelectRoutesStepTest {
                 List.of(alwaysZeroScoringStrategy())
         );
 
-        step.execute(context);
-
-        assertThat(context.getSelectedRoutes()).hasSize(2);
-        assertThat(context.getSelectedRoutes().get(0).routeCode()).isEqualTo("A");
-        assertThat(context.getSelectedRoutes().get(0).totalDurationMinutes()).isEqualTo(150);
-        assertThat(context.getWarnings()).anyMatch(warning -> warning.contains("最短超时路线"));
+        assertThatThrownBy(() -> step.execute(context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("没有候选路线通过约束");
+        assertThat(context.getSelectedRoutes()).isEmpty();
     }
 
     private static RouteGenerateParam baseParam(int durationMinutes) {

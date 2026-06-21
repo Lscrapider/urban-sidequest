@@ -4,7 +4,17 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import random
 
-from .presets import CITY_PRESETS, PERSONA_ARCHETYPES, REQUEST_TEMPLATES
+from .presets import CITY_PRESETS, INTEREST_TAG_CODES, PERSONA_ARCHETYPES, REQUEST_TEMPLATES
+
+
+REQUEST_INTEREST_TAG_MIN = 2
+REQUEST_INTEREST_TAG_MAX = 4
+PERSONA_TAG_AFFINITY_MIN = 3
+PERSONA_TAG_AFFINITY_MAX = 6
+PERSONA_EXTRA_TAG_AFFINITY_MIN = 0.20
+PERSONA_EXTRA_TAG_AFFINITY_MAX = 0.55
+REQUEST_PRIMARY_TAG_COUNT = 1
+PERSONA_CORE_TAG_COUNT = 2
 
 
 def build_jobs(
@@ -92,16 +102,14 @@ def build_request_probe_jobs(
 
 def build_persona(index: int, rng: random.Random) -> dict:
     archetype = rng.choice(PERSONA_ARCHETYPES)
+    tag_affinities = select_persona_tag_affinities(archetype["tagAffinities"], rng)
     persona = {
         "distanceSensitivity": jitter(archetype["distanceSensitivity"], rng),
         "budgetSensitivity": jitter(archetype["budgetSensitivity"], rng),
         "transferSensitivity": jitter(archetype["transferSensitivity"], rng),
         "hiddenGemAffinity": jitter(archetype["hiddenGemAffinity"], rng),
         "profileConfidence": round(rng.uniform(0.68, 0.90), 2),
-        "tagAffinities": {
-            tag_code: jitter(score, rng)
-            for tag_code, score in archetype["tagAffinities"].items()
-        },
+        "tagAffinities": tag_affinities,
         "newUser": False,
         "questionnaireVersion": f"sim-persona-v1:{archetype['name']}",
     }
@@ -114,6 +122,7 @@ def build_request(index: int, rng: random.Random, city_keys: list[str], base_dat
     area = deepcopy(rng.choice(city["areas"]))
     template = deepcopy(rng.choice(REQUEST_TEMPLATES))
     departure = base_date + timedelta(days=rng.randrange(28), hours=template.pop("hour"))
+    interest_tags = select_request_interest_tags(template["interestTags"], rng)
     return {
         "areaMode": "AUTO_RADIUS",
         "areaLabel": area["areaLabel"],
@@ -126,9 +135,47 @@ def build_request(index: int, rng: random.Random, city_keys: list[str], base_dat
         "transportProfile": template["transportProfile"],
         "routeGoal": template["routeGoal"],
         "budgetLevel": template["budgetLevel"],
-        "interestTags": template["interestTags"],
+        "interestTags": interest_tags,
         "mustVisitPoints": [],
     }
+
+
+def select_request_interest_tags(base_tags: list[str], rng: random.Random) -> list[str]:
+    target_count = rng.randint(REQUEST_INTEREST_TAG_MIN, REQUEST_INTEREST_TAG_MAX)
+    target_count = min(target_count, len(INTEREST_TAG_CODES))
+    primary_tags = unique_tags(base_tags[:REQUEST_PRIMARY_TAG_COUNT])
+    selected = primary_tags[:target_count]
+    candidates = unique_tags(base_tags[REQUEST_PRIMARY_TAG_COUNT:] + [
+        tag_code for tag_code in INTEREST_TAG_CODES if tag_code not in selected
+    ])
+    return selected + rng.sample(candidates, target_count - len(selected))
+
+
+def select_persona_tag_affinities(base_affinities: dict[str, float], rng: random.Random) -> dict[str, float]:
+    target_count = rng.randint(PERSONA_TAG_AFFINITY_MIN, PERSONA_TAG_AFFINITY_MAX)
+    target_count = min(target_count, len(INTEREST_TAG_CODES))
+    affinity_pool = dict(base_affinities)
+    missing_tags = [tag_code for tag_code in INTEREST_TAG_CODES if tag_code not in affinity_pool]
+    extra_count = max(0, target_count - len(affinity_pool))
+    for tag_code in rng.sample(missing_tags, extra_count):
+        affinity_pool[tag_code] = round(
+            rng.uniform(PERSONA_EXTRA_TAG_AFFINITY_MIN, PERSONA_EXTRA_TAG_AFFINITY_MAX),
+            2,
+        )
+
+    ranked_tags = sorted(affinity_pool, key=lambda tag_code: affinity_pool[tag_code], reverse=True)
+    selected = ranked_tags[:min(PERSONA_CORE_TAG_COUNT, target_count)]
+    candidates = [tag_code for tag_code in ranked_tags if tag_code not in selected]
+    selected.extend(rng.sample(candidates, target_count - len(selected)))
+    selected.sort(key=lambda tag_code: affinity_pool[tag_code], reverse=True)
+    return {
+        tag_code: jitter(affinity_pool[tag_code], rng)
+        for tag_code in selected
+    }
+
+
+def unique_tags(tags: list[str]) -> list[str]:
+    return list(dict.fromkeys(tags))
 
 
 def jitter(value: float, rng: random.Random, width: float = 0.08) -> float:

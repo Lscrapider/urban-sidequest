@@ -37,9 +37,12 @@ def validate_judgment(raw: dict, route_codes: list[str]) -> dict:
     if not isinstance(reason_codes, dict):
         raise ValueError("reasonCodes 必须是对象")
     normalized_reasons = {}
+    rejected_set = set(rejected)
     for route_code, codes in reason_codes.items():
         if route_code not in code_set:
             raise ValueError(f"reasonCodes 包含外来 routeCode：{route_code}")
+        if route_code not in rejected_set:
+            raise ValueError(f"reasonCodes 只能包含 rejectedRouteCodes 中的路线：{route_code}")
         if not isinstance(codes, list):
             raise ValueError(f"reasonCodes.{route_code} 必须是数组")
         invalid = [code for code in codes if code not in ALLOWED_REASON_CODES]

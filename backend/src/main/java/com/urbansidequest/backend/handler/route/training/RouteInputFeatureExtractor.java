@@ -6,6 +6,7 @@ import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.PoiLinearTraceDTO;
+import com.urbansidequest.backend.domain.dto.RouteSegmentDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
 import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
 import com.urbansidequest.backend.domain.enums.BudgetLevel;
@@ -21,6 +22,8 @@ import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -191,10 +194,17 @@ public class RouteInputFeatureExtractor {
         for (int index = 0; index < stops.size() - 1; index++) {
             RouteStopDTO origin = stops.get(index);
             RouteStopDTO destination = stops.get(index + 1);
-            boolean missing = origin.location() == null || destination.location() == null;
-            int distanceMeters = missing ? 0 : GeoMath.distanceMeters(origin.location(), destination.location());
-            SegmentTransportMode mode = this.resolveSegmentMode(origin.transportToNext(), context.getGenerateParam().getTransportProfile(), source, origin, destination, route.routeCode());
-            int durationMinutes = missing ? 0 : this.estimateDurationMinutes(distanceMeters, mode);
+            RouteSegmentDTO routeSegment = this.routeSegmentAt(route, index);
+            boolean missing = routeSegment == null && (origin.location() == null || destination.location() == null);
+            SegmentTransportMode mode = routeSegment == null
+                    ? this.resolveSegmentMode(origin.transportToNext(), context.getGenerateParam().getTransportProfile(), source, origin, destination, route.routeCode())
+                    : routeSegment.mode();
+            int distanceMeters = routeSegment == null
+                    ? (missing ? 0 : GeoMath.distanceMeters(origin.location(), destination.location()))
+                    : routeSegment.distanceMeters();
+            int durationMinutes = routeSegment == null
+                    ? (missing ? 0 : this.estimateDurationMinutes(distanceMeters, mode))
+                    : routeSegment.durationMinutes();
             double distancePressure = missing ? 1d : clamp(distanceMeters / segmentComfortDistance, 0d, 2d);
 
             Map<String, Object> row = new LinkedHashMap<>();
@@ -571,9 +581,18 @@ public class RouteInputFeatureExtractor {
         if (departureTime == null) {
             return false;
         }
-        LocalTime routeStart = departureTime.atZone(CHINA_ZONE).toLocalTime();
-        LocalTime routeEnd = departureTime.plusSeconds(durationMinutes * 60L).atZone(CHINA_ZONE).toLocalTime();
-        return !routeEnd.isBefore(start) && !routeStart.isAfter(end);
+        LocalDateTime routeStart = LocalDateTime.ofInstant(departureTime, CHINA_ZONE);
+        LocalDateTime routeEnd = routeStart.plusMinutes(durationMinutes);
+        LocalDate cursorDate = routeStart.toLocalDate();
+        while (!cursorDate.isAfter(routeEnd.toLocalDate())) {
+            LocalDateTime windowStart = LocalDateTime.of(cursorDate, start);
+            LocalDateTime windowEnd = LocalDateTime.of(cursorDate, end);
+            if (routeStart.isBefore(windowEnd) && routeEnd.isAfter(windowStart)) {
+                return true;
+            }
+            cursorDate = cursorDate.plusDays(1);
+        }
+        return false;
     }
 
     private double routeComfortDistanceMeters(RouteGenerationContext context) {
@@ -716,6 +735,13 @@ public class RouteInputFeatureExtractor {
 
     private boolean isTransferSegment(Map<String, Object> row) {
         return doubleValue(row.get("transportMode_BUS")) > 0d || doubleValue(row.get("transportMode_SUBWAY")) > 0d;
+    }
+
+    private RouteSegmentDTO routeSegmentAt(CandidateRouteDTO route, int index) {
+        if (route.segments() == null || index < 0 || index >= route.segments().size()) {
+            return null;
+        }
+        return route.segments().get(index);
     }
 
     private static double bit(boolean value) {

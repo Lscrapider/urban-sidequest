@@ -341,6 +341,17 @@ CITY_PRESETS = {
 
 DEFAULT_CITY_KEYS = tuple(CITY_PRESETS.keys())
 
+INTEREST_TAG_CODES = (
+    "FOOD",
+    "COFFEE",
+    "MUSEUM",
+    "SCENIC",
+    "PHOTO",
+    "SHOPPING",
+    "NIGHT",
+    "LOCAL",
+)
+
 
 PERSONA_ARCHETYPES = [
     {
@@ -453,7 +464,7 @@ PERSONA_ARCHETYPES = [
         "budgetSensitivity": 0.28,
         "transferSensitivity": 0.35,
         "hiddenGemAffinity": 0.42,
-        "tagAffinities": {"LOCAL": 0.70, "PHOTO": 0.66, "FOOD": 0.64, "SCENIC": 0.45},
+        "tagAffinities": {"SHOPPING": 0.94, "LOCAL": 0.70, "PHOTO": 0.66, "FOOD": 0.64, "SCENIC": 0.45},
     },
     {
         "name": "play_enthusiast",
@@ -517,7 +528,7 @@ PERSONA_ARCHETYPES = [
         "budgetSensitivity": 0.16,
         "transferSensitivity": 0.28,
         "hiddenGemAffinity": 0.54,
-        "tagAffinities": {"PHOTO": 0.86, "FOOD": 0.82, "SCENIC": 0.62, "LOCAL": 0.58},
+        "tagAffinities": {"SHOPPING": 0.88, "PHOTO": 0.86, "FOOD": 0.82, "SCENIC": 0.62, "LOCAL": 0.58},
     },
     {
         "name": "budget_hidden_classic",
@@ -537,7 +548,7 @@ REQUEST_TEMPLATES = [
     {"routeGoal": "NIGHT", "transportProfile": "WALK_TAXI", "budgetLevel": "NORMAL", "interestTags": ["NIGHT", "FOOD", "PHOTO"], "durationMinutes": 240, "hour": 17},
     {"routeGoal": "PHOTO", "transportProfile": "WALK_TRANSIT", "budgetLevel": "NORMAL", "interestTags": ["PHOTO", "LOCAL", "SCENIC"], "durationMinutes": 240, "hour": 15},
     {"routeGoal": "STEADY", "transportProfile": "WALK_BUS", "budgetLevel": "NORMAL", "interestTags": ["MUSEUM", "COFFEE", "FOOD"], "durationMinutes": 210, "hour": 11},
-    {"routeGoal": "LOCAL", "transportProfile": "BIKE_SUBWAY", "budgetLevel": "FLEXIBLE", "interestTags": ["LOCAL", "PHOTO", "COFFEE"], "durationMinutes": 360, "hour": 10},
+    {"routeGoal": "LOCAL", "transportProfile": "BIKE_SUBWAY", "budgetLevel": "FLEXIBLE", "interestTags": ["LOCAL", "SHOPPING", "PHOTO", "COFFEE"], "durationMinutes": 360, "hour": 10},
     {"routeGoal": "CLASSIC", "transportProfile": "WALK_TAXI", "budgetLevel": "FLEXIBLE", "interestTags": ["SCENIC", "PHOTO", "FOOD"], "durationMinutes": 420, "hour": 9},
     {"routeGoal": "LOCAL", "transportProfile": "WALK_ONLY", "budgetLevel": "NORMAL", "interestTags": ["FOOD", "LOCAL", "COFFEE"], "durationMinutes": 150, "hour": 11},
     {"routeGoal": "LOCAL", "transportProfile": "WALK_BUS", "budgetLevel": "LOW", "interestTags": ["LOCAL", "FOOD", "PHOTO"], "durationMinutes": 300, "hour": 9},
@@ -545,7 +556,7 @@ REQUEST_TEMPLATES = [
     {"routeGoal": "NIGHT", "transportProfile": "WALK_SUBWAY", "budgetLevel": "FLEXIBLE", "interestTags": ["NIGHT", "FOOD", "LOCAL"], "durationMinutes": 300, "hour": 18},
     {"routeGoal": "STEADY", "transportProfile": "WALK_ONLY", "budgetLevel": "LOW", "interestTags": ["COFFEE", "LOCAL", "MUSEUM"], "durationMinutes": 150, "hour": 10},
     {"routeGoal": "CLASSIC", "transportProfile": "WALK_BUS", "budgetLevel": "LOW", "interestTags": ["SCENIC", "MUSEUM", "COFFEE"], "durationMinutes": 240, "hour": 8},
-    {"routeGoal": "LOCAL", "transportProfile": "WALK_TAXI", "budgetLevel": "FLEXIBLE", "interestTags": ["LOCAL", "FOOD", "NIGHT"], "durationMinutes": 420, "hour": 13},
+    {"routeGoal": "LOCAL", "transportProfile": "WALK_TAXI", "budgetLevel": "FLEXIBLE", "interestTags": ["SHOPPING", "LOCAL", "FOOD", "NIGHT"], "durationMinutes": 420, "hour": 13},
     {"routeGoal": "LOW_BUDGET", "transportProfile": "WALK_SUBWAY", "budgetLevel": "LOW", "interestTags": ["SCENIC", "LOCAL", "FOOD"], "durationMinutes": 360, "hour": 9},
     {"routeGoal": "PHOTO", "transportProfile": "BIKE_SUBWAY", "budgetLevel": "FLEXIBLE", "interestTags": ["PHOTO", "SCENIC", "LOCAL"], "durationMinutes": 360, "hour": 14},
     {"routeGoal": "STEADY", "transportProfile": "WALK_TRANSIT", "budgetLevel": "NORMAL", "interestTags": ["MUSEUM", "SCENIC", "COFFEE"], "durationMinutes": 300, "hour": 12},
@@ -563,7 +574,7 @@ REQUEST_TEMPLATES = [
     {"routeGoal": "CLASSIC", "transportProfile": "BIKE_SUBWAY", "budgetLevel": "NORMAL", "interestTags": ["SCENIC", "PHOTO", "COFFEE"], "durationMinutes": 300, "hour": 14},
     {"routeGoal": "LOW_BUDGET", "transportProfile": "WALK_ONLY", "budgetLevel": "LOW", "interestTags": ["FOOD", "LOCAL", "PHOTO"], "durationMinutes": 120, "hour": 12},
     {"routeGoal": "STEADY", "transportProfile": "WALK_BUS", "budgetLevel": "FLEXIBLE", "interestTags": ["COFFEE", "FOOD", "SCENIC"], "durationMinutes": 420, "hour": 10},
-    {"routeGoal": "LOCAL", "transportProfile": "WALK_TAXI", "budgetLevel": "NORMAL", "interestTags": ["LOCAL", "PHOTO", "MUSEUM"], "durationMinutes": 360, "hour": 9},
+    {"routeGoal": "LOCAL", "transportProfile": "WALK_TAXI", "budgetLevel": "NORMAL", "interestTags": ["LOCAL", "SHOPPING", "PHOTO", "MUSEUM"], "durationMinutes": 360, "hour": 9},
     {"routeGoal": "NIGHT", "transportProfile": "WALK_SUBWAY", "budgetLevel": "LOW", "interestTags": ["NIGHT", "LOCAL", "COFFEE"], "durationMinutes": 240, "hour": 20},
     {"routeGoal": "CLASSIC", "transportProfile": "WALK_ONLY", "budgetLevel": "NORMAL", "interestTags": ["SCENIC", "MUSEUM", "LOCAL"], "durationMinutes": 180, "hour": 13},
     {"routeGoal": "PHOTO", "transportProfile": "WALK_TRANSIT", "budgetLevel": "NORMAL", "interestTags": ["PHOTO", "NIGHT", "FOOD"], "durationMinutes": 300, "hour": 16},

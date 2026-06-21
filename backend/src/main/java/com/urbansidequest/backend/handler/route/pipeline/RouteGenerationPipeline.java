@@ -122,14 +122,14 @@ public class RouteGenerationPipeline {
         // 调用 LLM 从 POI 池生成路线草案；真实交通距离和耗时不在这里计算。
         this.executeStep("buildCandidateRoutes", context, this.buildCandidateRoutesStep);
 
-        // 保存同批候选路线的训练特征快照；v1 先落 stopMatrix/segmentMatrix/routeDerivedVector。
-        this.executeStep("saveRoutePreferenceTrainingSamples", context, this.saveRoutePreferenceTrainingSamplesStep);
-
-        // 后端复核模型草案，执行必去点、时长等约束，并最多选出 3 条路线。
+        // 后端复核模型草案，执行必去点、时长等约束，并最多选出 5 条路线。
         this.executeStep("scoreAndSelectRoutes", context, this.scoreAndSelectRoutesStep);
 
         // 对最终选中的路线逐段调用高德路线规划，补真实距离、耗时、polyline 和 steps。
         this.executeStep("calibrateSelectedRouteSegments", context, this.calibrateSelectedRouteSegmentsStep);
+
+        // 保存最终返回路线的训练特征快照，确保 X 与后续 LLM judgment 看到的路线一致。
+        this.executeStep("saveRoutePreferenceTrainingSamples", context, this.saveRoutePreferenceTrainingSamplesStep);
 
         LOGGER.info(
                 "路线生成 pipeline 完成，requestId={}，candidateSetId={}，elapsedMs={}，poiCandidates={}，candidateRoutes={}，selectedRoutes={}，segmentCosts={}，warnings={}",

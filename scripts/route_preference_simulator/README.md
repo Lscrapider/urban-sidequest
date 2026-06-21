@@ -108,13 +108,13 @@ python3 -m scripts.route_preference_simulator run \
 }
 ```
 
-也可以直接放 `RouteGenerateParam` 对象。当前 Java 接口还不支持按 synthetic persona 覆盖用户画像，因此 `persona` 只参与 LLM 模拟用户评价 prompt。
+也可以直接放 `RouteGenerateParam` 对象。当前脚本会把 `persona` 写入 `userPreferenceProfileOverride`，使路线生成特征和 LLM 模拟用户评价使用同一份画像。
 
 内置生成器会覆盖这些用户画像方向：
 
 ```text
 低预算本地生活、首次经典游、拍照 citywalk、慢节奏休息、夜游美食、
-文化展馆、美食探索、抗拒换乘、高体力混合、低预算经典、小众拍照、家庭稳妥
+文化展馆、美食探索、购物发烧友、抗拒换乘、高体力混合、低预算经典、小众拍照、家庭稳妥
 ```
 
 内置 request 会覆盖：
@@ -124,6 +124,8 @@ LOCAL / CLASSIC / LOW_BUDGET / NIGHT / PHOTO / STEADY
 WALK_ONLY / WALK_SUBWAY / WALK_BUS / WALK_TRANSIT / BIKE_SUBWAY / WALK_TAXI
 LOW / NORMAL / FLEXIBLE
 ```
+
+生成时 `request.interestTags` 会从模板主题里随机抽取 2-4 个，`persona.tagAffinities` 会从画像偏好里随机抽取 3-6 个；合法兴趣标签为 `FOOD / COFFEE / MUSEUM / SCENIC / PHOTO / SHOPPING / NIGHT / LOCAL`。
 
 ## 输出保存
 

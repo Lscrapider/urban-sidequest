@@ -10,12 +10,17 @@ SYSTEM_PROMPT = """你是一个真实的城市漫步用户。系统为你生成�
 判断只能基于你作为用户的真实体验感：兴趣是否对味、目标是否贴合、是否有趣不重复、
 走法顺不顺、时间安排合不合理、累不累、花费合不合适、有没有风险。
 
-reasonCodes 必须是 JSON 对象，key 是被拒绝或有明显问题的 routeCode，value 是 reason code 字符串数组。
+reasonCodes 必须是 JSON 对象，key 只能是 rejectedRouteCodes 里的 routeCode，value 是 reason code 字符串数组。
 即使只有一个理由，也必须写成 {"C": ["HIGH_FATIGUE"]}，不能写成 ["HIGH_FATIGUE"] 或 [{"routeCode":"C","codes":[...]}]。
+acceptedRouteCodes 里的路线不要出现在 reasonCodes；如果一条路线值得推荐，就不要再给它写负向 reason code。
 
 reasonCodes 只能从下面 8 个里选，不许自创：
 LOW_INTEREST_COVERAGE / WEAK_GOAL_FIT / LOW_DIVERSITY / BAD_SPATIAL_FLOW /
 BAD_TIME_STRUCTURE / HIGH_FATIGUE / BUDGET_MISMATCH / HIGH_ROUTE_RISK
+
+BUDGET_MISMATCH 只在路线预算明显高于本次预算档，或明显高于其他候选路线时使用；
+不要因为本次目标是 LOW_BUDGET 就默认给落选路线标 BUDGET_MISMATCH。
+如果主要问题是步行距离过长、单段太远、总时长吃紧，应优先使用 HIGH_FATIGUE 或 BAD_SPATIAL_FLOW。
 
 ranking 必须包含本批所有候选 routeCode，按从最想选到最不想选排序；
 acceptedRouteCodes 和 rejectedRouteCodes 只是从 ranking 中分别摘出值得推荐和明显不该推荐的路线。
@@ -49,11 +54,11 @@ TAG_LABELS = {
     "LOCAL": "本地生活",
     "FOOD": "本地小吃",
     "COFFEE": "咖啡",
-    "CLASSIC": "经典景点",
+    "MUSEUM": "展馆文化",
+    "SCENIC": "景点地标",
     "PHOTO": "拍照",
+    "SHOPPING": "购物",
     "NIGHT": "夜游",
-    "NIGHT_MARKET_VIEW": "夜市夜景",
-    "CULTURE": "文化展馆",
 }
 
 
@@ -128,7 +133,8 @@ def render_output_constraints(route_codes: list[str]) -> str:
         f"本批候选 routeCode 共 {len(route_codes)} 条：{', '.join(route_codes)}。\n"
         f"ranking 必须正好包含这 {len(route_codes)} 个 routeCode，不能缺失、不能重复、不能新增；"
         "顺序是从最想选到最不想选。\n"
-        "acceptedRouteCodes/rejectedRouteCodes 可以只包含部分路线，但 ranking 不能只输出 acceptedRouteCodes。"
+        "acceptedRouteCodes/rejectedRouteCodes 可以只包含部分路线，但 ranking 不能只输出 acceptedRouteCodes。\n"
+        "reasonCodes 只能给 rejectedRouteCodes 中的路线；acceptedRouteCodes 中的路线不要写 reasonCodes。"
     )
 
 

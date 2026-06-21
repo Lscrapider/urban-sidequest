@@ -24,10 +24,10 @@ public class SaveRoutePreferenceTrainingSamplesStep implements RouteGenerationSt
 
     @Override
     public void execute(RouteGenerationContext context) {
-        if (context.getCandidateRoutes().isEmpty()) {
+        if (context.getSelectedRoutes().isEmpty()) {
             return;
         }
-        for (CandidateRouteDTO route : context.getCandidateRoutes()) {
+        for (CandidateRouteDTO route : context.getSelectedRoutes()) {
             RouteInputFeatureSnapshot snapshot = this.routeInputFeatureExtractor.extract(route, context);
             this.routePreferenceTrainingSampleManage.upsertGeneratedSample(
                     context.getCandidateSetId(),

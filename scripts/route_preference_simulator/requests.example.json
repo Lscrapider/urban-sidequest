@@ -27,7 +27,7 @@
         "LOCAL": 0.9,
         "FOOD": 0.8,
         "COFFEE": 0.7,
-        "CLASSIC": 0.3
+        "SCENIC": 0.3
       },
       "newUser": false,
       "questionnaireVersion": "sim-persona-v1"
