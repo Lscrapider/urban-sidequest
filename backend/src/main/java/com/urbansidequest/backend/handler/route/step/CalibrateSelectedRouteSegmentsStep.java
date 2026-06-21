@@ -3,16 +3,28 @@ package com.urbansidequest.backend.handler.route.step;
 import com.urbansidequest.backend.api.amap.AmapApi;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
+import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.RoutePlanDTO;
+import com.urbansidequest.backend.domain.dto.RoutePlanResultDTO;
 import com.urbansidequest.backend.domain.dto.RouteSegmentDTO;
 import com.urbansidequest.backend.domain.dto.RouteStepDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
+import com.urbansidequest.backend.domain.enums.RoutePlanStatus;
+import com.urbansidequest.backend.domain.enums.RouteSegmentSource;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
+import com.urbansidequest.backend.handler.route.SegmentModeResolver;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.linear.LinearScoreConstants;
+import com.urbansidequest.backend.handler.route.support.GeoMath;
 import com.urbansidequest.backend.manage.RouteSegmentCostCacheManage;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
@@ -28,12 +40,16 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
 
     private final RouteSegmentCostCacheManage routeSegmentCostCacheManage;
 
+    private final SegmentModeResolver segmentModeResolver;
+
     public CalibrateSelectedRouteSegmentsStep(
             AmapApi amapApi,
-            RouteSegmentCostCacheManage routeSegmentCostCacheManage
+            RouteSegmentCostCacheManage routeSegmentCostCacheManage,
+            SegmentModeResolver segmentModeResolver
     ) {
         this.amapApi = amapApi;
         this.routeSegmentCostCacheManage = routeSegmentCostCacheManage;
+        this.segmentModeResolver = segmentModeResolver;
     }
 
     @Override
@@ -41,15 +57,25 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
         if (context.getSelectedRoutes().isEmpty()) {
             return;
         }
-        context.setSelectedRoutes(context.getSelectedRoutes().stream()
-                .map(route -> this.calibrateRoute(route, context))
-                .toList());
+        Map<String, PoiCandidateDTO> candidatesByPoiId = this.candidatesByPoiId(context);
+        List<CandidateRouteDTO> calibratedRoutes = context.getSelectedRoutes().stream()
+                .map(route -> this.calibrateRoute(route, context, candidatesByPoiId))
+                .flatMap(Optional::stream)
+                .toList();
+        if (calibratedRoutes.isEmpty()) {
+            context.addWarning("所有候选路线在真实路径校准后均不可用，未保存路线偏好训练样本");
+        }
+        context.setSelectedRoutes(calibratedRoutes);
     }
 
-    private CandidateRouteDTO calibrateRoute(CandidateRouteDTO route, RouteGenerationContext context) {
+    private Optional<CandidateRouteDTO> calibrateRoute(
+            CandidateRouteDTO route,
+            RouteGenerationContext context,
+            Map<String, PoiCandidateDTO> candidatesByPoiId
+    ) {
         List<RouteStopDTO> stops = route.stops();
         if (stops.size() < 2) {
-            return route;
+            return Optional.of(route);
         }
         List<RouteStopDTO> calibratedStops = new ArrayList<>();
         List<RouteSegmentDTO> segments = new ArrayList<>();
@@ -60,18 +86,26 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
                 continue;
             }
             RouteStopDTO next = stops.get(index + 1);
-            // 模型未给出下一段交通方式时，使用请求中允许的第一个方式作为兜底。
-            SegmentTransportMode mode = current.transportToNext() == null
-                    ? context.getGenerateParam().getTransportProfile().getAllowedSegmentModes().get(0)
-                    : current.transportToNext();
-            RouteSegmentDTO segment = this.resolveSegment(
+            SegmentTransportMode initialMode = this.segmentModeResolver.resolveInitialMode(
+                    context.getGenerateParam().getTransportProfile(),
+                    current,
+                    next,
+                    candidatesByPoiId,
+                    route.routeCode()
+            );
+            Optional<RouteSegmentDTO> segmentOptional = this.resolveSegment(
                     route.routeCode(),
                     index + 1,
                     current,
                     next,
-                    mode,
+                    initialMode,
                     context
             );
+            if (segmentOptional.isEmpty()) {
+                context.addWarning(route.routeCode() + " 线第 " + (index + 1) + " 段路径规划失败且超过本地步行兜底上限，已丢弃该候选路线");
+                return Optional.empty();
+            }
+            RouteSegmentDTO segment = segmentOptional.get();
             segments.add(segment);
             calibratedStops.add(this.withSegmentCost(current, segment));
         }
@@ -82,7 +116,7 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
         if (calibratedDurationMinutes > context.getGenerateParam().getDurationMinutes()) {
             context.addWarning(route.routeCode() + " 线真实路径校准后超过预设时长，请执行前留意时间余量");
         }
-        return new CandidateRouteDTO(
+        return Optional.of(new CandidateRouteDTO(
                 route.routeCode(),
                 route.title(),
                 route.summary(),
@@ -94,49 +128,92 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
                 calibratedStops,
                 segments,
                 route.score()
-        );
+        ));
     }
 
-    private RouteSegmentDTO resolveSegment(
+    private Optional<RouteSegmentDTO> resolveSegment(
             String routeCode,
             int order,
             RouteStopDTO origin,
             RouteStopDTO destination,
-            SegmentTransportMode mode,
+            SegmentTransportMode initialMode,
             RouteGenerationContext context
     ) {
-        // 路段规划先查缓存，再调高德；外部规划失败时用模型/估算值兜底，保证路线仍可返回。
-        return this.findCachedPlan(origin, destination, mode)
-                .or(() -> this.fetchAndCachePlan(origin, destination, mode, context))
-                .map(plan -> this.toRouteSegment(order, origin, destination, mode, plan))
-                .orElseGet(() -> {
-                    context.addWarning(routeCode + " 线第 " + order + " 段路径规划失败，已使用本地估算");
-                    return this.fallbackSegment(order, origin, destination, mode);
-                });
+        List<SegmentTransportMode> modesToTry = this.modesToTry(initialMode);
+        for (int index = 0; index < modesToTry.size(); index++) {
+            SegmentTransportMode mode = modesToTry.get(index);
+            if (this.hasNoRouteCache(origin, destination, mode)) {
+                continue;
+            }
+            Optional<RoutePlanDTO> plan = this.findCachedPlan(origin, destination, mode)
+                    .or(() -> this.fetchAndCachePlan(origin, destination, mode, context));
+            if (plan.isPresent()) {
+                RouteSegmentSource source = index == 0 ? RouteSegmentSource.AMAP_DIRECT : RouteSegmentSource.AMAP_FALLBACK;
+                if (source == RouteSegmentSource.AMAP_FALLBACK) {
+                    context.addWarning(routeCode + " 线第 " + order + " 段 " + this.modeLabel(initialMode)
+                            + " 无可用路线，已降级为 " + this.modeLabel(mode));
+                }
+                return Optional.of(this.toRouteSegment(order, origin, destination, mode, plan.get(), source));
+            }
+        }
+        Optional<RouteSegmentDTO> fallbackSegment = this.fallbackSegment(order, origin, destination);
+        if (fallbackSegment.isPresent()) {
+            context.addWarning(routeCode + " 线第 " + order + " 段路径规划失败，已使用步行直线估算");
+        }
+        return fallbackSegment;
     }
 
-    private java.util.Optional<RoutePlanDTO> findCachedPlan(
+    private List<SegmentTransportMode> modesToTry(SegmentTransportMode initialMode) {
+        Set<SegmentTransportMode> modes = new LinkedHashSet<>();
+        modes.add(initialMode);
+        modes.addAll(this.segmentModeResolver.fallbackChain(initialMode));
+        return new ArrayList<>(modes);
+    }
+
+    private Optional<RoutePlanDTO> findCachedPlan(
             RouteStopDTO origin,
             RouteStopDTO destination,
             SegmentTransportMode mode
     ) {
+        if (origin.location() == null || destination.location() == null) {
+            return Optional.empty();
+        }
         return this.routeSegmentCostCacheManage.findLatestRawPayload(origin.location(), destination.location(), mode)
                 .flatMap(rawPayload -> this.amapApi.parseCachedPlan(rawPayload, mode));
     }
 
-    private java.util.Optional<RoutePlanDTO> fetchAndCachePlan(
+    private boolean hasNoRouteCache(
+            RouteStopDTO origin,
+            RouteStopDTO destination,
+            SegmentTransportMode mode
+    ) {
+        if (origin.location() == null || destination.location() == null) {
+            return false;
+        }
+        return this.routeSegmentCostCacheManage.isLatestNoRoute(origin.location(), destination.location(), mode);
+    }
+
+    private Optional<RoutePlanDTO> fetchAndCachePlan(
             RouteStopDTO origin,
             RouteStopDTO destination,
             SegmentTransportMode mode,
             RouteGenerationContext context
     ) {
-        java.util.Optional<RoutePlanDTO> plan = this.amapApi.planRoute(
+        if (origin.location() == null || destination.location() == null) {
+            return Optional.empty();
+        }
+        RoutePlanResultDTO result = this.amapApi.planRouteResult(
                 origin.location(),
                 destination.location(),
                 mode,
                 context.getGenerateParam().getRouteCityName(),
                 context.getGenerateParam().getRouteCityAdcode()
         );
+        if (result.status() == RoutePlanStatus.NO_ROUTE) {
+            this.routeSegmentCostCacheManage.saveNoRoute(origin.location(), destination.location(), mode);
+            return Optional.empty();
+        }
+        Optional<RoutePlanDTO> plan = result.planOptional();
         plan.ifPresent(routePlan -> this.routeSegmentCostCacheManage.saveRawPayload(
                 origin.location(),
                 destination.location(),
@@ -151,7 +228,8 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
             RouteStopDTO origin,
             RouteStopDTO destination,
             SegmentTransportMode mode,
-            RoutePlanDTO plan
+            RoutePlanDTO plan,
+            RouteSegmentSource source
     ) {
         return new RouteSegmentDTO(
                 order,
@@ -162,31 +240,47 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
                 plan.durationMinutes(),
                 plan.polyline(),
                 plan.steps(),
-                plan.summary()
+                plan.summary(),
+                source
         );
     }
 
-    private RouteSegmentDTO fallbackSegment(
+    private Optional<RouteSegmentDTO> fallbackSegment(
             int order,
             RouteStopDTO origin,
-            RouteStopDTO destination,
-            SegmentTransportMode mode
+            RouteStopDTO destination
     ) {
-        int distanceMeters = origin.distanceToNextMeters() == null ? 0 : origin.distanceToNextMeters();
-        int durationMinutes = origin.durationToNextMinutes() == null ? 1 : origin.durationToNextMinutes();
-        String summary = this.modeLabel(mode) + "约 " + Math.max(1, durationMinutes) + " 分钟";
+        if (origin.location() == null || destination.location() == null) {
+            return Optional.empty();
+        }
+        int distanceMeters = GeoMath.distanceMeters(origin.location(), destination.location());
+        if (distanceMeters > LinearScoreConstants.MAX_WALK_FALLBACK_METERS) {
+            return Optional.empty();
+        }
+        int durationMinutes = this.estimateDurationMinutes(distanceMeters, SegmentTransportMode.WALK);
+        String summary = this.modeLabel(SegmentTransportMode.WALK) + "约 " + Math.max(1, durationMinutes) + " 分钟";
         List<GeoPointDTO> polyline = List.of(origin.location(), destination.location());
-        return new RouteSegmentDTO(
+        return Optional.of(new RouteSegmentDTO(
                 order,
                 origin.stopId(),
                 destination.stopId(),
-                mode,
+                SegmentTransportMode.WALK,
                 distanceMeters,
                 Math.max(1, durationMinutes),
                 polyline,
                 List.of(new RouteStepDTO(1, summary, "", distanceMeters, Math.max(1, durationMinutes), polyline)),
-                summary
-        );
+                summary,
+                RouteSegmentSource.FALLBACK_STRAIGHT_LINE
+        ));
+    }
+
+    private int estimateDurationMinutes(int distanceMeters, SegmentTransportMode mode) {
+        return switch (mode) {
+            case BIKE -> (int) Math.ceil(distanceMeters / 180d) + 3;
+            case BUS, SUBWAY, TRANSIT -> (int) Math.ceil(distanceMeters / 260d) + 12;
+            case TAXI, DRIVE -> (int) Math.ceil(distanceMeters / 300d) + 8;
+            case WALK -> (int) Math.ceil(distanceMeters / 70d);
+        };
     }
 
     private RouteStopDTO withSegmentCost(RouteStopDTO stop, RouteSegmentDTO segment) {
@@ -216,5 +310,13 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
             case TAXI, DRIVE -> "驾车";
             case BUS, SUBWAY, TRANSIT -> "公共交通";
         };
+    }
+
+    private Map<String, PoiCandidateDTO> candidatesByPoiId(RouteGenerationContext context) {
+        Map<String, PoiCandidateDTO> candidatesByPoiId = new LinkedHashMap<>();
+        for (PoiCandidateDTO candidate : context.getPoiCandidates()) {
+            candidatesByPoiId.put(candidate.poiId(), candidate);
+        }
+        return candidatesByPoiId;
     }
 }

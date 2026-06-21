@@ -1,6 +1,7 @@
 package com.urbansidequest.backend.domain.dto;
 
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
+import com.urbansidequest.backend.domain.enums.RouteSegmentSource;
 import java.util.List;
 
 public record RouteSegmentDTO(
@@ -12,6 +13,7 @@ public record RouteSegmentDTO(
         int durationMinutes,
         List<GeoPointDTO> polyline,
         List<RouteStepDTO> steps,
-        String summary
+        String summary,
+        RouteSegmentSource source
 ) {
 }

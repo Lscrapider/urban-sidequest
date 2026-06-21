@@ -30,6 +30,20 @@ public class RouteSegmentCostCacheManage extends ServiceImpl<RouteSegmentCostCac
         ));
     }
 
+    public boolean isLatestNoRoute(
+            GeoPointDTO origin,
+            GeoPointDTO destination,
+            SegmentTransportMode mode
+    ) {
+        return Boolean.TRUE.equals(this.baseMapper.isLatestNoRoute(
+                this.normalize(origin.longitudeGcj02()),
+                this.normalize(origin.latitudeGcj02()),
+                this.normalize(destination.longitudeGcj02()),
+                this.normalize(destination.latitudeGcj02()),
+                mode.name()
+        ));
+    }
+
     public void saveRawPayload(
             GeoPointDTO origin,
             GeoPointDTO destination,
@@ -48,6 +62,20 @@ public class RouteSegmentCostCacheManage extends ServiceImpl<RouteSegmentCostCac
                 plan.distanceMeters(),
                 plan.durationMinutes() * 60,
                 plan.rawPayload()
+        );
+    }
+
+    public void saveNoRoute(
+            GeoPointDTO origin,
+            GeoPointDTO destination,
+            SegmentTransportMode mode
+    ) {
+        this.baseMapper.insertNoRoute(
+                this.normalize(origin.longitudeGcj02()),
+                this.normalize(origin.latitudeGcj02()),
+                this.normalize(destination.longitudeGcj02()),
+                this.normalize(destination.latitudeGcj02()),
+                mode.name()
         );
     }
 

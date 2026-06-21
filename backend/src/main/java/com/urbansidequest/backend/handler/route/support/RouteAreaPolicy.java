@@ -53,7 +53,7 @@ public class RouteAreaPolicy {
             return generateParam.getRadiusMeters();
         }
         DurationBucket durationBucket = DurationBucket.fromMinutes(generateParam.getDurationMinutes());
-        return generateParam.getTransportProfile().defaultRadiusMeters(durationBucket);
+        return generateParam.getTransportProfile().searchRadiusMeters(durationBucket);
     }
 
     private List<GeoPointDTO> buildRectanglePolygon(GeoPointDTO center, int radiusMeters) {

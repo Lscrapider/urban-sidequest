@@ -22,6 +22,21 @@ public final class LinearScoreConstants {
     /** walkingAccessibility 步行舒适上限。 */
     public static final double WALK_REF_METERS = 1000d;
 
+    /** 段级交通方式预选择：短段直接步行。 */
+    public static final int SHORT_WALK_SEGMENT_METERS = 900;
+
+    /** 段级交通方式预选择：地铁起乘直线距离门槛。 */
+    public static final int SUBWAY_MIN_SEGMENT_METERS = 1800;
+
+    /** 段级交通方式预选择：中距离段上限，供 WALK_TRANSIT 与 BIKE_SUBWAY 共用。 */
+    public static final int MID_DISTANCE_SEGMENT_METERS = 2500;
+
+    /** 中距离公共交通接驳门控：POI 到最近公交/地铁设施的最大距离。 */
+    public static final int TRANSIT_ACCESS_MAX_METERS = 800;
+
+    /** 高德步行兜底失败后允许本地直线估算的最大段距离。 */
+    public static final int MAX_WALK_FALLBACK_METERS = 2500;
+
     /** clusterConnectivity 邻域半径。 */
     public static final double NEIGHBOR_RADIUS_METERS = 300d;
 

@@ -74,10 +74,10 @@ public class PoiLinearRanker {
         int durationMinutes = param.getDurationMinutes() == null ? DEFAULT_DURATION_MINUTES : param.getDurationMinutes();
         DurationBucket bucket = DurationBucket.fromMinutes(durationMinutes);
 
-        double transportRadius = transport == null ? 2500d : transport.defaultRadiusMeters(bucket);
-        double requestRadius = context.getArea() == null ? transportRadius : context.getArea().radiusMeters();
-        double effectiveRadius = Math.min(requestRadius <= 0 ? transportRadius : requestRadius, transportRadius);
-        double fatigueRef = transport == null ? 1500d : transport.defaultRadiusMeters(DurationBucket.SHORT);
+        double poiDistanceRef = transport == null ? 2500d : transport.poiDistanceRefMeters(bucket);
+        double requestRadius = context.getArea() == null ? poiDistanceRef : context.getArea().radiusMeters();
+        double effectiveRadius = Math.min(requestRadius <= 0 ? poiDistanceRef : requestRadius, poiDistanceRef);
+        double fatigueRef = transport == null ? 1500d : transport.walkingFatigueRefMeters(bucket);
 
         RouteWeatherDTO weather = context.getRouteWeather();
         RouteTimeStructure timeStructure = RouteTimeStructure.fromWindow(param.getDepartureTime(), durationMinutes);

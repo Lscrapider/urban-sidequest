@@ -16,6 +16,7 @@ import com.urbansidequest.backend.domain.enums.RiskLevel;
 import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -428,7 +429,7 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
 
         int stayDurationMinutes = stops.stream().mapToInt(RouteStopDTO::stayMinutes).sum();
         int budgetCent = stops.stream()
-                .map(stop -> candidatesByPoiId.get(this.poiIdFromStopId(stop.stopId(), routeCode)))
+                .map(stop -> candidatesByPoiId.get(RouteStopIdSupport.poiIdFromStopId(stop.stopId(), routeCode)))
                 .filter(candidate -> candidate != null && candidate.avgPriceCent() != null)
                 .mapToInt(PoiCandidateDTO::avgPriceCent)
                 .sum();
@@ -562,11 +563,6 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
                 context.addWarning(routeCode + " 线后端复核提示：" + reviewHint.message());
             }
         }
-    }
-
-    private String poiIdFromStopId(String stopId, String routeCode) {
-        String suffix = "-" + routeCode;
-        return stopId.endsWith(suffix) ? stopId.substring(0, stopId.length() - suffix.length()) : stopId;
     }
 
     private String cleanJsonContent(String content) {

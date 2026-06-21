@@ -8,6 +8,7 @@ import com.urbansidequest.backend.config.AmapWebProperties;
 import com.urbansidequest.backend.domain.dto.AmapPoiSearchQueryDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.RoutePlanDTO;
+import com.urbansidequest.backend.domain.dto.RoutePlanResultDTO;
 import com.urbansidequest.backend.domain.dto.RouteWeatherDTO;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import java.net.URI;
@@ -43,6 +44,8 @@ public class AmapApi {
     private static final String SHOW_FIELDS = "business,photos";
 
     private static final String EXTENSIONS_BASE = "base";
+
+    private static final String STATUS_SUCCESS = "1";
 
     private final AmapWebProperties amapWebProperties;
 
@@ -122,8 +125,21 @@ public class AmapApi {
             String cityName,
             String cityAdcode
     ) {
-        if (!this.isAvailable() || !this.supports(mode, cityName, cityAdcode)) {
-            return Optional.empty();
+        return this.planRouteResult(origin, destination, mode, cityName, cityAdcode).planOptional();
+    }
+
+    public RoutePlanResultDTO planRouteResult(
+            GeoPointDTO origin,
+            GeoPointDTO destination,
+            SegmentTransportMode mode,
+            String cityName,
+            String cityAdcode
+    ) {
+        if (!this.isAvailable()) {
+            return RoutePlanResultDTO.temporaryFailure();
+        }
+        if (!this.supports(mode, cityName, cityAdcode)) {
+            return RoutePlanResultDTO.unsupported();
         }
         try {
             String key = this.amapKeyPool.acquireKey();
@@ -134,8 +150,11 @@ public class AmapApi {
             Optional<RoutePlanDTO> plan = RoutePlanDTO.fromAmapResponse(response, mode);
             if (plan.isEmpty()) {
                 this.logUnusableRoute(response, mode);
+                if (this.isNoRouteResponse(response, mode)) {
+                    return RoutePlanResultDTO.noRoute();
+                }
             }
-            return plan;
+            return plan.map(RoutePlanResultDTO::success).orElseGet(RoutePlanResultDTO::temporaryFailure);
         } catch (RestClientException | IllegalArgumentException exception) {
             LOGGER.warn(
                     "高德路径规划请求失败，mode={}，cityName={}，cityAdcode={}",
@@ -144,7 +163,7 @@ public class AmapApi {
                     cityAdcode,
                     exception
             );
-            return Optional.empty();
+            return RoutePlanResultDTO.temporaryFailure();
         }
     }
 
@@ -211,6 +230,22 @@ public class AmapApi {
                 response.path("info").asText(""),
                 response.path("infocode").asText("")
         );
+    }
+
+    private boolean isNoRouteResponse(JsonNode response, SegmentTransportMode mode) {
+        if (response == null || !STATUS_SUCCESS.equals(response.path("status").asText())) {
+            return false;
+        }
+        if (this.isTransitMode(mode)) {
+            JsonNode transits = response.path("route").path("transits");
+            return transits.isArray() && transits.isEmpty();
+        }
+        JsonNode v3Paths = response.path("route").path("paths");
+        if (v3Paths.isArray()) {
+            return v3Paths.isEmpty();
+        }
+        JsonNode v4Paths = response.path("data").path("paths");
+        return v4Paths.isArray() && v4Paths.isEmpty();
     }
 
     private boolean isTransitMode(SegmentTransportMode mode) {

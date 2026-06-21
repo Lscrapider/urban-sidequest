@@ -234,35 +234,37 @@ requestFeature v1 不提供独立打分列。
 | 字段 | 角色 | 去向 |
 | --- | --- | --- |
 | `routeGoal(STEADY/CLASSIC/LOCAL/LOW_BUDGET/NIGHT/PHOTO)` | `Delta selector` | 切 W |
-| `transportProfile(WALK_ONLY/WALK_SUBWAY/WALK_BUS/WALK_TRANSIT/BIKE_SUBWAY/WALK_TAXI)` | `Delta selector + basis` | 切 W + `effectiveRadius` 上限 |
+| `transportProfile(WALK_ONLY/WALK_SUBWAY/WALK_BUS/WALK_TRANSIT/BIKE_SUBWAY/WALK_TAXI)` | `Delta selector + basis` | 切 W + `searchRadius / poiDistanceRef / walkingFatigueRef` |
 | `budgetLevel(LOW/NORMAL/FLEXIBLE)` | `Delta selector + basis` | 切 `W_budget` + `budgetCap` |
 | `interestTags(List<String>)` | `derivedFeature input` | -> `interestMatchRatio(POI.poiTagHits)`；`poiTagHits` 由语义映射表按 `typecode/keytag/rectag/name/category` 规约得到 |
 | `departureTime(Instant)` | `basis + derived input` | `routeTimeWindow` -> `routeTimeStructure(2.4)` + `closeRisk` |
 | `durationMinutes(Integer)` | `basis` | `durationBucket`(选 transport 半径档) + `routeTimeWindow` 终点 |
 | `center(GeoPointParam)` | `basis` | `distanceOrigin(AUTO_RADIUS)` |
-| `radiusMeters(Integer)` | `basis` | 收窄 `effectiveRadius`(不能放宽) |
+| `radiusMeters(Integer)` | `basis` | 覆盖 AUTO 搜索半径；打分侧只可收窄 `effectiveRadius`，不能放宽 |
 | `areaPolygonGcj02(List)` | `basis` | `distanceOrigin + polygonRadius(MANUAL_POLYGON)` |
 | `adminAdcodes(List)` | `basis + Gate input` | 区域 + 越界过滤(未来 ADMIN 模式启用后;v1 未开放) |
 | `areaMode(AUTO_RADIUS/MANUAL_POLYGON/ADMIN_DISTRICTS)` | `basis selector` | 选 `distanceOrigin` / 半径算法 |
 | `mustVisitPoints(List)` | `Gate input` | Gate 保留必去点;POI 侧已有 `isMustVisit` |
 | `routeCityName/routeCityAdcode/areaLabel` | `metadata` | 不进 X |
 
-#### effectiveRadiusMeters(distanceNorm 的分母,按 areaMode 解析)
+#### searchRadius / effectiveRadius / fatigueRef 拆分
 
-`distanceNorm` 必须同时定义 `distanceOrigin` 与 `effectiveRadiusMeters`。交通档半径是上限，
-请求半径只能收窄、不能放宽(否则 WALK_ONLY 下距离尺度会被大半径撑失真)。
+`transportProfile` 不再用同一个半径同时承担搜索范围、POI 距离归一和疲劳归一。三者拆开：
 
 ```text
-transportRadius = transportProfile.defaultRadiusMeters(durationBucket)
+searchRadiusMeters      = transportProfile.searchRadiusMeters(durationBucket)        # POI 搜索池，可达性
+poiDistanceRefMeters    = transportProfile.poiDistanceRefMeters(durationBucket)      # distanceNorm 分母，池子聚焦
+walkingFatigueRefMeters = transportProfile.walkingFatigueRefMeters(durationBucket)   # distanceFatiguePressure 分母，体感负担
 
 AUTO_RADIUS:
   distanceOrigin = request.center
-  effectiveRadiusMeters = request.radiusMeters 存在 ? min(request.radiusMeters, transportRadius) : transportRadius
+  searchRadiusMeters = request.radiusMeters 存在 ? request.radiusMeters : transportProfile.searchRadiusMeters(durationBucket)
+  effectiveRadiusMeters = request.radiusMeters 存在 ? min(request.radiusMeters, poiDistanceRefMeters) : poiDistanceRefMeters
 
 MANUAL_POLYGON:
   distanceOrigin = polygon centroid 或 bbox center
   polygonRadius  = centroid 到顶点最大距离，或 bbox 半径
-  effectiveRadiusMeters = min(polygonRadius, transportRadius)
+  effectiveRadiusMeters = min(polygonRadius, poiDistanceRefMeters)
 
 ADMIN_DISTRICTS:
   当前代码未开放，v1 不启用。
@@ -270,11 +272,23 @@ ADMIN_DISTRICTS:
   改用 区内 Gate + poolDerived(isolatedDistanceNorm / clusterConnectivity)表达空间合理性。
 ```
 
-`durationBucket`:由 `durationMinutes` 落到 transportProfile 的 short / halfDay / fullDay 三档半径。
+`durationBucket`:由 `durationMinutes` 落到 transportProfile 的 short / halfDay / fullDay 三档。
 
-> MANUAL_POLYGON 只定义搜索/Gate 边界;`effectiveRadius` 仍按交通可执行性封顶，用于距离惩罚尺度。
+> `searchRadiusMeters / poiDistanceRefMeters <= DISTANCE_NORM_CAP(1.5)` 是硬约束。超过后搜索边缘 POI 会撞 `distanceNorm` cap，外环距离惩罚被拉平，池子失去向心梯度。
+> MANUAL_POLYGON 只定义搜索/Gate 边界;`effectiveRadius` 仍按 `poiDistanceRefMeters` 封顶，用于距离惩罚尺度。
 > 因此 polygon 远端 POI 的 `distanceNorm` 可能 > 1(被距离行压低),但不一定被 Gate 掉——
-> 这是有意的:边界归边界,距离惩罚尺度归交通可执行性。
+> 这是有意的:边界归边界,距离惩罚尺度归池子聚焦。
+
+当前 v1 取值：
+
+| profile | searchRadius(S/H/F) | poiDistanceRef(S/H/F) | walkingFatigueRef(S/H/F) |
+| --- | --- | --- | --- |
+| `WALK_ONLY` | 2000 / 3500 / 5000 | 1800 / 3000 / 4500 | 1500 / 2500 / 4000 |
+| `WALK_BUS` | 3500 / 6000 / 10000 | 2800 / 4500 / 7500 | 3500 / 5000 / 8000 |
+| `WALK_SUBWAY` | 5000 / 9000 / 16000 | 3500 / 6500 / 11000 | 4000 / 6500 / 11000 |
+| `WALK_TRANSIT` | 5000 / 9000 / 16000 | 3500 / 6500 / 11000 | 4000 / 6500 / 11000 |
+| `BIKE_SUBWAY` | 6000 / 11000 / 18000 | 4500 / 8000 / 13000 | 5000 / 8000 / 13000 |
+| `WALK_TAXI` | 8000 / 14000 / 22000 | 5500 / 9500 / 15000 | 8000 / 12000 / 18000 |
 
 #### 其余角色约定
 
@@ -587,10 +601,10 @@ environment / userPreference 是空段，本节只规约 **真正进 X 的两组
 
 ```text
 budgetCap        = 150 元/人        # avgPriceNorm 分母(全局常量，v1 不做城市价差)
-effectiveRadius  = 见 2.2 解析       # distanceNorm 分母:transportProfile 档半径封顶，request 半径只能收窄
+effectiveRadius  = 见 2.2 解析       # distanceNorm 分母:poiDistanceRef 封顶，request 半径只能收窄
 transitRef       = 800 m            # nearestTransitDistanceNorm 分母(对齐交通档阈值)
 walkRef          = 1000 m           # walkingAccessibility 步行舒适上限
-fatigueRef       = 随 transportProfile # distanceFatiguePressure 分母(WALK_ONLY 最小→更易疲劳)
+fatigueRef       = walkingFatigueRefMeters # distanceFatiguePressure 分母，表达体感负担而非搜索可达性
 isolationRef     = effectiveRadius / 3 # isolatedDistanceNorm 分母
 neighborR        = 300 m            # clusterConnectivity / 邻域计数半径
 connectFull      = 5 个             # clusterConnectivity 饱和邻域数
@@ -1226,7 +1240,7 @@ personalizedExplorationMatch
 | `distanceNorm` | **−0.20** | 距离主成本 | Delta_transport/Delta_time | overflow→−0.30;WALK_ONLY 更负 |
 | `isolatedDistanceNorm` | −0.08 | 孤立远点 | Delta_transport/Delta_time | overflow→−0.12;夜间更敏感 |
 | `clusterConnectivity` | +0.03 | 可连接性(降成本,**正权**) | Delta_transport | 出行方式动态调节;WALK_ONLY 净 +0.05,WALK_SUBWAY 净 +0.03,WALK_BUS 净 +0.04,WALK_TRANSIT 净 +0.03,BIKE_SUBWAY 净 +0.02,WALK_TAXI 净 +0.01 |
-| `distanceFatiguePressure` | −0.06 | 体力压力 | Delta_transport | fatigueRef 随档,不受 transit mask |
+| `distanceFatiguePressure` | −0.06 | 体力压力 | Delta_transport | fatigueRef 单独随 profile/duration 变化,不受 transit mask |
 | `heatFatigueRisk` | −0.05 | 高温步行风险 | — | envCross;热度在 cross 值里(=heatLevel×...),不靠 Delta 调权重,不受 transit mask |
 
 #### W_budget(Delta_budget;categoryGroup 消费类门控,非消费类整组 0)

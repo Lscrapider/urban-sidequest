@@ -13,6 +13,7 @@ import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
+import com.urbansidequest.backend.handler.route.SegmentModeResolver;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import java.math.BigDecimal;
@@ -29,7 +30,8 @@ class RouteInputFeatureExtractorTest {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
                 objectMapper,
-                new PoiSemanticResolver()
+                new PoiSemanticResolver(),
+                new SegmentModeResolver()
         );
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),

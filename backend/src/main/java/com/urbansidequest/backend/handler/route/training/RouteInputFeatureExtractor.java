@@ -13,13 +13,16 @@ import com.urbansidequest.backend.domain.enums.BudgetLevel;
 import com.urbansidequest.backend.domain.enums.DurationBucket;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
+import com.urbansidequest.backend.domain.enums.RouteSegmentSource;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
+import com.urbansidequest.backend.handler.route.SegmentModeResolver;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.linear.LinearScoreConstants;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticProfile;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
+import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -68,16 +71,24 @@ public class RouteInputFeatureExtractor {
 
     private final PoiSemanticResolver poiSemanticResolver;
 
-    public RouteInputFeatureExtractor(ObjectMapper objectMapper, PoiSemanticResolver poiSemanticResolver) {
+    private final SegmentModeResolver segmentModeResolver;
+
+    public RouteInputFeatureExtractor(
+            ObjectMapper objectMapper,
+            PoiSemanticResolver poiSemanticResolver,
+            SegmentModeResolver segmentModeResolver
+    ) {
         this.objectMapper = objectMapper;
         this.poiSemanticResolver = poiSemanticResolver;
+        this.segmentModeResolver = segmentModeResolver;
     }
 
     public RouteInputFeatureSnapshot extract(CandidateRouteDTO route, RouteGenerationContext context) {
         FeatureSource source = this.toFeatureSource(route, context);
         List<Map<String, Object>> stopMatrix = this.stopMatrix(route, source);
-        List<Map<String, Object>> segmentMatrix = this.segmentMatrix(route, context, source);
-        Map<String, Object> routeDerivedVector = this.routeDerivedVector(route, context, source, stopMatrix, segmentMatrix);
+        List<SegmentFeature> segmentFeatures = this.segmentFeatures(route, context, source);
+        List<Map<String, Object>> segmentMatrix = this.segmentMatrix(route, context, segmentFeatures);
+        Map<String, Object> routeDerivedVector = this.routeDerivedVector(route, context, source, stopMatrix, segmentMatrix, segmentFeatures);
         Map<String, Object> contextCrossVector = this.contextCrossVector(context, routeDerivedVector, route, source);
         Map<String, Object> contextJson = this.contextJson(context);
         return new RouteInputFeatureSnapshot(
@@ -103,7 +114,7 @@ public class RouteInputFeatureExtractor {
 
         Map<String, PoiSemanticProfile> semanticByPoiId = new LinkedHashMap<>();
         for (RouteStopDTO stop : route.stops()) {
-            String poiId = this.poiIdFromStopId(stop.stopId(), route.routeCode());
+            String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiCandidateDTO candidate = candidatesByPoiId.get(poiId);
             semanticByPoiId.put(poiId, candidate == null
                     ? PoiSemanticProfile.empty()
@@ -118,7 +129,7 @@ public class RouteInputFeatureExtractor {
         int stopCount = stops.size();
         for (int index = 0; index < stopCount; index++) {
             RouteStopDTO stop = stops.get(index);
-            String poiId = this.poiIdFromStopId(stop.stopId(), route.routeCode());
+            String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiCandidateDTO candidate = source.candidatesByPoiId().get(poiId);
             PoiSemanticProfile semantic = source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty());
             PoiLinearTraceDTO trace = source.tracesByPoiId().get(poiId);
@@ -183,21 +194,25 @@ public class RouteInputFeatureExtractor {
         return rows;
     }
 
-    private List<Map<String, Object>> segmentMatrix(CandidateRouteDTO route, RouteGenerationContext context, FeatureSource source) {
+    private List<SegmentFeature> segmentFeatures(CandidateRouteDTO route, RouteGenerationContext context, FeatureSource source) {
         List<RouteStopDTO> stops = route.stops();
-        List<Map<String, Object>> rows = new ArrayList<>();
+        List<SegmentFeature> features = new ArrayList<>();
         if (stops.size() < 2) {
-            return rows;
+            return features;
         }
-        double routeComfortDistance = this.routeComfortDistanceMeters(context);
-        double segmentComfortDistance = Math.max(MIN_SEGMENT_COMFORT_DISTANCE_METERS, routeComfortDistance / Math.max(1, stops.size() - 1));
         for (int index = 0; index < stops.size() - 1; index++) {
             RouteStopDTO origin = stops.get(index);
             RouteStopDTO destination = stops.get(index + 1);
             RouteSegmentDTO routeSegment = this.routeSegmentAt(route, index);
             boolean missing = routeSegment == null && (origin.location() == null || destination.location() == null);
             SegmentTransportMode mode = routeSegment == null
-                    ? this.resolveSegmentMode(origin.transportToNext(), context.getGenerateParam().getTransportProfile(), source, origin, destination, route.routeCode())
+                    ? this.segmentModeResolver.resolveInitialMode(
+                            context.getGenerateParam().getTransportProfile(),
+                            origin,
+                            destination,
+                            source.candidatesByPoiId(),
+                            route.routeCode()
+                    )
                     : routeSegment.mode();
             int distanceMeters = routeSegment == null
                     ? (missing ? 0 : GeoMath.distanceMeters(origin.location(), destination.location()))
@@ -205,19 +220,41 @@ public class RouteInputFeatureExtractor {
             int durationMinutes = routeSegment == null
                     ? (missing ? 0 : this.estimateDurationMinutes(distanceMeters, mode))
                     : routeSegment.durationMinutes();
-            double distancePressure = missing ? 1d : clamp(distanceMeters / segmentComfortDistance, 0d, 2d);
+            RouteSegmentSource sourceType = routeSegment == null ? null : routeSegment.source();
+            features.add(new SegmentFeature(index, mode, distanceMeters, durationMinutes, missing, sourceType));
+        }
+        return features;
+    }
+
+    private List<Map<String, Object>> segmentMatrix(
+            CandidateRouteDTO route,
+            RouteGenerationContext context,
+            List<SegmentFeature> segmentFeatures
+    ) {
+        List<RouteStopDTO> stops = route.stops();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        if (segmentFeatures.isEmpty()) {
+            return rows;
+        }
+        double routeComfortDistance = this.routeComfortDistanceMeters(context);
+        double segmentComfortDistance = Math.max(MIN_SEGMENT_COMFORT_DISTANCE_METERS, routeComfortDistance / Math.max(1, stops.size() - 1));
+        for (SegmentFeature feature : segmentFeatures) {
+            double distancePressure = feature.missing() ? 1d : clamp(feature.distanceMeters() / segmentComfortDistance, 0d, 2d);
 
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("straightDistanceNorm", missing ? 1d : distanceMeters / segmentComfortDistance);
-            row.put("estimatedDurationNorm", missing ? 1d : durationMinutes / SEGMENT_COMFORT_DURATION_MINUTES);
-            row.put("transportMode_WALK", bit(mode == SegmentTransportMode.WALK));
-            row.put("transportMode_BIKE", bit(mode == SegmentTransportMode.BIKE));
-            row.put("transportMode_BUS", bit(mode == SegmentTransportMode.BUS));
-            row.put("transportMode_SUBWAY", bit(mode == SegmentTransportMode.SUBWAY));
-            row.put("transportMode_TAXI", bit(mode == SegmentTransportMode.TAXI));
-            row.put("isBacktracking", bit(!missing && this.isBacktracking(stops, index)));
+            row.put("straightDistanceNorm", feature.missing() ? 1d : feature.distanceMeters() / segmentComfortDistance);
+            row.put("estimatedDurationNorm", feature.missing() ? 1d : feature.durationMinutes() / SEGMENT_COMFORT_DURATION_MINUTES);
+            row.put("transportMode_WALK", bit(feature.mode() == SegmentTransportMode.WALK));
+            row.put("transportMode_BIKE", bit(feature.mode() == SegmentTransportMode.BIKE));
+            row.put("transportMode_BUS", bit(feature.mode() == SegmentTransportMode.BUS));
+            row.put("transportMode_SUBWAY", bit(feature.mode() == SegmentTransportMode.SUBWAY));
+            row.put("transportMode_TAXI", bit(feature.mode() == SegmentTransportMode.TAXI));
+            row.put("isBacktracking", bit(!feature.missing() && this.isBacktracking(stops, feature.index())));
             row.put("distancePressure", distancePressure);
-            row.put("segmentEstimateMissing", bit(missing));
+            row.put("segmentCalibrated", bit(feature.calibrated()));
+            row.put("segmentAmapFallback", bit(feature.source() == RouteSegmentSource.AMAP_FALLBACK));
+            row.put("segmentStraightLineFallback", bit(feature.source() == RouteSegmentSource.FALLBACK_STRAIGHT_LINE));
+            row.put("segmentEstimateMissing", bit(feature.missing()));
             rows.add(row);
         }
         return rows;
@@ -228,7 +265,8 @@ public class RouteInputFeatureExtractor {
             RouteGenerationContext context,
             FeatureSource source,
             List<Map<String, Object>> stopMatrix,
-            List<Map<String, Object>> segmentMatrix
+            List<Map<String, Object>> segmentMatrix,
+            List<SegmentFeature> segmentFeatures
     ) {
         List<RouteStopDTO> stops = route.stops();
         int stopCount = stops.size();
@@ -283,6 +321,22 @@ public class RouteInputFeatureExtractor {
                 .sum() / segmentCount;
         vector.put("transferSegmentRatio", segmentCount == 0 ? 0d : transferSegmentCount / (double) segmentCount);
         vector.put("transferDistancePressure", transferDistancePressure);
+        vector.put("fallbackAmapRatio", segmentCount == 0 ? 0d : segmentMatrix.stream()
+                .filter(row -> doubleValue(row.get("segmentAmapFallback")) > 0d)
+                .count() / (double) segmentCount);
+        vector.put("straightLineFallbackRatio", segmentCount == 0 ? 0d : segmentMatrix.stream()
+                .filter(row -> doubleValue(row.get("segmentStraightLineFallback")) > 0d)
+                .count() / (double) segmentCount);
+        vector.put("missingSegmentRatio", segmentCount == 0 ? 0d : segmentMatrix.stream()
+                .filter(row -> doubleValue(row.get("segmentEstimateMissing")) > 0d)
+                .count() / (double) segmentCount);
+
+        ModeDistanceStats modeDistanceStats = this.modeDistanceStats(segmentFeatures);
+        vector.put("walkDistanceRatio", modeDistanceStats.walkRatio());
+        vector.put("bikeDistanceRatio", modeDistanceStats.bikeRatio());
+        vector.put("busDistanceRatio", modeDistanceStats.busRatio());
+        vector.put("subwayDistanceRatio", modeDistanceStats.subwayRatio());
+        vector.put("taxiDistanceRatio", modeDistanceStats.taxiRatio());
 
         vector.put("interestCoverageRatio", this.interestCoverageRatio(context, route, source));
         vector.put("localStopRatio", this.avg(stopMatrix, "isLocal"));
@@ -362,6 +416,11 @@ public class RouteInputFeatureExtractor {
         double requiresDinnerFlag = doubleValue(routeDerivedVector.get("requiresDinnerFlag"));
         double lunchCoveredFlag = doubleValue(routeDerivedVector.get("lunchCoveredFlag"));
         double dinnerCoveredFlag = doubleValue(routeDerivedVector.get("dinnerCoveredFlag"));
+        double walkDistanceRatio = doubleValue(routeDerivedVector.get("walkDistanceRatio"));
+        double bikeDistanceRatio = doubleValue(routeDerivedVector.get("bikeDistanceRatio"));
+        double busDistanceRatio = doubleValue(routeDerivedVector.get("busDistanceRatio"));
+        double subwayDistanceRatio = doubleValue(routeDerivedVector.get("subwayDistanceRatio"));
+        double taxiDistanceRatio = doubleValue(routeDerivedVector.get("taxiDistanceRatio"));
 
         vector.put("profileDistanceTotalPressure", profileConfidence * distanceSensitivity * totalDistanceNorm);
         vector.put("profileDistanceMaxSegmentPressure", profileConfidence * distanceSensitivity * maxSegmentDistanceNorm);
@@ -392,6 +451,17 @@ public class RouteInputFeatureExtractor {
         vector.put("walkTransitDistancePressure", bit(TransportProfile.WALK_TRANSIT == transportProfile) * totalDistanceNorm);
         vector.put("bikeSubwayDistancePressure", bit(TransportProfile.BIKE_SUBWAY == transportProfile) * totalDistanceNorm);
         vector.put("walkTaxiBudgetPressure", bit(TransportProfile.WALK_TAXI == transportProfile) * budgetPressure);
+        vector.put(
+                "profileActualModeFitRatio",
+                this.profileActualModeFitRatio(
+                        transportProfile,
+                        walkDistanceRatio,
+                        bikeDistanceRatio,
+                        busDistanceRatio,
+                        subwayDistanceRatio,
+                        taxiDistanceRatio
+                )
+        );
 
         RouteTimeStructure timeStructure = RouteTimeStructure.fromWindow(
                 context.getGenerateParam().getDepartureTime(),
@@ -410,7 +480,7 @@ public class RouteInputFeatureExtractor {
         }
         Set<String> hits = new LinkedHashSet<>();
         for (RouteStopDTO stop : route.stops()) {
-            String poiId = this.poiIdFromStopId(stop.stopId(), route.routeCode());
+            String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiCandidateDTO candidate = source.candidatesByPoiId().get(poiId);
             if (candidate != null) {
                 hits.addAll(candidate.matchedInterestTags());
@@ -426,7 +496,7 @@ public class RouteInputFeatureExtractor {
         int missingPriceCount = 0;
         int totalCent = 0;
         for (RouteStopDTO stop : route.stops()) {
-            String poiId = this.poiIdFromStopId(stop.stopId(), route.routeCode());
+            String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiCandidateDTO candidate = source.candidatesByPoiId().get(poiId);
             PoiSemanticProfile semantic = source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty());
             boolean relevant = semantic.isConsumable() || this.isMealStop(stop, semantic) || this.isRestStop(stop);
@@ -451,10 +521,63 @@ public class RouteInputFeatureExtractor {
         );
     }
 
+    private ModeDistanceStats modeDistanceStats(List<SegmentFeature> segmentFeatures) {
+        double walkMeters = 0d;
+        double bikeMeters = 0d;
+        double busMeters = 0d;
+        double subwayMeters = 0d;
+        double taxiMeters = 0d;
+        double totalMeters = 0d;
+        for (SegmentFeature feature : segmentFeatures) {
+            if (feature.missing() || feature.distanceMeters() <= 0) {
+                continue;
+            }
+            totalMeters += feature.distanceMeters();
+            switch (feature.mode()) {
+                case WALK -> walkMeters += feature.distanceMeters();
+                case BIKE -> bikeMeters += feature.distanceMeters();
+                case BUS, TRANSIT -> busMeters += feature.distanceMeters();
+                case SUBWAY -> subwayMeters += feature.distanceMeters();
+                case TAXI, DRIVE -> taxiMeters += feature.distanceMeters();
+            }
+        }
+        if (totalMeters <= 0d) {
+            return ModeDistanceStats.zero();
+        }
+        return new ModeDistanceStats(
+                walkMeters / totalMeters,
+                bikeMeters / totalMeters,
+                busMeters / totalMeters,
+                subwayMeters / totalMeters,
+                taxiMeters / totalMeters
+        );
+    }
+
+    private double profileActualModeFitRatio(
+            TransportProfile profile,
+            double walkDistanceRatio,
+            double bikeDistanceRatio,
+            double busDistanceRatio,
+            double subwayDistanceRatio,
+            double taxiDistanceRatio
+    ) {
+        if (profile == null) {
+            return 0d;
+        }
+        return switch (profile) {
+            case WALK_ONLY -> walkDistanceRatio;
+            case WALK_BUS -> walkDistanceRatio + busDistanceRatio;
+            case WALK_SUBWAY -> walkDistanceRatio + subwayDistanceRatio;
+            case WALK_TRANSIT -> walkDistanceRatio + busDistanceRatio + subwayDistanceRatio;
+            case BIKE_SUBWAY -> walkDistanceRatio + bikeDistanceRatio + subwayDistanceRatio;
+            case WALK_TAXI -> walkDistanceRatio + taxiDistanceRatio;
+        };
+    }
+
     private List<String> categoryGroups(CandidateRouteDTO route, FeatureSource source) {
         List<String> groups = new ArrayList<>();
         for (RouteStopDTO stop : route.stops()) {
-            String poiId = this.poiIdFromStopId(stop.stopId(), route.routeCode());
+            String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiSemanticProfile semantic = source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty());
             groups.add(semantic.categoryGroups().stream()
                     .sorted()
@@ -506,44 +629,6 @@ public class RouteInputFeatureExtractor {
             }
         }
         return false;
-    }
-
-    private SegmentTransportMode resolveSegmentMode(
-            SegmentTransportMode rawMode,
-            TransportProfile profile,
-            FeatureSource source,
-            RouteStopDTO origin,
-            RouteStopDTO destination,
-            String routeCode
-    ) {
-        SegmentTransportMode mode = rawMode == null ? this.defaultMode(profile) : rawMode;
-        if (mode == SegmentTransportMode.DRIVE) {
-            return SegmentTransportMode.TAXI;
-        }
-        if (mode != SegmentTransportMode.TRANSIT) {
-            return mode;
-        }
-        if (profile == TransportProfile.WALK_BUS || profile == TransportProfile.WALK_TRANSIT) {
-            return SegmentTransportMode.BUS;
-        }
-        if (profile == TransportProfile.WALK_SUBWAY || profile == TransportProfile.BIKE_SUBWAY) {
-            return SegmentTransportMode.SUBWAY;
-        }
-        return this.defaultMode(profile);
-    }
-
-    private SegmentTransportMode defaultMode(TransportProfile profile) {
-        if (profile == null || profile.getAllowedSegmentModes().isEmpty()) {
-            return SegmentTransportMode.WALK;
-        }
-        SegmentTransportMode mode = profile.getAllowedSegmentModes().get(0);
-        if (mode == SegmentTransportMode.TRANSIT) {
-            return profile == TransportProfile.BIKE_SUBWAY ? SegmentTransportMode.SUBWAY : SegmentTransportMode.BUS;
-        }
-        if (mode == SegmentTransportMode.DRIVE) {
-            return SegmentTransportMode.TAXI;
-        }
-        return mode;
     }
 
     private int estimateDurationMinutes(int distanceMeters, SegmentTransportMode mode) {
@@ -598,7 +683,7 @@ public class RouteInputFeatureExtractor {
     private double routeComfortDistanceMeters(RouteGenerationContext context) {
         TransportProfile profile = context.getGenerateParam().getTransportProfile();
         DurationBucket bucket = DurationBucket.fromMinutes(context.getGenerateParam().getDurationMinutes());
-        return profile.defaultRadiusMeters(bucket);
+        return profile.routeDistanceRefMeters(bucket);
     }
 
     private double budgetCapCent(BudgetLevel budgetLevel) {
@@ -629,14 +714,6 @@ public class RouteInputFeatureExtractor {
             }
         }
         return false;
-    }
-
-    private String poiIdFromStopId(String stopId, String routeCode) {
-        if (stopId == null || routeCode == null) {
-            return stopId;
-        }
-        String suffix = "-" + routeCode;
-        return stopId.endsWith(suffix) ? stopId.substring(0, stopId.length() - suffix.length()) : stopId;
     }
 
     private double avg(List<Map<String, Object>> rows, String key) {
@@ -722,7 +799,7 @@ public class RouteInputFeatureExtractor {
     private Map<String, Integer> routeTagCounts(CandidateRouteDTO route, FeatureSource source) {
         Map<String, Integer> counts = new LinkedHashMap<>();
         for (RouteStopDTO stop : route.stops()) {
-            String poiId = this.poiIdFromStopId(stop.stopId(), route.routeCode());
+            String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiSemanticProfile semantic = source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty());
             for (String tag : semantic.poiTagHits()) {
                 if (!isBlank(tag)) {
@@ -781,6 +858,34 @@ public class RouteInputFeatureExtractor {
             Map<String, PoiLinearTraceDTO> tracesByPoiId,
             Map<String, PoiSemanticProfile> semanticByPoiId
     ) {
+    }
+
+    private record SegmentFeature(
+            int index,
+            SegmentTransportMode mode,
+            int distanceMeters,
+            int durationMinutes,
+            boolean missing,
+            RouteSegmentSource source
+    ) {
+
+        private boolean calibrated() {
+            return (this.source == RouteSegmentSource.AMAP_DIRECT || this.source == RouteSegmentSource.AMAP_FALLBACK)
+                    && this.distanceMeters > 0;
+        }
+    }
+
+    private record ModeDistanceStats(
+            double walkRatio,
+            double bikeRatio,
+            double busRatio,
+            double subwayRatio,
+            double taxiRatio
+    ) {
+
+        private static ModeDistanceStats zero() {
+            return new ModeDistanceStats(0d, 0d, 0d, 0d, 0d);
+        }
     }
 
     private record TransitFeature(double high, double medium, double low, double distanceNorm) {
