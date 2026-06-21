@@ -173,8 +173,6 @@ public class RouteInputFeatureExtractor {
             row.put("distanceCost", trace == null ? 0d : trace.distanceCost());
             row.put("budgetCost", trace == null ? 0d : trace.budgetCost());
             row.put("riskCost", trace == null ? 0d : trace.riskCost());
-            row.put("personalizationScore", trace == null ? 0d : trace.personalizationScore());
-            row.put("linearScore", trace == null ? 0d : trace.linearScore());
             row.put("poiLinearTraceMissing", bit(trace == null));
 
             row.put("routeRole_MUST_VISIT", bit(candidate != null && candidate.mustVisit()));
@@ -356,12 +354,9 @@ public class RouteInputFeatureExtractor {
         vector.put("budgetPressure", budgetStats.budgetPressure());
         vector.put("missingPriceRatio", budgetStats.missingPriceRatio());
 
-        vector.put("avgPoiLinearScore", this.avg(stopMatrix, "linearScore"));
-        vector.put("minPoiLinearScore", stopMatrix.stream().mapToDouble(row -> doubleValue(row.get("linearScore"))).min().orElse(0d));
         vector.put("avgInterestScore", this.avg(stopMatrix, "interestScore"));
         vector.put("avgGoalScore", this.avg(stopMatrix, "goalScore"));
         vector.put("avgQualityScore", this.avg(stopMatrix, "qualityScore"));
-        vector.put("avgPersonalizationScore", this.avg(stopMatrix, "personalizationScore"));
         vector.put("avgRiskCost", this.avg(stopMatrix, "riskCost"));
         vector.put("highRiskStopRatio", stopCount == 0 ? 0d : stopMatrix.stream()
                 .filter(row -> doubleValue(row.get("riskCost")) <= RISK_COST_THRESHOLD)
@@ -406,7 +401,6 @@ public class RouteInputFeatureExtractor {
         double transferDistancePressure = doubleValue(routeDerivedVector.get("transferDistancePressure"));
         double budgetPressure = doubleValue(routeDerivedVector.get("budgetPressure"));
         double hiddenGemStopRatio = doubleValue(routeDerivedVector.get("hiddenGemStopRatio"));
-        double avgPersonalizationScore = doubleValue(routeDerivedVector.get("avgPersonalizationScore"));
         double localStopRatio = doubleValue(routeDerivedVector.get("localStopRatio"));
         double classicStopRatio = doubleValue(routeDerivedVector.get("classicStopRatio"));
         double photoFriendlyStopRatio = doubleValue(routeDerivedVector.get("photoFriendlyStopRatio"));
@@ -427,7 +421,6 @@ public class RouteInputFeatureExtractor {
         vector.put("profileTransferPressure", profileConfidence * transferSensitivity * transferDistancePressure);
         vector.put("profileBudgetPressure", profileConfidence * budgetSensitivity * budgetPressure);
         vector.put("profileHiddenGemMatch", profileConfidence * hiddenGemAffinity * hiddenGemStopRatio);
-        vector.put("profilePersonalizationAvg", avgPersonalizationScore);
         TagAffinityStats tagAffinityStats = this.profileTagAffinityStats(profile, profileConfidence, route, source);
         vector.put("profileTagAffinityCoverage", tagAffinityStats.coverage());
         vector.put("profileTagAffinityPrecision", tagAffinityStats.precision());

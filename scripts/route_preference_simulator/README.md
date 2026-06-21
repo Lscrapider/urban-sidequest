@@ -142,7 +142,7 @@ POST /api/route-preferences/judgments
   "candidateSetId": "...",
   "judgeType": "LLM_SIM_USER",
   "judgeModel": "provider:model",
-  "judgePromptVersion": "llm-sim-user-v1",
+  "judgePromptVersion": "llm-sim-user-v2",
   "ranking": ["A", "B", "C"],
   "acceptedRouteCodes": ["A"],
   "rejectedRouteCodes": ["C"],

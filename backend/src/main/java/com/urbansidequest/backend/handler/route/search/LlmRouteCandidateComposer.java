@@ -3,21 +3,16 @@ package com.urbansidequest.backend.handler.route.search;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
-import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
-import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
 import com.urbansidequest.backend.domain.dto.llm.LlmBackendReviewHintDTO;
 import com.urbansidequest.backend.domain.dto.llm.LlmComposedRouteDTO;
 import com.urbansidequest.backend.domain.dto.llm.LlmComposedStopDTO;
 import com.urbansidequest.backend.domain.dto.llm.LlmRouteComposeResponseDTO;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
-import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
-import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -34,10 +29,6 @@ import org.springframework.stereotype.Component;
 public class LlmRouteCandidateComposer implements RouteCandidateComposer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LlmRouteCandidateComposer.class);
-
-    private static final String TRANSIT_TYPE_BUS = "BUS";
-
-    private static final String TRANSIT_TYPE_SUBWAY = "SUBWAY";
 
     private static final int DEFAULT_STAY_MINUTES = 45;
 
@@ -57,9 +48,10 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
 
     private static final String SYSTEM_PROMPT = """
             你是 Urban Sidequest 的路线编排助手。你只根据输入 JSON 工作，必须返回合法 JSON，不要输出 Markdown、解释文字或代码块。
-            你的任务是从后端筛选过的真实 poiPool 中生成 5 条高质量路线，数量固定为 5 条，不能多也不能少。
+            你的任务是从后端筛选过的真实 districts[].pois 候选池中生成 5 条高质量路线，数量固定为 5 条，不能多也不能少。
             你不能编造 POI、坐标、距离、交通耗时、评分、营业信息或图片。
-            所有路线 stop 必须引用 poiPool 中存在的 poiId。你不能删除 request.mustVisitPoiIds 中的必去点，不能改变用户选择的城市、出发时间、路线时长、交通方式和路线目标。
+            所有路线 stop 必须引用 districts[].pois 中存在的 poiId。你不能删除 request.mustVisitPoiIds 中的必去点，不能改变用户选择的城市、出发时间、路线时长、交通方式和路线目标。
+            后端已经按可步行片区提供 districts 和 districtOrder，你不能自行根据经纬度重新判断远近；跨多个片区时，所使用片区必须保持 districtOrder 的相对顺序。
             距离、交通耗时和真实路径由后端/地图服务计算，你只能决定选点、排序、停留时间、路线主题、路线说明、节点说明和 warning。
             每条路线的停留时间总和不得超过 request.durationMinutes 的 85%，因为后端还需要预留交通时间；不要为了贴近请求时长而吃满上限，跨区域路线应预留更充足交通余量。
             每个 stop 的 routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP 之一，不能输出其他枚举值。
@@ -74,21 +66,24 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
             请基于下面的真实 POI 候选池生成路线草案。
 
             目标：
-            1. 从 poiPool 中生成 5 条高质量路线，数量固定为 5 条，不能多也不能少。
+            1. 从 districts[].pois 中生成 5 条高质量路线，数量固定为 5 条，不能多也不能少。
             2. 每条路线都必须包含 request.mustVisitPoiIds 中的所有必去点。
-            3. 每条路线只能引用 poiPool 中存在的 poiId。
+            3. 每条路线只能引用 districts[].pois 中存在的 poiId。
             4. 根据 request.durationMinutes、departureTime、mealWindows 安排午饭、晚饭和咖啡/休息点。
-            5. 8 小时路线应有跨区域感，避免所有 stop 过度聚集在同一小片区。
+            5. 在 districtBudget 上限内组织片区；近片区能组好就不跨，点不够时再按 districtOrder 扩展，8 小时路线可以有跨区域感。
             6. 根据 category、role、tags、features、rating、avgPriceCent、nearestTransit 和 transitAccessibility 选择 POI。
             7. 每条路线需要有明确主题，A/B/C/D/E 路线应有差异，不要只是换顺序。
             8. 输出路线草案即可，距离、交通耗时和真实路径由后端之后调用高德路线 API 计算。
 
             硬约束：
-            - 只能引用 poiPool 中存在的 poiId。
+            - 只能引用 districts[].pois 中存在的 poiId。
             - 不能新增虚构地点。
             - 每条路线都必须包含全部 request.mustVisitPoiIds。
             - 不能返回自然语言说明，只能返回 JSON。
-            - 每条路线 stop 只能为 6 个。
+            - 每条路线 stop 最多为 6 个；如果在 districtBudget 内点不够，接受 2-5 个 stop 的短路线，不要硬塞低质量点。
+            - 每条路线使用的 district 数不得超过 districtBudget；如果包含必去点导致超过基础预算，以输入中的 districtBudget 为准。
+            - 路线跨多个 district 时，使用的 district 必须保持 districtOrder 中的相对顺序；同一 district 内的 stop 应尽量连续安排。
+            - 不要自行根据经纬度重新推断 POI 远近或片区顺序，districtOrder 是唯一片区顺序参考。
             - 每条路线停留时间总和不得超过 request.durationMinutes 的 85%%。
             - estimatedStayMinutes 必须等于该路线所有 stops.stayMinutes 的总和。
             - routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP，不能输出 SCENIC、CULTURE、FOOD、COFFEE 等 schema 外枚举。
@@ -160,7 +155,13 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
 
     private final ObjectMapper objectMapper;
 
-    public LlmRouteCandidateComposer(ChatClient.Builder chatClientBuilder, ObjectMapper objectMapper) {
+    private final LlmRoutePromptPayloadFactory promptPayloadFactory;
+
+    public LlmRouteCandidateComposer(
+            ChatClient.Builder chatClientBuilder,
+            ObjectMapper objectMapper,
+            LlmRoutePromptPayloadFactory promptPayloadFactory
+    ) {
         this.chatClient = chatClientBuilder
                 .defaultTemplateRenderer(StTemplateRenderer.builder()
                         .startDelimiterToken('<')
@@ -168,6 +169,7 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
                         .build())
                 .build();
         this.objectMapper = objectMapper;
+        this.promptPayloadFactory = promptPayloadFactory;
     }
 
     @Override
@@ -219,139 +221,12 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
 
     private String buildUserPrompt(RouteGenerationContext context) {
         try {
-            return USER_PROMPT_TEMPLATE.formatted(this.objectMapper.writeValueAsString(this.toPromptPayload(context)));
+            return USER_PROMPT_TEMPLATE.formatted(
+                    this.objectMapper.writeValueAsString(this.promptPayloadFactory.toPromptPayload(context))
+            );
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("无法序列化路线编排输入", exception);
         }
-    }
-
-    private Map<String, Object> toPromptPayload(RouteGenerationContext context) {
-        return Map.of(
-                "request", this.requestPayload(context),
-                "mealWindows", List.of(
-                        Map.of("type", "LUNCH", "start", "11:30", "end", "13:30"),
-                        Map.of("type", "DINNER", "start", "17:30", "end", "20:00")
-                ),
-                "transportPolicy", Map.of(
-                        "profile", context.getGenerateParam().getTransportProfile(),
-                        "notes", "交通设施和空间距离只作为可达性参考，真实路线由后端调用高德路线 API 计算。WALK_BUS 只参考 BUS 设施，WALK_SUBWAY/BIKE_SUBWAY 只参考 SUBWAY 设施，WALK_TRANSIT 可混合参考 BUS/SUBWAY。"
-                ),
-                "poiPool", context.getPoiCandidates().stream()
-                        .map(candidate -> this.poiPayload(candidate, context.getGenerateParam().getTransportProfile()))
-                        .toList()
-        );
-    }
-
-    private Map<String, Object> requestPayload(RouteGenerationContext context) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("areaMode", context.getGenerateParam().getAreaMode());
-        payload.put("areaLabel", context.getArea().areaLabel());
-        payload.put("routeCityName", context.getGenerateParam().getRouteCityName());
-        payload.put("routeCityAdcode", context.getGenerateParam().getRouteCityAdcode());
-        payload.put("departureTime", context.getGenerateParam().getDepartureTime());
-        payload.put("durationMinutes", context.getGenerateParam().getDurationMinutes());
-        payload.put("transportProfile", context.getGenerateParam().getTransportProfile());
-        payload.put("routeGoal", context.getGenerateParam().getRouteGoal());
-        payload.put("interestTags", context.getGenerateParam().getInterestTags());
-        payload.put("mustVisitPoiIds", context.getPoiCandidates().stream()
-                .filter(PoiCandidateDTO::mustVisit)
-                .map(PoiCandidateDTO::poiId)
-                .toList());
-        payload.put("routeCountRange", Map.of("min", MAX_ROUTE_COUNT, "max", MAX_ROUTE_COUNT));
-        return payload;
-    }
-
-    private Map<String, Object> poiPayload(PoiCandidateDTO candidate, TransportProfile transportProfile) {
-        List<TransitFacilityDTO> nearestTransit = this.relevantTransit(candidate, transportProfile);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("poiId", candidate.poiId());
-        payload.put("amapPoiId", candidate.amapPoiId());
-        payload.put("name", candidate.name());
-        payload.put("category", candidate.category());
-        payload.put("role", candidate.role());
-        payload.put("location", this.locationPayload(candidate.location()));
-        payload.put("address", candidate.address());
-        payload.put("description", candidate.description());
-        payload.put("rating", candidate.amapRating());
-        payload.put("avgPriceCent", candidate.avgPriceCent());
-        payload.put("tags", candidate.matchedInterestTags());
-        payload.put("features", this.featuresPayload(candidate));
-        payload.put("nearestTransit", nearestTransit);
-        payload.put("transitAccessibility", this.transitAccessibility(candidate, nearestTransit));
-        payload.put("mustVisit", candidate.mustVisit());
-        payload.put("reasonSeed", candidate.reasonSeed());
-        return payload;
-    }
-
-    private List<String> featuresPayload(PoiCandidateDTO candidate) {
-        Set<String> features = new LinkedHashSet<>(candidate.matchedInterestTags());
-        if (candidate.keytag() != null && !candidate.keytag().isBlank()) {
-            features.add(candidate.keytag());
-        }
-        if (candidate.rectag() != null && !candidate.rectag().isBlank()) {
-            features.add(candidate.rectag());
-        }
-        if (candidate.rawType() != null && !candidate.rawType().isBlank()) {
-            features.add(candidate.rawType());
-        }
-        if (candidate.mustVisit()) {
-            features.add("用户指定必去点");
-        }
-        return List.copyOf(features);
-    }
-
-    private Map<String, Object> locationPayload(GeoPointDTO location) {
-        return Map.of(
-                "longitudeGcj02", location.longitudeGcj02(),
-                "latitudeGcj02", location.latitudeGcj02()
-        );
-    }
-
-    private List<TransitFacilityDTO> relevantTransit(PoiCandidateDTO candidate, TransportProfile transportProfile) {
-        List<TransitFacilityDTO> nearestTransit = candidate.nearestTransit();
-        if (nearestTransit == null || nearestTransit.isEmpty()) {
-            return List.of();
-        }
-        String requiredType = this.requiredTransitType(transportProfile);
-        if (requiredType == null) {
-            return nearestTransit;
-        }
-        return nearestTransit.stream()
-                .filter(transit -> requiredType.equals(transit.type()))
-                .toList();
-    }
-
-    private String transitAccessibility(PoiCandidateDTO candidate, List<TransitFacilityDTO> nearestTransit) {
-        if (nearestTransit == null || nearestTransit.isEmpty()) {
-            return this.transportUnavailable(candidate) ? "UNKNOWN" : "LOW";
-        }
-        Integer nearestMeters = nearestTransit.get(0).distanceMeters();
-        if (nearestMeters == null) {
-            return this.transportUnavailable(candidate) ? "UNKNOWN" : "LOW";
-        }
-        if (nearestMeters <= 300) {
-            return "HIGH";
-        }
-        if (nearestMeters <= 800) {
-            return "MEDIUM";
-        }
-        return "LOW";
-    }
-
-    private boolean transportUnavailable(PoiCandidateDTO candidate) {
-        return candidate.transitLookupStatus() == TransitLookupStatus.UNAVAILABLE
-                || candidate.transitLookupStatus() == TransitLookupStatus.FAILED;
-    }
-
-    private String requiredTransitType(TransportProfile transportProfile) {
-        if (transportProfile == null) {
-            return null;
-        }
-        return switch (transportProfile) {
-            case WALK_BUS -> TRANSIT_TYPE_BUS;
-            case WALK_SUBWAY, BIKE_SUBWAY -> TRANSIT_TYPE_SUBWAY;
-            case WALK_ONLY, WALK_TRANSIT, WALK_TAXI -> null;
-        };
     }
 
     private List<CandidateRouteDTO> toCandidateRoutes(RouteGenerationContext context, String responseContent) {

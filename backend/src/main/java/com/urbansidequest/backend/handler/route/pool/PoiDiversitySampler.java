@@ -2,6 +2,7 @@ package com.urbansidequest.backend.handler.route.pool;
 
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.PoiLinearScoreDTO;
+import com.urbansidequest.backend.domain.enums.DurationBucket;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
@@ -36,6 +37,10 @@ public class PoiDiversitySampler {
 
     private static final double BACKUP_PENALTY = 0.18d;
 
+    private static final double MID_DISTANCE_RATIO = 0.45d;
+
+    private static final double CLEAN_QUALITY_MIN = 0.20d;
+
     public List<RankedPoi> sample(RouteGenerationContext context, List<RankedPoi> rankedCandidates, int maxCount) {
         if (rankedCandidates.size() <= maxCount) {
             return rankedCandidates;
@@ -49,6 +54,7 @@ public class PoiDiversitySampler {
         this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.MEAL, MIN_MEAL_COUNT);
         this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.REST, MIN_REST_COUNT);
         this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.ANCHOR, MIN_ANCHOR_COUNT);
+        this.addMidFarReserved(context, selected, rankedCandidates, maxCount, maxCategoryCount, maxBackupCount);
 
         List<RankedPoi> pool = new ArrayList<>(rankedCandidates);
         while (selected.size() < maxCount) {
@@ -91,6 +97,89 @@ public class PoiDiversitySampler {
                 added++;
             }
         }
+    }
+
+    private void addMidFarReserved(
+            RouteGenerationContext context,
+            Map<String, RankedPoi> selected,
+            List<RankedPoi> rankedCandidates,
+            int maxCount,
+            int maxCategoryCount,
+            int maxBackupCount
+    ) {
+        int quota = this.midFarQuota(context);
+        if (quota <= 0 || selected.size() >= maxCount) {
+            return;
+        }
+        int selectedMidFarCount = (int) this.countSelected(selected, candidate -> this.isMidFarCandidate(context, candidate));
+        if (selectedMidFarCount >= quota) {
+            return;
+        }
+        double cleanQualityThreshold = Math.max(CLEAN_QUALITY_MIN, this.cleanQualityP50(rankedCandidates));
+        rankedCandidates.stream()
+                .filter(candidate -> !selected.containsKey(candidate.candidate().poiId()))
+                .filter(candidate -> this.isMidFarCandidate(context, candidate))
+                .filter(candidate -> this.cleanQuality(candidate) >= cleanQualityThreshold)
+                .sorted(Comparator.comparingDouble(this::cleanQuality).reversed())
+                .forEach(candidate -> {
+                    if (selected.size() >= maxCount) {
+                        return;
+                    }
+                    int currentMidFarCount = (int) this.countSelected(selected, item -> this.isMidFarCandidate(context, item));
+                    if (currentMidFarCount >= quota) {
+                        return;
+                    }
+                    if (this.canSelect(candidate, selected, maxCategoryCount, maxBackupCount)) {
+                        selected.putIfAbsent(candidate.candidate().poiId(), candidate);
+                    }
+                });
+    }
+
+    private int midFarQuota(RouteGenerationContext context) {
+        TransportProfile profile = context.getGenerateParam().getTransportProfile();
+        if (profile == null) {
+            return 0;
+        }
+        return switch (profile) {
+            case WALK_ONLY -> 0;
+            case WALK_BUS -> 4;
+            case WALK_SUBWAY, WALK_TRANSIT -> 6;
+            case BIKE_SUBWAY, WALK_TAXI -> 8;
+        };
+    }
+
+    private boolean isMidFarCandidate(RouteGenerationContext context, RankedPoi candidate) {
+        TransportProfile profile = context.getGenerateParam().getTransportProfile();
+        if (profile == null) {
+            return false;
+        }
+        DurationBucket bucket = DurationBucket.fromMinutes(context.getGenerateParam().getDurationMinutes());
+        double poiDistanceRef = profile.poiDistanceRefMeters(bucket);
+        if (poiDistanceRef <= 0d) {
+            return false;
+        }
+        return candidate.score().distanceMeters() / poiDistanceRef >= MID_DISTANCE_RATIO;
+    }
+
+    private double cleanQualityP50(List<RankedPoi> rankedCandidates) {
+        if (rankedCandidates.isEmpty()) {
+            return 0d;
+        }
+        List<Double> cleanQualities = rankedCandidates.stream()
+                .map(this::cleanQuality)
+                .sorted()
+                .toList();
+        return cleanQualities.get(cleanQualities.size() / 2);
+    }
+
+    private double cleanQuality(RankedPoi candidate) {
+        PoiLinearScoreDTO score = candidate.score();
+        return score.interestScore()
+                + score.goalScore()
+                + score.qualityScore()
+                + score.transportScore()
+                + score.budgetCost()
+                + score.riskCost();
     }
 
     private RankedPoi pickNext(

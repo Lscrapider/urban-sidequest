@@ -184,56 +184,43 @@ public class PoiLinearScorer {
         };
     }
 
-    // —— Delta_transport（§7.2）：调 W_transport + W_distance 敏感度 ——
+    // —— Delta_transport（§7.2）：只调 W_distance 距离惩罚敏感度 ——
     private static double transportDelta(TransportProfile transport, String target) {
         if (transport == null) {
             return 0d;
         }
         return switch (transport) {
             case WALK_ONLY -> switch (target) {
-                case "high" -> -0.05d;
-                case "low" -> 0.03d;
-                case "transitDist" -> 0.05d;
-                case "walkAcc" -> 0.03d;
                 case "distanceNorm" -> -0.06d;
                 case "isolated" -> -0.03d;
                 case "fatigue" -> -0.03d;
-                case "cluster" -> 0.02d;
                 default -> 0d;
             };
             case WALK_SUBWAY -> switch (target) {
-                case "high" -> 0.03d;
-                case "transitDist" -> -0.02d;
-                case "distanceNorm" -> 0.02d;
+                case "distanceNorm" -> 0.04d;
+                case "isolated", "fatigue" -> 0.02d;
                 default -> 0d;
             };
             case WALK_BUS -> switch (target) {
-                case "transitDist" -> -0.01d;
-                case "distanceNorm" -> 0.01d;
-                case "cluster" -> 0.01d;
+                case "distanceNorm" -> 0.02d;
+                case "isolated", "fatigue" -> 0.01d;
                 default -> 0d;
             };
             case WALK_TRANSIT -> switch (target) {
-                case "high" -> 0.01d;
-                case "transitDist" -> -0.01d;
-                case "distanceNorm" -> 0.01d;
+                case "distanceNorm" -> 0.04d;
+                case "isolated", "fatigue" -> 0.02d;
                 default -> 0d;
             };
             case BIKE_SUBWAY -> switch (target) {
-                case "high" -> 0.02d;
-                case "distanceNorm" -> 0.04d;
-                case "fatigue" -> 0.02d;
-                case "cluster" -> -0.01d;
+                case "distanceNorm" -> 0.06d;
+                case "isolated" -> 0.03d;
+                case "fatigue" -> 0.04d;
                 default -> 0d;
             };
             case WALK_TAXI -> switch (target) {
-                case "high" -> -0.03d;
-                case "low" -> 0.03d;
-                case "transitDist" -> 0.05d;
-                case "distanceNorm" -> 0.05d;
-                case "isolated" -> 0.04d;
-                case "fatigue" -> 0.03d;
-                case "cluster" -> -0.02d;
+                case "distanceNorm" -> 0.08d;
+                case "isolated" -> 0.06d;
+                case "fatigue" -> 0.05d;
                 default -> 0d;
             };
         };

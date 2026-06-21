@@ -2,6 +2,7 @@ package com.urbansidequest.backend.handler.route.step;
 
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.handler.route.constraint.ConstraintResult;
+import com.urbansidequest.backend.handler.route.constraint.DistrictBudgetConstraint;
 import com.urbansidequest.backend.handler.route.constraint.RouteConstraint;
 import com.urbansidequest.backend.handler.route.scoring.RouteGoalScoringStrategy;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
@@ -45,6 +46,12 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
                 .toList();
 
         if (selectedRoutes.isEmpty()) {
+            CandidateRouteDTO fallbackRoute = this.fallbackOverDistrictBudgetRoute(context, scoringStrategy);
+            if (fallbackRoute != null) {
+                context.addWarning(fallbackRoute.routeCode() + " 触发跨片区预算兜底：所有候选路线均超过片区预算");
+                context.setSelectedRoutes(List.of(fallbackRoute));
+                return;
+            }
             throw new IllegalStateException("没有候选路线通过约束，已跳过本批路线偏好训练数据");
         }
         context.setSelectedRoutes(selectedRoutes);
@@ -59,6 +66,49 @@ public class ScoreAndSelectRoutesStep implements RouteGenerationStep {
             }
         }
         return true;
+    }
+
+    private CandidateRouteDTO fallbackOverDistrictBudgetRoute(
+            RouteGenerationContext context,
+            RouteGoalScoringStrategy scoringStrategy
+    ) {
+        DistrictBudgetConstraint districtBudgetConstraint = this.districtBudgetConstraint();
+        if (districtBudgetConstraint == null) {
+            return null;
+        }
+        boolean allRoutesPassOtherConstraints = context.getCandidateRoutes().stream()
+                .allMatch(route -> this.passesNonDistrictBudgetConstraints(route, context));
+        if (!allRoutesPassOtherConstraints) {
+            return null;
+        }
+        return context.getCandidateRoutes().stream()
+                .filter(route -> districtBudgetConstraint.overBudgetCount(route, context) > 0)
+                .min(Comparator
+                        .comparingInt((CandidateRouteDTO route) -> districtBudgetConstraint.overBudgetCount(route, context))
+                        .thenComparingInt(route -> route.stops().size())
+                        .thenComparingInt(CandidateRouteDTO::totalDistanceMeters))
+                .map(route -> this.withScore(route, scoringStrategy.score(route, context)))
+                .orElse(null);
+    }
+
+    private boolean passesNonDistrictBudgetConstraints(CandidateRouteDTO route, RouteGenerationContext context) {
+        for (RouteConstraint constraint : this.routeConstraints) {
+            if (constraint instanceof DistrictBudgetConstraint) {
+                continue;
+            }
+            if (!constraint.check(route, context).passed()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private DistrictBudgetConstraint districtBudgetConstraint() {
+        return this.routeConstraints.stream()
+                .filter(DistrictBudgetConstraint.class::isInstance)
+                .map(DistrictBudgetConstraint.class::cast)
+                .findFirst()
+                .orElse(null);
     }
 
     private CandidateRouteDTO withScore(CandidateRouteDTO route, int score) {

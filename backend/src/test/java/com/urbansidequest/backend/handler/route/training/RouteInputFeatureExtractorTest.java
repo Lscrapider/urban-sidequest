@@ -51,6 +51,47 @@ class RouteInputFeatureExtractorTest {
                 .containsEntry("missingRequiredMealFlag", 1.0);
     }
 
+    @Test
+    void omitsDistancePollutedPoiScoreFieldsFromTrainingInput() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
+                objectMapper,
+                new PoiSemanticResolver(),
+                new SegmentModeResolver()
+        );
+        RouteGenerationContext context = new RouteGenerationContext(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                baseParam()
+        );
+
+        RouteInputFeatureSnapshot snapshot = extractor.extract(routeWithoutMealStops(), context);
+        List<Map<String, Object>> stopMatrix = objectMapper.readValue(
+                snapshot.stopMatrixJson(),
+                new TypeReference<>() {
+                }
+        );
+        Map<String, Object> routeDerivedVector = objectMapper.readValue(
+                snapshot.routeDerivedVectorJson(),
+                new TypeReference<>() {
+                }
+        );
+        Map<String, Object> contextCrossVector = objectMapper.readValue(
+                snapshot.contextCrossVectorJson(),
+                new TypeReference<>() {
+                }
+        );
+
+        assertThat(stopMatrix).allSatisfy(row -> assertThat(row)
+                .doesNotContainKeys("linearScore", "personalizationScore"));
+        assertThat(routeDerivedVector).doesNotContainKeys(
+                "avgPoiLinearScore",
+                "minPoiLinearScore",
+                "avgPersonalizationScore"
+        );
+        assertThat(contextCrossVector).doesNotContainKey("profilePersonalizationAvg");
+    }
+
     private static RouteGenerateParam baseParam() {
         RouteGenerateParam param = new RouteGenerateParam();
         param.setAreaMode(AreaMode.AUTO_RADIUS);

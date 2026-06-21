@@ -68,7 +68,7 @@ def build_user_prompt(route_request: dict, route_generation: dict, persona: dict
     return "\n\n".join(
         [
             "【本次请求】\n" + render_request(route_request),
-            "【你的偏好】\n" + render_persona(persona),
+            "【你的偏好】\n" + render_persona(persona, route_request),
             "【候选路线】\n" + render_routes(routes),
             "【输出硬性约束】\n" + render_output_constraints(route_codes),
             "请只输出 JSON，字段为 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence。"
@@ -88,9 +88,11 @@ def render_request(route_request: dict) -> str:
     )
 
 
-def render_persona(persona: dict | None) -> str:
+def render_persona(persona: dict | None, route_request: dict | None = None) -> str:
+    route_request = route_request or {}
     if not persona:
-        return "你按本次请求中的目标、预算、交通方式和兴趣标签做选择。"
+        distance_attitude = render_distance_attitude(route_request.get("transportProfile"), 0.5)
+        return "你按本次请求中的目标、预算、交通方式和兴趣标签做选择。" + distance_attitude
     lines = []
     budget = float(persona.get("budgetSensitivity") or 0)
     distance = float(persona.get("distanceSensitivity") or 0)
@@ -117,7 +119,58 @@ def render_persona(persona: dict | None) -> str:
     ]
     if liked:
         lines.append("尤其喜欢：" + "、".join(liked) + "。")
+    distance_attitude = render_distance_attitude(route_request.get("transportProfile"), distance)
+    if distance_attitude:
+        lines.append(distance_attitude)
     return "".join(lines) if lines else "你按本次请求中的目标、预算、交通方式和兴趣标签做选择。"
+
+
+def render_distance_attitude(transport_profile: str | None, distance_sensitivity: float) -> str:
+    band = distance_sensitivity_band(distance_sensitivity)
+    if transport_profile == "WALK_ONLY":
+        if band == "LOW":
+            return "WALK_ONLY 仍按步行舒适判断：可以接受适度多走，但不能把明显长距离步行当成可接受。"
+        if band == "HIGH":
+            return "你选择 WALK_ONLY 且对距离敏感：优先选择近、顺、少走路的路线，长距离步行应明显降分。"
+        return "你选择 WALK_ONLY：路线应保持近、顺、步行负担可控。"
+
+    if transport_profile == "WALK_BUS":
+        if band == "HIGH":
+            return "你选择 WALK_BUS 但对距离敏感：公交只能支持轻度展开，过长步行、绕路和折返仍是负面。"
+        if band == "LOW":
+            return "你选择 WALK_BUS 且对距离不敏感：可以接受轻度展开，但远一点必须换来更好的 POI 或更贴合兴趣。"
+        return "你选择 WALK_BUS：可以接受比纯步行稍远，但不要为了远而远。"
+
+    if transport_profile in {"WALK_SUBWAY", "WALK_TRANSIT"}:
+        if band == "HIGH":
+            return f"你选择 {transport_profile} 但对距离敏感：跨片区可以接受，但只有明显更好的 POI 才值得多走或多坐车。"
+        if band == "LOW":
+            return f"你选择 {transport_profile} 且对距离不敏感：可以接受合理跨片区，前提是远一点换来明显更好的 POI。"
+        return f"你选择 {transport_profile}：中等跨片区是合理的，但路线仍要顺。"
+
+    if transport_profile == "BIKE_SUBWAY":
+        if band == "HIGH":
+            return "你选择 BIKE_SUBWAY 但对距离敏感：骑行接驳能缓解距离，但长跳和折返仍应降分。"
+        if band == "LOW":
+            return "你选择 BIKE_SUBWAY 且对距离不敏感：可以接受更分散的片区，前提是 POI 质量和兴趣命中明显更好。"
+        return "你选择 BIKE_SUBWAY：可以接受中高程度展开，但片区衔接要自然。"
+
+    if transport_profile == "WALK_TAXI":
+        if band == "HIGH":
+            return "即使选择 WALK_TAXI，你仍对距离敏感：远距离必须换来显著更好的兴趣命中或地点质量，否则应把远距离、跨片区折返视为负面。"
+        if band == "LOW":
+            return "你选择 WALK_TAXI 且对距离不敏感：可以接受远一点换来明显更好的 POI，但不要因为能打车就接受无意义绕路或来回跳片区。"
+        return "你选择 WALK_TAXI：可以为了明显更好的 POI 接受更远，但不接受没有质量收益的绕路和折返。"
+
+    return ""
+
+
+def distance_sensitivity_band(distance_sensitivity: float) -> str:
+    if distance_sensitivity < 0.35:
+        return "LOW"
+    if distance_sensitivity > 0.65:
+        return "HIGH"
+    return "MEDIUM"
 
 
 def render_routes(routes: list[dict]) -> str:
