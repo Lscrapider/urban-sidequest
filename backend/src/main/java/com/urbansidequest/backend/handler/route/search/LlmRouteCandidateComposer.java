@@ -47,80 +47,76 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
     );
 
     private static final String SYSTEM_PROMPT = """
-            你是 Urban Sidequest 的路线编排助手。你只根据输入 JSON 工作，必须返回合法 JSON，不要输出 Markdown、解释文字或代码块。
-            你的任务是从后端筛选过的真实 districts[].pois 候选池中生成 5 条高质量路线，数量固定为 5 条，不能多也不能少。
-            你不能编造 POI、坐标、距离、交通耗时、评分、营业信息或图片。
-            所有路线 stop 必须引用 districts[].pois 中存在的 poiId。你不能删除 request.mustVisitPoiIds 中的必去点，不能改变用户选择的城市、出发时间、路线时长、交通方式和路线目标。
-            路线编排必须参考输入中的 request.routeGoalPolicy 调整选点、排序、主题和节点理由；若它与硬约束冲突，硬约束优先。
-            后端已经按可步行片区提供 districts 和 districtOrder，你不能自行根据经纬度重新判断远近；跨多个片区时，所使用片区必须保持 districtOrder 的相对顺序。
-            距离、交通耗时和真实路径由后端/地图服务计算，你只能决定选点、排序、停留时间、路线主题、路线说明、节点说明和 warning。
-            每条路线的停留时间总和不得超过 request.durationMinutes 的 85%，因为后端还需要预留交通时间；不要为了贴近请求时长而吃满上限，跨区域路线应预留更充足交通余量。
-            每个 stop 的 routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP 之一，不能输出其他枚举值。
-            每个 stop 的 stayMinutes 必须符合用户 prompt 中的停留时间参考；必去点也要按其 primaryCategoryGroup 选择合理停留时间，除非 route.warnings 明确说明原因。
-            只有 request.mealWindows 中包含的午餐或晚餐需要安排；不要只因为 departureTime + durationMinutes 覆盖饭点窗口就新增饭点需求。
-            午餐或晚餐 stop 的 routeRole 必须是 MEAL，并且必须优先选择 mealCandidate=true 或 routeRoleHints 含 MEAL 的 POI；满足其一即视为可用于午餐/晚餐，不要求 poiTagHits 额外包含餐点标签，也不要因此产生 warning。
-            只有候选池没有合适 FOOD/MEAL 时才允许使用其他 POI，并必须在 route.warnings 中说明。每个 MEAL stop 必须填写 intendedMealWindow：LUNCH、DINNER 或 OTHER。
-            WALK_TAXI 可以跨区域，但应按空间相近性组织 stop 顺序，避免远距离片区之间来回跳转；如果路线存在明显折返风险，必须在 backendReviewHints 中说明。
-            若无法满足某个需求，返回 warnings 说明原因，不要编造地点。
+            你是 Urban Sidequest 的路线编排助手。
+            你只能根据输入 JSON 中的真实 districts[].pois 候选池生成路线，不能编造 POI、坐标、距离、交通耗时、评分、营业信息或图片。
+            你必须保持用户请求不变：城市、出发时间、路线时长、交通方式、路线目标、必去点和用户选择都不能更改。
+            你只能决定选点、排序、停留时间、路线主题、路线说明、节点理由、warnings 和 backendReviewHints；真实路径、距离和交通耗时由后端/地图服务计算。
+            request.routeGoalPolicy 是偏好；USER prompt 中的硬约束优先于 routeGoalPolicy。
+            如果无法满足某个需求，只能在 warnings 或 backendReviewHints 中说明原因，不能编造地点或数据。
+            你必须返回合法 JSON，不要输出 Markdown、解释文字或代码块。
             """;
 
     private static final String USER_PROMPT_TEMPLATE = """
             请基于下面的真实 POI 候选池生成路线草案。
 
-            目标：
-            1. 从 districts[].pois 中生成 5 条高质量路线，数量固定为 5 条，不能多也不能少。
-            2. 根据 request.mealWindows 安排午饭、晚饭，并根据 request.durationMinutes 与候选语义安排咖啡/休息点。
+            == 任务 ==
+            1. 从 districts[].pois 中选点，生成恰好 5 条彼此有实质差异的路线（主题、选点不同，不能只换顺序）。
+            2. 按 request.mealWindows 安排正餐；按 request.durationMinutes 与候选语义安排咖啡/休息点。
             3. 在 districtBudget 上限内组织片区；近片区能组好就不跨，点不够时再按 districtOrder 扩展。
-            4. 根据 request.routeGoalPolicy 调整选点、排序、主题和节点理由。
-            5. 根据 primaryCategoryGroup、poiTagHits、semanticTags、rating、avgPriceCent、nearestTransit、transitAccessibility 选择 POI；用 mealCandidate/restCandidate/localExperienceCandidate 判断该点能否承担饭点/休息/本地体验，用 routeRoleHints 作为角色建议。
-            6. 每条路线需要有明确主题，A/B/C/D/E 路线应有差异，不要只是换顺序。
-            7. 输出路线草案即可，距离、交通耗时和真实路径由后端之后调用高德路线 API 计算。
+            4. 用 request.routeGoalPolicy 调整选点、排序、主题与节点理由（倾向，不得违反硬约束）。
+            5. 选点依据：primaryCategoryGroup、poiTagHits、semanticTags、rating、avgPriceCent、nearestTransit、transitAccessibility；用 mealCandidate / restCandidate / localExperienceCandidate 判断能否承担饭点/休息/本地体验；routeRoleHints 仅为角色建议。
 
-            硬约束：
-            - 只能引用 districts[].pois 中存在的 poiId。
-            - 不能新增虚构地点。
-            - 每条路线都必须包含全部 request.mustVisitPoiIds。
-            - 不能返回自然语言说明，只能返回 JSON。
-            - 每条路线 stop 最多为 6 个；如果在 districtBudget 内点不够，接受 2-5 个 stop 的短路线，不要硬塞低质量点。
-            - 每条路线使用的 district 数不得超过 districtBudget；如果包含必去点导致超过基础预算，以输入中的 districtBudget 为准。
-            - 路线跨多个 district 时，使用的 district 必须保持 districtOrder 中的相对顺序；同一 district 内的 stop 应尽量连续安排。
-            - 不要自行根据经纬度重新推断 POI 远近或片区顺序，districtOrder 是唯一片区顺序参考。
-            - 每条路线停留时间总和不得超过 request.durationMinutes 的 85%%。
-            - estimatedStayMinutes 必须等于该路线所有 stops.stayMinutes 的总和。
-            - routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP，不能输出 SCENIC、CULTURE、FOOD、COFFEE 等 schema 外枚举。
-            - 每个 stop 的 stayMinutes 必须符合下面“停留时间参考”；如果确实需要超出参考范围，必须在 route.warnings 中说明原因。
-            - 如果 request.mealWindows 包含 LUNCH，优先安排午餐 FOOD/MEAL stop；如果 request.mealWindows 包含 DINNER，优先安排晚餐 FOOD/MEAL stop。
-            - 如果 request.mealWindows 不包含某个饭点，不要仅因为路线时间覆盖该窗口而硬塞餐厅。
-            - 如果 stop 用作午餐或晚餐，routeRole 必须是 MEAL，且应优先选择 mealCandidate=true 或 routeRoleHints 含 MEAL 的 POI。
-            - mealCandidate=true 的 POI 可以直接作为午餐/晚餐候选，不要求 poiTagHits 额外包含 LUNCH 或 DINNER，不要因此产生 warning。
-            - 休息/补给点优先选择 restCandidate=true；本地体验点优先选择 localExperienceCandidate=true 或 semanticTags 含 LOCAL。
-            - 每个 routeRole=MEAL 的 stop 必须填写 intendedMealWindow，取值为 LUNCH、DINNER 或 OTHER。
-            - 如果没有安排 request.mealWindows 中的某个饭点，必须在 route.warnings 中说明原因。
-            - WALK_TAXI 模式下可以跨区域，但路线顺序应符合城市移动常识。
-            - 避免远距离片区之间来回折返。路线可以跨多个片区，但同一片区内的 stop 应尽量连续安排；如果必须折返，backendReviewHints 必须说明原因。
-            - nearestTransit 只能作为可达性参考，不要把它当作已经计算好的路线耗时。
+            == 硬约束 ==
+            POI 与引用：
+            - 只能引用 districts[].pois 中存在的 poiId，不能新增虚构地点。
+            - 每条路线必须包含全部 request.mustVisitPoiIds。
+            - 只能返回 JSON，不能返回自然语言说明。
+            - 无法满足某个需求时，在 warnings 说明原因，不要编造地点。
 
-            路线多样性：
-            - 不要连续安排 3 个及以上高度同质的 POI。
-            - 高度同质包括：相同 typecode、相同 rawType，或明显属于同一种体验的地点，例如连续多个广场、连续多个公园、连续多个商场。
-            - 最多允许连续 2 个高度同质 POI；候选池充足时，应在同质 POI 之间穿插不同 primaryCategoryGroup、routeRole 或体验类型的 stop。
-            - 不要为了凑满 stop 数量而硬塞低质量、重复体验的 POI；短一点但更有变化的路线优于长但单调的路线。
-            - 如果候选池确实高度同质，无法避免连续同质 POI，必须在 route.warnings 中说明“候选池同质，路线多样性受限”。
+            片区与空间：
+            - 每条路线使用的 district 数不得超过 districtBudget；若因必去点导致超出，以输入的 districtBudget 为准。
+            - 跨多个 district 时必须保持 districtOrder 的相对顺序，同一 district 内的 stop 尽量连续；不要自行用经纬度推断远近或片区顺序，districtOrder 是唯一顺序参考。
+            - 避免远距离片区之间来回折返；若必须折返，在 backendReviewHints 说明。WALK_TAXI 可跨区域，但顺序须符合城市移动常识。
+            - nearestTransit 仅作可达性参考，不是已算好的交通耗时。
 
-            饭点判断：
-            - request.mealWindows 是用户最终选择的正餐饭点集合，只能包含 LUNCH / DINNER。
-            - mealWindowDefinitions 只用于理解 LUNCH / DINNER 的时间含义。
-            - 不要根据 departureTime 和 durationMinutes 自行推断额外饭点。
+            时间与停留：
+            - 每条路线所有 stops.stayMinutes 之和不得超过 request.durationMinutes 的 85%%（需预留交通时间，跨区域路线留更多余量，不要为贴近时长吃满上限）。
+            - estimatedStayMinutes 必须等于该路线所有 stops.stayMinutes 之和。
+            - 每个 stop 的 stayMinutes 须符合下方「停留时间参考」；确需超出时在 warnings 说明原因。
+
+            stop 数量：
+            - 每条路线 stop 最多 8 个；具体数量按 durationMinutes、交通方式、饭点需求、停留价值、districtBudget 和节奏综合决定。
+            - 可接受较短路线，但不得为省事默认走短；条件允许时应让内容完整。短路线每个 stop 都要有明确价值，长路线须保证节奏不赶、交通可控、体验不碎片化。
+            - 不要为凑满 stop 数量而加入低质量、重复或绕路的 POI。
+
+            饭点（只以 request.mealWindows 为准）：
+            - 只安排 request.mealWindows 中包含的饭点；不要因为 departureTime + durationMinutes 覆盖某窗口就额外新增饭点。
+            - mealWindows 含 LUNCH 或 DINNER 时，对应饭点须安排一个 routeRole=MEAL 的 stop，优先选 mealCandidate=true 或 routeRoleHints 含 MEAL 的 POI（满足其一即可作正餐，不要求 poiTagHits 含餐点标签，也不要因此产生 warning）。
+            - 仅当候选池没有合适 mealCandidate 时，才用其他 POI 充当并在 warnings 说明。
+            - 每个 routeRole=MEAL 的 stop 必须填写 intendedMealWindow，取值为 LUNCH 或 DINNER，且与其所属饭点一致；非正餐 stop 的 intendedMealWindow 填 null。
+            - 未能安排 mealWindows 中的某个饭点时，必须在 warnings 说明原因。
+
+            路线多样性（高优先级质量约束，优先于 routeGoalPolicy 的主题偏好；候选池高度同质时允许例外并写 warning）：
+            - 同质 POI（相同 typecode、相同 rawType，或明显属于同一种体验，如连续广场、连续公园、连续商场）原则上最多连续 2 个，避免连续 3 个及以上。
+            - 候选充足时，应在同质 POI 之间穿插不同 primaryCategoryGroup、routeRole 或体验类型的 stop。
+            - 仅当候选池本身高度同质、无法避免时，才允许连续同质，并在 warnings 说明“候选池同质，路线多样性受限”。
+
+            角色与枚举：
+            - routeRole 只能取 MUST_VISIT、ANCHOR、MEAL、REST、LOCAL、PHOTO、BACKUP，不能输出 SCENIC、CULTURE、FOOD、COFFEE 等枚举外值。
+            - 休息/补给点优先选 restCandidate=true；本地体验点优先选 localExperienceCandidate=true 或 semanticTags 含 LOCAL。
+
+            == 参考 ==
+            饭点定义：request.mealWindows 只含 LUNCH / DINNER；mealWindowDefinitions 仅用于理解 LUNCH / DINNER 的时间含义，不据此自行推断额外饭点。
 
             停留时间参考：
-            - 文化展馆/博物馆：60-90 分钟。
-            - 公园/景点：45-75 分钟。
-            - 正餐餐饮：45-75 分钟。
-            - 咖啡/休息：20-40 分钟。
-            - 拍照点/轻量打卡：15-30 分钟。
-            - 普通街区体验：30-60 分钟。
+            - 文化展馆/博物馆：60-90 分钟
+            - 公园/景点：45-75 分钟
+            - 正餐餐饮：45-75 分钟
+            - 咖啡/休息：20-40 分钟
+            - 拍照点/轻量打卡：15-30 分钟
+            - 普通街区体验：30-60 分钟
 
-            请按以下 JSON Schema 返回：
+            == 输出 JSON Schema ==
             {
               "overallVerdict": "COMPOSED | PARTIAL | FAILED",
               "globalWarnings": ["string"],
@@ -139,7 +135,7 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
                       "order": 1,
                       "poiId": "string",
                       "routeRole": "MUST_VISIT | ANCHOR | MEAL | REST | LOCAL | PHOTO | BACKUP",
-                      "intendedMealWindow": "LUNCH | DINNER | OTHER | null",
+                      "intendedMealWindow": "LUNCH | DINNER | null",
                       "stayMinutes": 0,
                       "description": "string",
                       "reason": "string"
