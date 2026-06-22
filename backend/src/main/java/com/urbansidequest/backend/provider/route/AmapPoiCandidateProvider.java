@@ -12,11 +12,12 @@ import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.enums.AreaMode;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
-import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.param.MustVisitPointParam;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
+import com.urbansidequest.backend.domain.po.PoiRecallPlanConfigPO;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.manage.AmapPoiSearchCacheManage;
+import com.urbansidequest.backend.manage.PoiRecallPlanConfigManage;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -26,14 +27,15 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -60,8 +62,6 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
 
     private static final int POI_CACHE_TTL_HOURS = 24;
 
-    private static final ZoneId ROUTE_ZONE = ZoneId.of("Asia/Shanghai");
-
     private static final LocalTime LUNCH_START = LocalTime.of(11, 30);
 
     private static final LocalTime LUNCH_END = LocalTime.of(13, 30);
@@ -74,19 +74,49 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
 
     private static final int HALF_DAY_ROUTE_MINUTES = 360;
 
+    private static final String PLAN_TYPE_INTEREST_TAG = "INTEREST_TAG";
+
+    private static final String PLAN_TYPE_MEAL_LUNCH = "MEAL_LUNCH";
+
+    private static final String PLAN_TYPE_MEAL_DINNER = "MEAL_DINNER";
+
+    private static final String PLAN_TYPE_REST_NEED = "REST_NEED";
+
+    private static final String PLAN_TYPE_BACKUP = "BACKUP";
+
+    private static final String PLAN_TYPE_DEFAULT = "DEFAULT";
+
+    private static final Set<String> EVENT_KEYWORD_PLAN_CODES = Set.of(
+            "INTEREST_EVENT_CONCERT",
+            "INTEREST_EVENT_LIVE",
+            "INTEREST_EVENT_MUSIC_FESTIVAL"
+    );
+
+    private static final List<String> EVENT_KEYWORDS = List.of("演唱会", "live", "音乐节");
+
+    private static final Map<String, List<String>> EVENT_KEYWORD_TYPES = Map.of(
+            "演唱会", List.of("220104", "080101", "080105"),
+            "live", List.of("220104", "080101", "080105"),
+            "音乐节", List.of("220104")
+    );
+
     private final AmapApi amapApi;
 
     private final AmapPoiSearchCacheManage amapPoiSearchCacheManage;
+
+    private final PoiRecallPlanConfigManage poiRecallPlanConfigManage;
 
     private final ObjectMapper objectMapper;
 
     public AmapPoiCandidateProvider(
             AmapApi amapApi,
             AmapPoiSearchCacheManage amapPoiSearchCacheManage,
+            PoiRecallPlanConfigManage poiRecallPlanConfigManage,
             ObjectMapper objectMapper
     ) {
         this.amapApi = amapApi;
         this.amapPoiSearchCacheManage = amapPoiSearchCacheManage;
+        this.poiRecallPlanConfigManage = poiRecallPlanConfigManage;
         this.objectMapper = objectMapper;
     }
 
@@ -166,72 +196,193 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
         List<PoiSearchPlan> plans = new ArrayList<>();
         List<InterestTagCatalogPO> tags = context.getInterestTags();
         if (tags.isEmpty()) {
-            tags = List.of(
-                    this.defaultTag("SCENIC", "景点", "SCENIC", List.of("110000"), List.of("景点", "公园")),
-                    this.defaultTag("MUSEUM", "展馆", "CULTURE", List.of("140000"), List.of("博物馆", "展览馆", "美术馆"))
-            );
+            plans.addAll(this.configuredPlans(context, this.poiRecallPlanConfigManage.findEnabledPlansByPlanTypes(List.of(PLAN_TYPE_DEFAULT)), false));
+            if (plans.isEmpty()) {
+                plans.addAll(this.legacyPlansForTags(context, List.of(
+                        this.defaultTag("SCENIC", "景点", "SCENIC",
+                                List.of("110101", "110102", "110103", "110104", "110105", "110201", "110202", "110203", "110204", "110208", "110209", "110210"),
+                                List.of("景点", "公园")),
+                        this.defaultTag("MUSEUM", "展馆", "CULTURE",
+                                List.of("140100", "140200", "140300", "140400", "140600", "140700", "110204"),
+                                List.of("博物馆", "展览馆", "美术馆"))
+                )));
+            }
+        } else {
+            List<String> tagCodes = tags.stream().map(InterestTagCatalogPO::getTagCode).toList();
+            plans.addAll(this.configuredPlans(context, this.poiRecallPlanConfigManage.findEnabledInterestPlansByTagCodes(tagCodes), true));
+            if (plans.isEmpty()) {
+                plans.addAll(this.legacyPlansForTags(context, tags));
+            }
         }
 
+        boolean hasFoodInterest = this.hasFoodInterest(context.getGenerateParam().getInterestTags());
+        List<String> systemPlanTypes = new ArrayList<>();
+        if (!hasFoodInterest && this.overlaps(context, LUNCH_START, LUNCH_END)) {
+            systemPlanTypes.add(PLAN_TYPE_MEAL_LUNCH);
+        }
+        if (!hasFoodInterest && this.overlaps(context, DINNER_START, DINNER_END)) {
+            systemPlanTypes.add(PLAN_TYPE_MEAL_DINNER);
+        }
+        if (this.resolveRestNeed(context) > 0) {
+            systemPlanTypes.add(PLAN_TYPE_REST_NEED);
+        }
+        systemPlanTypes.add(PLAN_TYPE_BACKUP);
+        List<PoiSearchPlan> systemPlans = this.configuredPlans(
+                context,
+                this.poiRecallPlanConfigManage.findEnabledPlansByPlanTypes(systemPlanTypes),
+                false
+        );
+        if (systemPlans.isEmpty()) {
+            systemPlans = this.defaultSystemPlans(context, hasFoodInterest);
+        }
+        plans.addAll(systemPlans);
+        return plans;
+    }
+
+    private List<PoiSearchPlan> configuredPlans(
+            RouteGenerationContext context,
+            List<PoiRecallPlanConfigPO> configs,
+            boolean explicitInterestPlan
+    ) {
+        if (configs == null || configs.isEmpty()) {
+            return List.of();
+        }
+        List<PoiSearchPlan> plans = new ArrayList<>();
+        for (PoiRecallPlanConfigPO config : configs) {
+            plans.addAll(this.configuredPlansForConfig(context, config, explicitInterestPlan));
+        }
+        return plans;
+    }
+
+    private List<PoiSearchPlan> configuredPlansForConfig(
+            RouteGenerationContext context,
+            PoiRecallPlanConfigPO config,
+            boolean explicitInterestPlan
+    ) {
+        List<String> types = this.normalize(config.getAmapTypeCodes());
+        if (types.isEmpty()) {
+            return List.of();
+        }
+        List<String> keywords = this.allowedKeywordsForConfig(config);
+        List<String> matchedInterestTags = explicitInterestPlan
+                ? this.normalize(config.getIntentTags())
+                : List.of();
+        if (!keywords.isEmpty()) {
+            return keywords.stream()
+                    .map(keyword -> new PoiSearchPlan(
+                            this.queryFor(context, types, List.of(keyword)),
+                            this.resolveRoleHint(config.getRoleHint()),
+                            StrUtil.blankToDefault(config.getCategoryGroupHint(), "UNKNOWN"),
+                            matchedInterestTags,
+                            StrUtil.blankToDefault(config.getReasonSeed(), "召回计划：" + config.getPlanCode())
+                    ))
+                    .toList();
+        }
+        return List.of(new PoiSearchPlan(
+                this.queryFor(context, types, List.of()),
+                this.resolveRoleHint(config.getRoleHint()),
+                StrUtil.blankToDefault(config.getCategoryGroupHint(), "UNKNOWN"),
+                matchedInterestTags,
+                StrUtil.blankToDefault(config.getReasonSeed(), "召回计划：" + config.getPlanCode())
+        ));
+    }
+
+    private List<PoiSearchPlan> legacyPlansForTags(RouteGenerationContext context, List<InterestTagCatalogPO> tags) {
+        List<PoiSearchPlan> plans = new ArrayList<>();
         for (InterestTagCatalogPO tag : tags) {
-            plans.add(new PoiSearchPlan(
-                    this.queryFor(context, tag.getAmapTypeCodes(), tag.getAmapKeywords()),
-                    this.resolveInterestRole(tag),
-                    tag.getCategoryGroup(),
-                    List.of(tag.getTagCode()),
-                    "匹配兴趣：" + tag.getDisplayName()
-            ));
+            List<String> types = this.normalize(tag.getAmapTypeCodes());
+            if (!types.isEmpty()) {
+                plans.add(new PoiSearchPlan(
+                        this.queryFor(context, types, List.of()),
+                        this.resolveInterestRole(tag),
+                        StrUtil.blankToDefault(tag.getCategoryGroup(), "UNKNOWN"),
+                        List.of(tag.getTagCode()),
+                        "匹配兴趣：" + tag.getDisplayName()
+                ));
+            }
+            if ("EVENT".equals(tag.getTagCode())) {
+                for (String keyword : EVENT_KEYWORDS) {
+                    plans.add(new PoiSearchPlan(
+                            this.queryFor(
+                                    context,
+                                    EVENT_KEYWORD_TYPES.getOrDefault(keyword, List.of("220104")),
+                                    List.of(keyword)
+                            ),
+                            this.resolveInterestRole(tag),
+                            StrUtil.blankToDefault(tag.getCategoryGroup(), "UNKNOWN"),
+                            List.of(tag.getTagCode()),
+                            "匹配兴趣：" + tag.getDisplayName()
+                    ));
+                }
+            }
         }
+        return plans;
+    }
 
-        if (this.overlaps(context, LUNCH_START, LUNCH_END)) {
-            plans.add(new PoiSearchPlan(
-                    this.queryFor(context, List.of("050000"), List.of("午餐", "本地菜", "小吃")),
-                PoiCandidateRole.MEAL,
-                "FOOD",
-                List.of("FOOD"),
-                "路线覆盖午餐时间，适合作为用餐停留"
+    private List<String> allowedKeywordsForConfig(PoiRecallPlanConfigPO config) {
+        if (config == null || !EVENT_KEYWORD_PLAN_CODES.contains(config.getPlanCode())) {
+            return List.of();
+        }
+        Set<String> allowedKeywords = new LinkedHashSet<>(EVENT_KEYWORDS);
+        return this.normalizeKeywords(config.getAmapKeywords()).stream()
+                .filter(allowedKeywords::contains)
+                .toList();
+    }
+
+    private List<PoiSearchPlan> typeOnlySystemPlan(
+            RouteGenerationContext context,
+            List<String> types,
+            PoiCandidateRole role,
+            String category,
+            String reasonSeed
+    ) {
+        List<String> normalizedTypes = this.normalize(types);
+        if (normalizedTypes.isEmpty()) {
+            return List.of();
+        }
+        return List.of(new PoiSearchPlan(
+                this.queryFor(context, normalizedTypes, List.of()),
+                role,
+                category,
+                List.of(),
+                reasonSeed
+        ));
+    }
+
+    private List<PoiSearchPlan> defaultSystemPlans(RouteGenerationContext context, boolean hasFoodInterest) {
+        List<PoiSearchPlan> plans = new ArrayList<>();
+        if (!hasFoodInterest && this.overlaps(context, LUNCH_START, LUNCH_END)) {
+            plans.addAll(this.typeOnlySystemPlan(
+                    context,
+                    List.of("050100", "050200", "050300"),
+                    PoiCandidateRole.MEAL,
+                    "FOOD",
+                    "路线覆盖午餐时间，适合作为用餐停留"
             ));
         }
-        if (this.overlaps(context, DINNER_START, DINNER_END)) {
-            plans.add(new PoiSearchPlan(
-                    this.queryFor(context, List.of("050000"), List.of("晚餐", "本地菜", "小吃")),
-                PoiCandidateRole.MEAL,
-                "FOOD",
-                List.of("FOOD"),
-                "路线覆盖晚餐时间，适合作为用餐停留"
+        if (!hasFoodInterest && this.overlaps(context, DINNER_START, DINNER_END)) {
+            plans.addAll(this.typeOnlySystemPlan(
+                    context,
+                    List.of("050100", "050200", "050300"),
+                    PoiCandidateRole.MEAL,
+                    "FOOD",
+                    "路线覆盖晚餐时间，适合作为用餐停留"
             ));
         }
         if (this.resolveRestNeed(context) > 0) {
-            plans.add(new PoiSearchPlan(
-                    this.queryFor(context, List.of("050500"), List.of("咖啡", "甜品")),
-                PoiCandidateRole.REST,
-                "REST",
-                List.of("COFFEE"),
-                "适合控制路线节奏，中途休息补给"
+            plans.addAll(this.typeOnlySystemPlan(
+                    context,
+                    List.of("050500", "050600", "050700", "050800", "050900"),
+                    PoiCandidateRole.REST,
+                    "DRINK",
+                    "适合控制路线节奏，中途休息补给"
             ));
         }
-        if (RouteGoal.LOCAL == context.getGenerateParam().getRouteGoal()) {
-            plans.add(new PoiSearchPlan(
-                    this.queryFor(context, List.of("050000", "061000"), List.of("老街", "夜市", "小吃街")),
-                    PoiCandidateRole.LOCAL,
-                    "LOCAL",
-                    List.of("LOCAL"),
-                    "匹配路线目标：地道烟火"
-            ));
-        }
-        if (RouteGoal.NIGHT == context.getGenerateParam().getRouteGoal()) {
-            plans.add(new PoiSearchPlan(
-                    this.queryFor(context, List.of("110000", "050000"), List.of("夜景", "夜市")),
-                    PoiCandidateRole.ANCHOR,
-                    "NIGHT",
-                    List.of("NIGHT"),
-                    "匹配路线目标：夜游"
-            ));
-        }
-        plans.add(new PoiSearchPlan(
-                this.queryFor(context, List.of("110000"), List.of("公园", "景点")),
+        plans.addAll(this.typeOnlySystemPlan(
+                context,
+                List.of("110101", "110102", "110103", "110104", "110105", "110201", "110202", "110203", "110204", "110208", "110209", "110210"),
                 PoiCandidateRole.BACKUP,
                 "SCENIC",
-                List.of("SCENIC"),
                 "用于异常替换和路线兜底"
         ));
         return plans;
@@ -394,7 +545,52 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
 
     private void putCandidate(Map<String, PoiCandidateDTO> candidates, PoiCandidateDTO candidate) {
         String key = StrUtil.blankToDefault(candidate.amapPoiId(), candidate.poiId());
-        candidates.putIfAbsent(key, candidate);
+        PoiCandidateDTO existing = candidates.get(key);
+        if (existing == null) {
+            candidates.put(key, candidate);
+            return;
+        }
+        candidates.put(key, this.mergeCandidate(existing, candidate));
+    }
+
+    private PoiCandidateDTO mergeCandidate(PoiCandidateDTO existing, PoiCandidateDTO candidate) {
+        Set<String> matchedInterestTags = new LinkedHashSet<>(existing.matchedInterestTags());
+        matchedInterestTags.addAll(candidate.matchedInterestTags());
+        PoiCandidateRole role = this.roleWeight(candidate.role()) < this.roleWeight(existing.role())
+                ? candidate.role()
+                : existing.role();
+        String category = "UNKNOWN".equals(existing.category()) ? candidate.category() : existing.category();
+        String reasonSeed = existing.reasonSeed();
+        if (StrUtil.isNotBlank(candidate.reasonSeed()) && !candidate.reasonSeed().equals(existing.reasonSeed())) {
+            reasonSeed = reasonSeed + "；" + candidate.reasonSeed();
+        }
+        return new PoiCandidateDTO(
+                existing.poiId(),
+                existing.amapPoiId(),
+                existing.name(),
+                category,
+                role,
+                existing.location(),
+                existing.address(),
+                existing.description(),
+                existing.amapRating(),
+                existing.avgPriceCent(),
+                List.copyOf(matchedInterestTags),
+                existing.imageUrls(),
+                existing.imageCount(),
+                existing.rawType(),
+                existing.typecode(),
+                existing.opentimeToday(),
+                existing.opentimeWeek(),
+                existing.keytag(),
+                existing.rectag(),
+                existing.amapDistanceMeters(),
+                existing.nearestTransit(),
+                existing.transitAccessibility(),
+                existing.transitLookupStatus(),
+                existing.mustVisit(),
+                reasonSeed
+        );
     }
 
     private List<PoiCandidateDTO> limitCandidates(List<PoiCandidateDTO> candidates) {
@@ -430,6 +626,24 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
         return PoiCandidateRole.ANCHOR;
     }
 
+    private PoiCandidateRole resolveRoleHint(String roleHint) {
+        if (StrUtil.isBlank(roleHint)) {
+            return PoiCandidateRole.ANCHOR;
+        }
+        try {
+            return PoiCandidateRole.valueOf(roleHint);
+        } catch (IllegalArgumentException exception) {
+            return PoiCandidateRole.ANCHOR;
+        }
+    }
+
+    private boolean hasFoodInterest(List<String> interestTags) {
+        if (interestTags == null || interestTags.isEmpty()) {
+            return false;
+        }
+        return interestTags.stream().anyMatch(tag -> "FOOD".equals(tag) || tag.startsWith("FOOD_"));
+    }
+
     private int resolveRestNeed(RouteGenerationContext context) {
         int durationMinutes = context.getGenerateParam().getDurationMinutes();
         if (durationMinutes <= SHORT_ROUTE_MINUTES) {
@@ -442,7 +656,7 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
     }
 
     private boolean overlaps(RouteGenerationContext context, LocalTime windowStart, LocalTime windowEnd) {
-        LocalDateTime routeStart = LocalDateTime.ofInstant(context.getGenerateParam().getDepartureTime(), ROUTE_ZONE);
+        LocalDateTime routeStart = context.getGenerateParam().getDepartureTime();
         LocalDateTime routeEnd = routeStart.plusMinutes(context.getGenerateParam().getDurationMinutes());
         LocalDate cursorDate = routeStart.toLocalDate();
         while (!cursorDate.isAfter(routeEnd.toLocalDate())) {
@@ -474,7 +688,16 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
         if (StrUtil.isBlank(cost) || "[]".equals(cost)) {
             return null;
         }
-        return new BigDecimal(cost).multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue();
+        try {
+            BigDecimal yuan = new BigDecimal(cost);
+            if (yuan.signum() < 0) {
+                return null;
+            }
+            // 高德 cost 口径为元；内部 avgPriceCent 统一保存为分。缺失或非法值保持 null，不等同于免费。
+            return yuan.multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).intValue();
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private Integer parseInteger(String value) {
@@ -545,6 +768,20 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
             return List.of();
         }
         return values.stream()
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    private List<String> normalizeKeywords(List<String> values) {
+        if (CollUtil.isEmpty(values)) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(StrUtil::isNotBlank)
+                .flatMap(value -> java.util.Arrays.stream(value.split("[,，|]")))
+                .map(String::trim)
                 .filter(StrUtil::isNotBlank)
                 .distinct()
                 .sorted()

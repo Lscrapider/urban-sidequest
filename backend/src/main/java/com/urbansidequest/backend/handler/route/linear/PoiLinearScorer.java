@@ -163,6 +163,11 @@ public class PoiLinearScorer {
                 case "hidden" -> 0.01d;
                 default -> 0d;
             };
+            case QUIET -> switch (target) {
+                case "quiet" -> 0.07d;
+                case "nightFriendly" -> -0.02d;
+                default -> 0d;
+            };
             case CLASSIC -> switch (target) {
                 case "classic" -> 0.06d;
                 case "hidden" -> -0.02d;

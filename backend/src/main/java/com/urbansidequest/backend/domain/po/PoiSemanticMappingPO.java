@@ -23,11 +23,17 @@ public class PoiSemanticMappingPO {
     @TableField(value = "amap_type_prefixes", select = false)
     private List<String> amapTypePrefixes;
 
+    @TableField(value = "exact_typecodes", select = false)
+    private List<String> exactTypecodes;
+
     @TableField(value = "keyword_patterns", select = false)
     private List<String> keywordPatterns;
 
     @TableField("category_group")
     private String categoryGroup;
+
+    @TableField("primary_category_group")
+    private String primaryCategoryGroup;
 
     @TableField(value = "interest_tag_codes", select = false)
     private List<String> interestTagCodes;
@@ -50,8 +56,20 @@ public class PoiSemanticMappingPO {
     @TableField("is_hidden_gem")
     private Boolean hiddenGem;
 
+    @TableField("meal_candidate")
+    private Boolean mealCandidate;
+
+    @TableField("rest_candidate")
+    private Boolean restCandidate;
+
+    @TableField("local_experience_candidate")
+    private Boolean localExperienceCandidate;
+
     @TableField("weather_sensitivity")
     private BigDecimal weatherSensitivity;
+
+    @TableField("mapping_version")
+    private String mappingVersion;
 
     private Integer priority;
 
@@ -95,6 +113,14 @@ public class PoiSemanticMappingPO {
         this.amapTypePrefixes = amapTypePrefixes;
     }
 
+    public List<String> getExactTypecodes() {
+        return this.exactTypecodes;
+    }
+
+    public void setExactTypecodes(List<String> exactTypecodes) {
+        this.exactTypecodes = exactTypecodes;
+    }
+
     public List<String> getKeywordPatterns() {
         return this.keywordPatterns;
     }
@@ -109,6 +135,14 @@ public class PoiSemanticMappingPO {
 
     public void setCategoryGroup(String categoryGroup) {
         this.categoryGroup = categoryGroup;
+    }
+
+    public String getPrimaryCategoryGroup() {
+        return this.primaryCategoryGroup;
+    }
+
+    public void setPrimaryCategoryGroup(String primaryCategoryGroup) {
+        this.primaryCategoryGroup = primaryCategoryGroup;
     }
 
     public List<String> getInterestTagCodes() {
@@ -167,12 +201,44 @@ public class PoiSemanticMappingPO {
         this.hiddenGem = hiddenGem;
     }
 
+    public Boolean getMealCandidate() {
+        return this.mealCandidate;
+    }
+
+    public void setMealCandidate(Boolean mealCandidate) {
+        this.mealCandidate = mealCandidate;
+    }
+
+    public Boolean getRestCandidate() {
+        return this.restCandidate;
+    }
+
+    public void setRestCandidate(Boolean restCandidate) {
+        this.restCandidate = restCandidate;
+    }
+
+    public Boolean getLocalExperienceCandidate() {
+        return this.localExperienceCandidate;
+    }
+
+    public void setLocalExperienceCandidate(Boolean localExperienceCandidate) {
+        this.localExperienceCandidate = localExperienceCandidate;
+    }
+
     public BigDecimal getWeatherSensitivity() {
         return this.weatherSensitivity;
     }
 
     public void setWeatherSensitivity(BigDecimal weatherSensitivity) {
         this.weatherSensitivity = weatherSensitivity;
+    }
+
+    public String getMappingVersion() {
+        return this.mappingVersion;
+    }
+
+    public void setMappingVersion(String mappingVersion) {
+        this.mappingVersion = mappingVersion;
     }
 
     public Integer getPriority() {

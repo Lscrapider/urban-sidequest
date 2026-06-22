@@ -13,7 +13,7 @@ import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -54,7 +54,7 @@ class RouteDistrictPlannerTest {
         RouteGenerateParam param = new RouteGenerateParam();
         param.setAreaMode(AreaMode.AUTO_RADIUS);
         param.setCenter(center());
-        param.setDepartureTime(Instant.parse("2026-06-17T02:00:00Z"));
+        param.setDepartureTime(LocalDateTime.of(2026, 6, 17, 10, 0));
         param.setDurationMinutes(durationMinutes);
         param.setTransportProfile(transportProfile);
         param.setRouteGoal(RouteGoal.STEADY);

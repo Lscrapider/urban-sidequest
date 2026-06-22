@@ -164,6 +164,7 @@ public class BeamSearchRouteSelector {
     private int routeGoalScore(List<PoiCandidateDTO> stops, RouteGenerationContext context) {
         return switch (context.getGenerateParam().getRouteGoal()) {
             case STEADY -> -this.totalRoleCount(stops, PoiCandidateRole.BACKUP) * 80;
+            case QUIET -> 0;
             case CLASSIC -> this.categoryCount(stops, "SCENIC") * 180 + this.categoryCount(stops, "CULTURE") * 120;
             case LOCAL -> this.totalRoleCount(stops, PoiCandidateRole.LOCAL) * 220;
             case LOW_BUDGET -> stops.stream().anyMatch(stop -> stop.avgPriceCent() == null) ? 120 : 0;
@@ -459,10 +460,7 @@ public class BeamSearchRouteSelector {
             int endHour,
             int endMinute
     ) {
-        java.time.LocalDateTime routeStart = java.time.LocalDateTime.ofInstant(
-                context.getGenerateParam().getDepartureTime(),
-                java.time.ZoneId.of("Asia/Shanghai")
-        );
+        java.time.LocalDateTime routeStart = context.getGenerateParam().getDepartureTime();
         java.time.LocalDateTime routeEnd = routeStart.plusMinutes(context.getGenerateParam().getDurationMinutes());
         java.time.LocalDate cursorDate = routeStart.toLocalDate();
         while (!cursorDate.isAfter(routeEnd.toLocalDate())) {

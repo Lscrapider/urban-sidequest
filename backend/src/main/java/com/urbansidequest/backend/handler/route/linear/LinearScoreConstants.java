@@ -63,8 +63,8 @@ public final class LinearScoreConstants {
     /** ratingNorm 分母：高德评分满分。 */
     public static final double RATING_FULL = 5d;
 
-    // —— W_budget 门控的消费类大类组（非消费类整组 0，避免误判景点预算）——
-    public static final Set<String> CONSUMABLE_CATEGORY_GROUPS = Set.of("FOOD", "REST", "SHOPPING", "NIGHT");
+    // —— W_budget 门控的消费类内部业态组（非消费类整组 0，避免误判景点预算）——
+    public static final Set<String> CONSUMABLE_CATEGORY_GROUPS = Set.of("FOOD", "DRINK", "SHOPPING", "ENTERTAINMENT");
 
     // —— linearScore 安全 clamp（§8）——
     public static final double SCORE_MIN = -1.0d;

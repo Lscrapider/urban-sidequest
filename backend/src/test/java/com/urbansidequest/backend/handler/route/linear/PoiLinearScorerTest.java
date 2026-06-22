@@ -199,6 +199,7 @@ class PoiLinearScorerTest {
                 0d,
                 true,
                 UserPreferenceProfileDTO.empty(),
+                List.of(),
                 0d
         );
     }

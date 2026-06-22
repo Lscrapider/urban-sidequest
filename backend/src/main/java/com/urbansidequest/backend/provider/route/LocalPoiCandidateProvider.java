@@ -3,7 +3,6 @@ package com.urbansidequest.backend.provider.route;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
-import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.param.MustVisitPointParam;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
@@ -12,15 +11,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
 public class LocalPoiCandidateProvider implements PoiCandidateProvider {
-
-    private static final ZoneId ROUTE_ZONE = ZoneId.of("Asia/Shanghai");
 
     private static final LocalTime LUNCH_START = LocalTime.of(11, 30);
 
@@ -117,36 +113,6 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                     "用于保证路线有核心游览内容"
             ));
         }
-        if (RouteGoal.LOCAL == context.getGenerateParam().getRouteGoal()) {
-            candidates.add(this.buildCandidate(
-                    "seed-local-street",
-                    "本地生活街巷",
-                    "LOCAL",
-                    PoiCandidateRole.LOCAL,
-                    center,
-                    720,
-                    -540,
-                    BigDecimal.valueOf(4.3),
-                    5200,
-                    List.of("LOCAL"),
-                    "匹配路线目标：地道烟火"
-            ));
-        }
-        if (RouteGoal.NIGHT == context.getGenerateParam().getRouteGoal()) {
-            candidates.add(this.buildCandidate(
-                    "seed-night-view",
-                    "城市夜景平台",
-                    "NIGHT",
-                    PoiCandidateRole.ANCHOR,
-                    center,
-                    -820,
-                    620,
-                    BigDecimal.valueOf(4.4),
-                    null,
-                    List.of("NIGHT"),
-                    "匹配路线目标：夜游"
-            ));
-        }
         return candidates;
     }
 
@@ -187,7 +153,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
             candidates.add(this.buildCandidate(
                     "seed-rest",
                     "街角咖啡馆",
-                    "REST",
+                    "DRINK",
                     PoiCandidateRole.REST,
                     center,
                     -650,
@@ -220,7 +186,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                 this.buildCandidate(
                         "seed-backup-rest",
                         "安静咖啡馆",
-                        "REST",
+                        "DRINK",
                         PoiCandidateRole.BACKUP,
                         center,
                         -980,
@@ -292,7 +258,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
         }
         if ("FOOD".equals(category)) {
             parts.add("适合补充午晚餐安排");
-        } else if ("REST".equals(category)) {
+        } else if ("DRINK".equals(category)) {
             parts.add("适合短暂停留和补给");
         }
         return String.join("，", parts) + "。";
@@ -306,7 +272,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
     }
 
     private boolean overlaps(RouteGenerationContext context, LocalTime windowStart, LocalTime windowEnd) {
-        LocalDateTime routeStart = LocalDateTime.ofInstant(context.getGenerateParam().getDepartureTime(), ROUTE_ZONE);
+        LocalDateTime routeStart = context.getGenerateParam().getDepartureTime();
         LocalDateTime routeEnd = routeStart.plusMinutes(context.getGenerateParam().getDurationMinutes());
         LocalDate cursorDate = routeStart.toLocalDate();
         while (!cursorDate.isAfter(routeEnd.toLocalDate())) {

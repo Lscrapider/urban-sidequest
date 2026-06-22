@@ -8,6 +8,7 @@ import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
 import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
+import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import java.math.BigDecimal;
 import java.util.List;
@@ -100,8 +101,7 @@ public class PoiLinearFeatureExtractor {
         // —— W_goal 时间窗 cross ——
         RouteTimeStructure timeStructure = env.routeTimeStructure();
         double nightMatch = timeStructure.isNight() && semantic.nightFriendly() ? 1d : 0d;
-        boolean mealCandidate = semantic.isMealCandidate()
-                || candidate.role() == com.urbansidequest.backend.domain.enums.PoiCandidateRole.MEAL;
+        boolean mealCandidate = semantic.isMealCandidate();
         double mealMatch = timeStructure.isMealWindow() && mealCandidate ? 1d : 0d;
 
         // —— W_interest ——
@@ -113,7 +113,13 @@ public class PoiLinearFeatureExtractor {
         // —— W_personalization（× profileConfidence；guard 见各项）——
         UserPreferenceProfileDTO profile = env.profile();
         double confidence = profile.profileConfidence() == null ? 0d : profile.profileConfidence().doubleValue();
-        double userInterestAffinity = this.userInterestAffinity(profile, semantic.poiTagHits(), env.affinityNorm(), confidence);
+        double userInterestAffinity = this.userInterestAffinity(
+                profile,
+                semantic.poiTagHits(),
+                env.interestTagCatalog(),
+                env.affinityNorm(),
+                confidence
+        );
         double personalizedDistancePressure = confidence * doubleOf(profile.distanceSensitivity()) * distanceNorm;
         double personalizedBudgetPressure = confidence * doubleOf(profile.budgetSensitivity()) * avgPriceNorm;
         double personalizedTransitPressure = transportOn
@@ -319,6 +325,7 @@ public class PoiLinearFeatureExtractor {
     private double userInterestAffinity(
             UserPreferenceProfileDTO profile,
             Set<String> poiTagHits,
+            List<InterestTagCatalogPO> interestTagCatalog,
             double affinityNorm,
             double confidence
     ) {
@@ -326,8 +333,12 @@ public class PoiLinearFeatureExtractor {
             return 0d;
         }
         double sum = 0d;
-        for (String tag : poiTagHits) {
-            BigDecimal affinity = profile.tagAffinities().get(tag);
+        java.util.Map<String, BigDecimal> affinities = InterestTagNormalizer.normalizedAffinities(
+                profile.tagAffinities(),
+                interestTagCatalog
+        );
+        for (String tag : InterestTagNormalizer.normalizedPoiTags(poiTagHits, interestTagCatalog)) {
+            BigDecimal affinity = affinities.get(tag);
             if (affinity != null) {
                 sum += affinity.doubleValue();
             }

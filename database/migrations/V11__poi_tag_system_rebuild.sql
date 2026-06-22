@@ -1,0 +1,359 @@
+-- 标签体系重构：拆分用户标签目录、POI 召回计划与 POI 自身语义。
+
+ALTER TABLE interest_tag_catalog
+    ADD COLUMN IF NOT EXISTS parent_tag_code VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS tag_level VARCHAR(32) NOT NULL DEFAULT 'ROOT',
+    ADD COLUMN IF NOT EXISTS selectable BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS max_sibling_selected INTEGER,
+    ADD COLUMN IF NOT EXISTS rollup_tag_codes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    ADD COLUMN IF NOT EXISTS catalog_version VARCHAR(32) NOT NULL DEFAULT 'tag_catalog_v1_1';
+
+CREATE INDEX IF NOT EXISTS idx_interest_tag_catalog_parent ON interest_tag_catalog (parent_tag_code);
+CREATE INDEX IF NOT EXISTS idx_interest_tag_catalog_selectable ON interest_tag_catalog (enabled, selectable);
+
+CREATE TABLE IF NOT EXISTS poi_recall_plan_config (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    plan_code VARCHAR(96) NOT NULL UNIQUE,
+    plan_version VARCHAR(32) NOT NULL DEFAULT 'poi_recall_v1_1',
+    plan_type VARCHAR(32) NOT NULL,
+    trigger_type VARCHAR(32) NOT NULL,
+    trigger_value VARCHAR(96),
+    tag_code VARCHAR(64),
+    amap_type_codes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    amap_keywords TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    role_hint VARCHAR(32) NOT NULL DEFAULT 'ANCHOR',
+    category_group_hint VARCHAR(64) NOT NULL DEFAULT 'UNKNOWN',
+    intent_tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    priority INTEGER NOT NULL DEFAULT 0,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    reason_seed VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_poi_recall_plan_config_tag
+    ON poi_recall_plan_config (enabled, plan_type, tag_code);
+
+CREATE INDEX IF NOT EXISTS idx_poi_recall_plan_config_type
+    ON poi_recall_plan_config (enabled, plan_type, priority);
+
+ALTER TABLE poi_semantic_mapping
+    ADD COLUMN IF NOT EXISTS exact_typecodes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    ADD COLUMN IF NOT EXISTS primary_category_group VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS meal_candidate BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS rest_candidate BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS local_experience_candidate BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS mapping_version VARCHAR(32) NOT NULL DEFAULT 'poi_semantic_v1_1';
+
+-- 旧映射使用了粗前缀和 LOCAL/NIGHT/REST category，目标态先禁用，避免污染新语义。
+UPDATE poi_semantic_mapping
+SET enabled = FALSE,
+    updated_at = now()
+WHERE mapping_code IN (
+    'SCENIC_LANDMARK',
+    'MUSEUM_EXHIBITION',
+    'FOOD_LOCAL',
+    'COFFEE_REST',
+    'SHOPPING_DISTRICT',
+    'NIGHT_MARKET_VIEW',
+    'LOCAL_LIFE_BLOCK',
+    'QUIET_PARK'
+);
+
+INSERT INTO interest_tag_catalog (
+    tag_code,
+    display_name,
+    parent_tag_code,
+    tag_level,
+    selectable,
+    max_sibling_selected,
+    rollup_tag_codes,
+    amap_type_codes,
+    amap_keywords,
+    category_group,
+    sort_order,
+    catalog_version,
+    enabled
+)
+VALUES
+    ('SCENIC', '景点', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['110101','110102','110103','110104','110105','110201','110202','110203','110204','110208','110209','110210'],
+     ARRAY['景点','公园','动物园','植物园','水族馆','广场','观景','海滩','纪念馆','红色景区'], 'SCENIC', 10, 'tag_catalog_v1_1', TRUE),
+    ('CULTURE', '文化', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['140100','140200','140300','140400','140500','140600','140700','140800','140900','110204','110210','220102','220104','061201','061205'],
+     ARRAY['文化','历史','展览','展馆','演出','书店','古玩','纪念馆','美术馆','图书馆','科技馆'], 'CULTURE', 20, 'tag_catalog_v1_1', TRUE),
+    ('MUSEUM', '博物馆/展馆', 'CULTURE', 'LEAF', TRUE, NULL, ARRAY['CULTURE'],
+     ARRAY['140100','140200','140300','140400','140600','140700','110204'],
+     ARRAY['博物馆','展览馆','会展中心','美术馆','科技馆','天文馆','纪念馆'], 'CULTURE', 30, 'tag_catalog_v1_1', TRUE),
+    ('FOOD', '餐厅偏好', NULL, 'ROOT', FALSE, 3, ARRAY[]::TEXT[],
+     ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 40, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_CHINESE', '中餐', 'FOOD', 'GROUP', TRUE, 3, ARRAY[]::TEXT[],
+     ARRAY['050100'], ARRAY['中餐','本地菜','地方菜'], 'FOOD', 41, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_SICHUAN', '川菜', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050102'], ARRAY['川菜','四川菜'], 'FOOD', 42, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_CANTONESE', '粤菜', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050103'], ARRAY['粤菜','广东菜'], 'FOOD', 43, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_SHANDONG', '鲁菜', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050104'], ARRAY['鲁菜','山东菜'], 'FOOD', 44, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_JIANGSU', '苏菜/淮扬', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050105'], ARRAY['苏菜','淮扬菜'], 'FOOD', 45, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_ZHEJIANG', '浙菜', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050106'], ARRAY['浙菜','浙江菜'], 'FOOD', 46, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_HUNAN', '湘菜', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050108'], ARRAY['湘菜','湖南菜'], 'FOOD', 47, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_DONG_BEI', '东北菜', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050113'], ARRAY['东北菜'], 'FOOD', 48, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_OLD_BRAND', '老字号', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050116'], ARRAY['老字号'], 'FOOD', 49, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_HOT_POT', '火锅', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050117'], ARRAY['火锅'], 'FOOD', 50, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_LOCAL_FLAVOR', '地方风味/小吃', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050118'], ARRAY['地方风味','小吃'], 'FOOD', 51, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_HALAL', '清真菜', 'FOOD_CHINESE', 'LEAF', TRUE, 3, ARRAY['FOOD_CHINESE'],
+     ARRAY['050121'], ARRAY['清真菜','清真'], 'FOOD', 52, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_FOREIGN', '外国餐厅', 'FOOD', 'GROUP', TRUE, 3, ARRAY[]::TEXT[],
+     ARRAY['050200'], ARRAY['外国餐厅','西餐'], 'FOOD', 53, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_WESTERN', '西餐', 'FOOD_FOREIGN', 'LEAF', TRUE, 3, ARRAY['FOOD_FOREIGN'],
+     ARRAY['050201'], ARRAY['西餐'], 'FOOD', 54, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_AMERICAN', '美式', 'FOOD_FOREIGN', 'LEAF', TRUE, 3, ARRAY['FOOD_FOREIGN'],
+     ARRAY['050208'], ARRAY['美式'], 'FOOD', 55, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_INDIAN', '印度菜', 'FOOD_FOREIGN', 'LEAF', TRUE, 3, ARRAY['FOOD_FOREIGN'],
+     ARRAY['050209'], ARRAY['印度菜'], 'FOOD', 56, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_MEXICAN', '墨西哥菜', 'FOOD_FOREIGN', 'LEAF', TRUE, 3, ARRAY['FOOD_FOREIGN'],
+     ARRAY['050216'], ARRAY['墨西哥菜'], 'FOOD', 57, 'tag_catalog_v1_1', TRUE),
+    ('FOOD_FAST_FOOD', '快餐', 'FOOD', 'GROUP', TRUE, 3, ARRAY[]::TEXT[],
+     ARRAY['050300'], ARRAY['快餐','小吃快餐'], 'FOOD', 58, 'tag_catalog_v1_1', TRUE),
+    ('COFFEE', '咖啡/茶饮/甜品', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['050500','050600','050700','050800','050900'], ARRAY['咖啡','茶','茶馆','茶艺','奶茶','冷饮','甜品','糕点','面包','轻食'], 'DRINK', 60, 'tag_catalog_v1_1', TRUE),
+    ('SHOPPING', '购物', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['060100','061000','061201','061202','061205','061214'], ARRAY['商场','购物中心','步行街','古玩','字画','工艺品','书店','土特产'], 'SHOPPING', 70, 'tag_catalog_v1_1', TRUE),
+    ('LOCAL', '本地生活', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['050116','050118','061001','061214','110105'], ARRAY['老字号','地方风味','小吃','老街','街巷','社区','土特产','城市广场','本地','烟火气'], 'MARKET', 80, 'tag_catalog_v1_1', TRUE),
+    ('NIGHT', '夜游', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['080301','080302','080303','080304','080305','080306','080308','110209','061001','050118'], ARRAY['夜景','夜市','夜游','酒吧','KTV','夜总会','迪厅','游戏厅','棋牌','网吧','观景','灯光'], 'ENTERTAINMENT', 90, 'tag_catalog_v1_1', TRUE),
+    ('PHOTO', '拍照', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['110101','110102','110103','110104','110105','110201','110202','110203','110208','110209','061001','080602','080603'], ARRAY['地标','观景','广场','老街','步行街','剧场','音乐厅','建筑','夜景','海滩'], 'SCENIC', 100, 'tag_catalog_v1_1', TRUE),
+    ('ENTERTAINMENT', '娱乐', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['080113','080301','080302','080303','080304','080305','080306','080308','080501','080504','080505','080601','080602','080603'], ARRAY['KTV','酒吧','台球','游戏厅','棋牌','网吧','游乐','露营','水上活动','电影院','音乐厅','剧场'], 'ENTERTAINMENT', 110, 'tag_catalog_v1_1', TRUE),
+    ('EVENT', '活动/演出', NULL, 'ROOT', TRUE, NULL, ARRAY[]::TEXT[],
+     ARRAY['220101','220102','220104'], ARRAY['节日庆典','展会','展览','文艺演出','演唱会','音乐节','live','剧目','节庆','庙会'], 'EVENT', 120, 'tag_catalog_v1_1', TRUE)
+ON CONFLICT (tag_code) DO UPDATE
+SET display_name = EXCLUDED.display_name,
+    parent_tag_code = EXCLUDED.parent_tag_code,
+    tag_level = EXCLUDED.tag_level,
+    selectable = EXCLUDED.selectable,
+    max_sibling_selected = EXCLUDED.max_sibling_selected,
+    rollup_tag_codes = EXCLUDED.rollup_tag_codes,
+    amap_type_codes = EXCLUDED.amap_type_codes,
+    amap_keywords = EXCLUDED.amap_keywords,
+    category_group = EXCLUDED.category_group,
+    sort_order = EXCLUDED.sort_order,
+    catalog_version = EXCLUDED.catalog_version,
+    enabled = EXCLUDED.enabled,
+    updated_at = now();
+
+INSERT INTO poi_recall_plan_config (
+    plan_code,
+    plan_type,
+    trigger_type,
+    trigger_value,
+    tag_code,
+    amap_type_codes,
+    amap_keywords,
+    role_hint,
+    category_group_hint,
+    intent_tags,
+    priority,
+    reason_seed
+)
+SELECT
+    'INTEREST_' || tag_code,
+    'INTEREST_TAG',
+    'TAG',
+    tag_code,
+    tag_code,
+    amap_type_codes,
+    ARRAY[]::TEXT[],
+    CASE
+        WHEN tag_code LIKE 'FOOD_%' THEN 'MEAL'
+        WHEN tag_code = 'COFFEE' THEN 'REST'
+        WHEN tag_code = 'LOCAL' THEN 'LOCAL'
+        ELSE 'ANCHOR'
+    END,
+    CASE
+        WHEN category_group IS NULL THEN 'UNKNOWN'
+        ELSE category_group
+    END,
+    ARRAY[tag_code]::TEXT[],
+    sort_order,
+    '匹配兴趣：' || display_name
+FROM interest_tag_catalog
+WHERE enabled = TRUE
+  AND selectable = TRUE
+ON CONFLICT (plan_code) DO UPDATE
+SET plan_type = EXCLUDED.plan_type,
+    trigger_type = EXCLUDED.trigger_type,
+    trigger_value = EXCLUDED.trigger_value,
+    tag_code = EXCLUDED.tag_code,
+    amap_type_codes = EXCLUDED.amap_type_codes,
+    amap_keywords = EXCLUDED.amap_keywords,
+    role_hint = EXCLUDED.role_hint,
+    category_group_hint = EXCLUDED.category_group_hint,
+    intent_tags = EXCLUDED.intent_tags,
+    priority = EXCLUDED.priority,
+    reason_seed = EXCLUDED.reason_seed,
+    enabled = TRUE,
+    updated_at = now();
+
+DELETE FROM poi_recall_plan_config
+WHERE plan_code = 'INTEREST_EVENT_CONCERT_LIVE';
+
+INSERT INTO poi_recall_plan_config (
+    plan_code,
+    plan_type,
+    trigger_type,
+    trigger_value,
+    tag_code,
+    amap_type_codes,
+    amap_keywords,
+    role_hint,
+    category_group_hint,
+    intent_tags,
+    priority,
+    reason_seed
+)
+VALUES
+    ('INTEREST_EVENT_CONCERT', 'INTEREST_TAG', 'TAG', 'EVENT', 'EVENT', ARRAY['220104','080101','080105'], ARRAY['演唱会'], 'ANCHOR', 'EVENT', ARRAY['EVENT']::TEXT[], 121, '匹配兴趣：活动/演出'),
+    ('INTEREST_EVENT_LIVE', 'INTEREST_TAG', 'TAG', 'EVENT', 'EVENT', ARRAY['220104','080101','080105'], ARRAY['live'], 'ANCHOR', 'EVENT', ARRAY['EVENT']::TEXT[], 122, '匹配兴趣：活动/演出'),
+    ('INTEREST_EVENT_MUSIC_FESTIVAL', 'INTEREST_TAG', 'TAG', 'EVENT', 'EVENT', ARRAY['220104'], ARRAY['音乐节'], 'ANCHOR', 'EVENT', ARRAY['EVENT']::TEXT[], 123, '匹配兴趣：活动/演出')
+ON CONFLICT (plan_code) DO UPDATE
+SET plan_type = EXCLUDED.plan_type,
+    trigger_type = EXCLUDED.trigger_type,
+    trigger_value = EXCLUDED.trigger_value,
+    tag_code = EXCLUDED.tag_code,
+    amap_type_codes = EXCLUDED.amap_type_codes,
+    amap_keywords = EXCLUDED.amap_keywords,
+    role_hint = EXCLUDED.role_hint,
+    category_group_hint = EXCLUDED.category_group_hint,
+    intent_tags = EXCLUDED.intent_tags,
+    priority = EXCLUDED.priority,
+    reason_seed = EXCLUDED.reason_seed,
+    enabled = TRUE,
+    updated_at = now();
+
+INSERT INTO poi_recall_plan_config (
+    plan_code,
+    plan_type,
+    trigger_type,
+    trigger_value,
+    amap_type_codes,
+    amap_keywords,
+    role_hint,
+    category_group_hint,
+    intent_tags,
+    priority,
+    reason_seed
+)
+VALUES
+    ('DEFAULT_SCENIC', 'DEFAULT', 'FALLBACK', 'NO_INTEREST', ARRAY['110101','110102','110103','110104','110105','110201','110202','110203','110204','110208','110209','110210'], ARRAY[]::TEXT[], 'ANCHOR', 'SCENIC', ARRAY[]::TEXT[], 1000, '默认候选：城市景点和公园'),
+    ('DEFAULT_MUSEUM', 'DEFAULT', 'FALLBACK', 'NO_INTEREST', ARRAY['140100','140200','140300','140400','140600','140700','110204'], ARRAY[]::TEXT[], 'ANCHOR', 'CULTURE', ARRAY[]::TEXT[], 1010, '默认候选：文化展馆'),
+    ('MEAL_LUNCH_DEFAULT', 'MEAL_LUNCH', 'TIME_WINDOW', 'LUNCH', ARRAY['050100','050200','050300'], ARRAY[]::TEXT[], 'MEAL', 'FOOD', ARRAY[]::TEXT[], 1100, '路线覆盖午餐时间，适合作为用餐停留'),
+    ('MEAL_DINNER_DEFAULT', 'MEAL_DINNER', 'TIME_WINDOW', 'DINNER', ARRAY['050100','050200','050300'], ARRAY[]::TEXT[], 'MEAL', 'FOOD', ARRAY[]::TEXT[], 1110, '路线覆盖晚餐时间，适合作为用餐停留'),
+    ('REST_DRINK_DEFAULT', 'REST_NEED', 'DURATION', 'REST_NEED', ARRAY['050500','050600','050700','050800','050900'], ARRAY[]::TEXT[], 'REST', 'DRINK', ARRAY[]::TEXT[], 1200, '适合控制路线节奏，中途休息补给'),
+    ('BACKUP_SCENIC', 'BACKUP', 'FALLBACK', 'BACKUP', ARRAY['110101','110102','110103','110104','110105','110201','110202','110203','110204','110208','110209','110210'], ARRAY[]::TEXT[], 'BACKUP', 'SCENIC', ARRAY[]::TEXT[], 1300, '用于异常替换和路线兜底')
+ON CONFLICT (plan_code) DO UPDATE
+SET plan_type = EXCLUDED.plan_type,
+    trigger_type = EXCLUDED.trigger_type,
+    trigger_value = EXCLUDED.trigger_value,
+    tag_code = EXCLUDED.tag_code,
+    amap_type_codes = EXCLUDED.amap_type_codes,
+    amap_keywords = EXCLUDED.amap_keywords,
+    role_hint = EXCLUDED.role_hint,
+    category_group_hint = EXCLUDED.category_group_hint,
+    intent_tags = EXCLUDED.intent_tags,
+    priority = EXCLUDED.priority,
+    reason_seed = EXCLUDED.reason_seed,
+    enabled = TRUE,
+    updated_at = now();
+
+INSERT INTO poi_semantic_mapping (
+    mapping_code,
+    display_name,
+    exact_typecodes,
+    amap_type_prefixes,
+    keyword_patterns,
+    category_group,
+    primary_category_group,
+    interest_tag_codes,
+    is_classic,
+    is_local,
+    is_photo_friendly,
+    is_night_friendly,
+    is_quiet,
+    is_hidden_gem,
+    meal_candidate,
+    rest_candidate,
+    local_experience_candidate,
+    weather_sensitivity,
+    priority,
+    mapping_version,
+    enabled
+)
+VALUES
+    ('AMAP_SCENIC_TARGET', '目标景点语义', ARRAY['110101','110102','110103','110104','110105','110201','110202','110203','110204','110208','110209','110210'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'SCENIC', 'SCENIC', ARRAY['SCENIC','PHOTO'], TRUE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, 1.00, 10, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_CULTURE_TARGET', '目标文化展馆语义', ARRAY['140100','140200','140300','140400','140500','140600','140700','140800','140900','110204','110210','061201','061205'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'CULTURE', 'CULTURE', ARRAY['CULTURE','MUSEUM','PHOTO'], TRUE, FALSE, TRUE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, 0.00, 20, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_DRINK_TARGET', '目标饮品休息语义', ARRAY['050500','050600','050700','050800','050900'], ARRAY['0505','0506','0507','0508','0509'], ARRAY[]::TEXT[], 'DRINK', 'DRINK', ARRAY['COFFEE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, 0.00, 30, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_CHINESE_TARGET', '中餐语义', ARRAY['050100'], ARRAY['0501'], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 40, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_FAST_TARGET', '快餐语义', ARRAY['050300'], ARRAY['0503'], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_FAST_FOOD'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 41, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_FOREIGN_TARGET', '外国餐厅语义', ARRAY['050200'], ARRAY['0502'], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_FOREIGN'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 42, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_SICHUAN_TARGET', '川菜语义', ARRAY['050102'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_SICHUAN','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 50, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_CANTONESE_TARGET', '粤菜语义', ARRAY['050103'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_CANTONESE','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 51, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_SHANDONG_TARGET', '鲁菜语义', ARRAY['050104'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_SHANDONG','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 52, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_JIANGSU_TARGET', '苏菜语义', ARRAY['050105'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_JIANGSU','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 53, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_ZHEJIANG_TARGET', '浙菜语义', ARRAY['050106'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_ZHEJIANG','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 54, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_HUNAN_TARGET', '湘菜语义', ARRAY['050108'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_HUNAN','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 55, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_DONG_BEI_TARGET', '东北菜语义', ARRAY['050113'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_DONG_BEI','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 56, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_OLD_BRAND_TARGET', '老字号语义', ARRAY['050116'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_OLD_BRAND','FOOD_CHINESE'], FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, TRUE, 0.00, 57, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_HOT_POT_TARGET', '火锅语义', ARRAY['050117'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_HOT_POT','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 58, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_LOCAL_FLAVOR_TARGET', '地方风味小吃语义', ARRAY['050118'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_LOCAL_FLAVOR','FOOD_CHINESE'], FALSE, TRUE, FALSE, TRUE, FALSE, FALSE, TRUE, FALSE, TRUE, 0.00, 59, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_HALAL_TARGET', '清真菜语义', ARRAY['050121'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_HALAL','FOOD_CHINESE'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 60, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_WESTERN_TARGET', '西餐语义', ARRAY['050201'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_WESTERN','FOOD_FOREIGN'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 61, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_AMERICAN_TARGET', '美式语义', ARRAY['050208'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_AMERICAN','FOOD_FOREIGN'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 62, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_INDIAN_TARGET', '印度菜语义', ARRAY['050209'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_INDIAN','FOOD_FOREIGN'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 63, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_FOOD_MEXICAN_TARGET', '墨西哥菜语义', ARRAY['050216'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'FOOD', 'FOOD', ARRAY['FOOD_MEXICAN','FOOD_FOREIGN'], FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, 0.00, 64, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_SHOPPING_TARGET', '购物语义', ARRAY['060100','061000','061201','061202','061205','061214'], ARRAY['0601'], ARRAY[]::TEXT[], 'SHOPPING', 'SHOPPING', ARRAY['SHOPPING'], FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, 0.20, 70, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_LOCAL_TARGET', '本地生活语义', ARRAY['061001','061214','110105'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'MARKET', 'MARKET', ARRAY['LOCAL','PHOTO'], FALSE, TRUE, TRUE, FALSE, FALSE, TRUE, FALSE, FALSE, TRUE, 0.40, 80, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_NIGHT_TARGET', '夜间友好语义', ARRAY['080301','080302','080303','080304','080305','080306','080308','110209','061001'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'ENTERTAINMENT', 'ENTERTAINMENT', ARRAY['NIGHT','PHOTO'], FALSE, TRUE, TRUE, TRUE, FALSE, TRUE, FALSE, FALSE, TRUE, 0.70, 90, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_ENTERTAINMENT_TARGET', '娱乐语义', ARRAY['080113','080301','080302','080303','080304','080305','080306','080308','080501','080504','080505','080601','080602','080603'], ARRAY[]::TEXT[], ARRAY[]::TEXT[], 'ENTERTAINMENT', 'ENTERTAINMENT', ARRAY['ENTERTAINMENT'], FALSE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, 0.30, 100, 'poi_semantic_v1_1', TRUE),
+    ('AMAP_EVENT_TARGET', '活动演出语义', ARRAY['220101','220102','220104'], ARRAY[]::TEXT[], ARRAY['演唱会','live','音乐节'], 'EVENT', 'EVENT', ARRAY['EVENT','CULTURE'], FALSE, FALSE, TRUE, TRUE, FALSE, TRUE, FALSE, FALSE, FALSE, 0.20, 110, 'poi_semantic_v1_1', TRUE)
+ON CONFLICT (mapping_code) DO UPDATE
+SET display_name = EXCLUDED.display_name,
+    exact_typecodes = EXCLUDED.exact_typecodes,
+    amap_type_prefixes = EXCLUDED.amap_type_prefixes,
+    keyword_patterns = EXCLUDED.keyword_patterns,
+    category_group = EXCLUDED.category_group,
+    primary_category_group = EXCLUDED.primary_category_group,
+    interest_tag_codes = EXCLUDED.interest_tag_codes,
+    is_classic = EXCLUDED.is_classic,
+    is_local = EXCLUDED.is_local,
+    is_photo_friendly = EXCLUDED.is_photo_friendly,
+    is_night_friendly = EXCLUDED.is_night_friendly,
+    is_quiet = EXCLUDED.is_quiet,
+    is_hidden_gem = EXCLUDED.is_hidden_gem,
+    meal_candidate = EXCLUDED.meal_candidate,
+    rest_candidate = EXCLUDED.rest_candidate,
+    local_experience_candidate = EXCLUDED.local_experience_candidate,
+    weather_sensitivity = EXCLUDED.weather_sensitivity,
+    priority = EXCLUDED.priority,
+    mapping_version = EXCLUDED.mapping_version,
+    enabled = EXCLUDED.enabled,
+    updated_at = now();
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urban_sidequest') THEN
+        GRANT SELECT ON poi_recall_plan_config TO urban_sidequest;
+        GRANT SELECT ON interest_tag_catalog TO urban_sidequest;
+        GRANT SELECT ON poi_semantic_mapping TO urban_sidequest;
+    END IF;
+END $$;

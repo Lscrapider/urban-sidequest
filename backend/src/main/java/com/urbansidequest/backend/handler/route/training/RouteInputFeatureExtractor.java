@@ -2,6 +2,7 @@ package com.urbansidequest.backend.handler.route.training;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.urbansidequest.backend.domain.constant.DateTimeFormatConstant;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
@@ -16,6 +17,7 @@ import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.RouteSegmentSource;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
+import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
 import com.urbansidequest.backend.handler.route.SegmentModeResolver;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.linear.LinearScoreConstants;
@@ -24,11 +26,9 @@ import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -56,8 +56,6 @@ public class RouteInputFeatureExtractor {
     private static final double VISITED_VICINITY_THRESHOLD_METERS = 300d;
 
     private static final double RISK_COST_THRESHOLD = -0.12d;
-
-    private static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
 
     private static final LocalTime LUNCH_START = LocalTime.of(11, 30);
 
@@ -120,7 +118,7 @@ public class RouteInputFeatureExtractor {
                     ? PoiSemanticProfile.empty()
                     : this.poiSemanticResolver.resolve(candidate, context.getPoiSemanticMappings()));
         }
-        return new FeatureSource(candidatesByPoiId, tracesByPoiId, semanticByPoiId);
+        return new FeatureSource(candidatesByPoiId, tracesByPoiId, semanticByPoiId, context.getInterestTagCatalog());
     }
 
     private List<Map<String, Object>> stopMatrix(CandidateRouteDTO route, FeatureSource source) {
@@ -175,13 +173,13 @@ public class RouteInputFeatureExtractor {
             row.put("riskCost", trace == null ? 0d : trace.riskCost());
             row.put("poiLinearTraceMissing", bit(trace == null));
 
-            row.put("routeRole_MUST_VISIT", bit(candidate != null && candidate.mustVisit()));
-            row.put("routeRole_ANCHOR", bit(index == 0));
-            row.put("routeRole_MEAL", bit(this.isMealStop(stop, semantic)));
-            row.put("routeRole_REST", bit(this.isRestStop(stop)));
-            row.put("routeRole_LOCAL", bit(semantic.local()));
-            row.put("routeRole_PHOTO", bit(semantic.photoFriendly()));
-            row.put("routeRole_BACKUP", bit(this.containsAny(stop.slotLabel(), "备选", "backup")));
+            row.put("routeRole_MUST_VISIT", bit(this.isRouteRole(stop, semantic, candidate, index, "MUST_VISIT")));
+            row.put("routeRole_ANCHOR", bit(this.isRouteRole(stop, semantic, candidate, index, "ANCHOR")));
+            row.put("routeRole_MEAL", bit(this.isRouteRole(stop, semantic, candidate, index, "MEAL")));
+            row.put("routeRole_REST", bit(this.isRouteRole(stop, semantic, candidate, index, "REST")));
+            row.put("routeRole_LOCAL", bit(this.isRouteRole(stop, semantic, candidate, index, "LOCAL")));
+            row.put("routeRole_PHOTO", bit(this.isRouteRole(stop, semantic, candidate, index, "PHOTO")));
+            row.put("routeRole_BACKUP", bit(this.isRouteRole(stop, semantic, candidate, index, "BACKUP")));
 
             row.put("stayMinutesNorm", stop.stayMinutes() / 60d);
             row.put("orderPositionNorm", stopCount <= 1 ? 0d : index / (double) (stopCount - 1));
@@ -285,12 +283,9 @@ public class RouteInputFeatureExtractor {
         boolean requiresDinner = this.overlapsMealWindow(context.getGenerateParam().getDepartureTime(), durationMinutes, DINNER_START, DINNER_END);
         long mealStopCount = stopMatrix.stream().filter(row -> doubleValue(row.get("routeRole_MEAL")) > 0d).count();
         long restStopCount = stopMatrix.stream().filter(row -> doubleValue(row.get("routeRole_REST")) > 0d).count();
-        boolean dinnerCovered = stops.stream().anyMatch(stop -> this.containsAny(stop.slotLabel(), "晚", "夜"));
-        boolean lunchCovered = mealStopCount > 0 && !dinnerCovered;
-        if (mealStopCount > 1) {
-            lunchCovered = true;
-            dinnerCovered = true;
-        }
+        MealCoverage mealCoverage = this.mealCoverage(stops, mealStopCount);
+        boolean lunchCovered = mealCoverage.lunchCovered();
+        boolean dinnerCovered = mealCoverage.dinnerCovered();
         vector.put("requiresLunchFlag", bit(requiresLunch));
         vector.put("requiresDinnerFlag", bit(requiresDinner));
         vector.put("mealStopCountNorm", mealStopCount / (double) MAX_STOP_COUNT);
@@ -374,7 +369,7 @@ public class RouteInputFeatureExtractor {
         contextJson.put("transportProfile", context.getGenerateParam().getTransportProfile());
         contextJson.put("budgetLevel", context.getGenerateParam().getBudgetLevel());
         contextJson.put("interestTags", context.getGenerateParam().getInterestTags());
-        contextJson.put("departureTime", context.getGenerateParam().getDepartureTime());
+        contextJson.put("departureTime", this.localDateTimeText(context.getGenerateParam().getDepartureTime()));
         contextJson.put("durationMinutes", context.getGenerateParam().getDurationMinutes());
         contextJson.put("routeTimeStructure", timeStructure);
         contextJson.put("weather", context.getRouteWeather());
@@ -405,6 +400,7 @@ public class RouteInputFeatureExtractor {
         double classicStopRatio = doubleValue(routeDerivedVector.get("classicStopRatio"));
         double photoFriendlyStopRatio = doubleValue(routeDerivedVector.get("photoFriendlyStopRatio"));
         double nightFriendlyStopRatio = doubleValue(routeDerivedVector.get("nightFriendlyStopRatio"));
+        double quietStopRatio = doubleValue(routeDerivedVector.get("quietStopRatio"));
         double highRiskStopRatio = doubleValue(routeDerivedVector.get("highRiskStopRatio"));
         double requiresLunchFlag = doubleValue(routeDerivedVector.get("requiresLunchFlag"));
         double requiresDinnerFlag = doubleValue(routeDerivedVector.get("requiresDinnerFlag"));
@@ -430,9 +426,9 @@ public class RouteInputFeatureExtractor {
         RouteGoal routeGoal = context.getGenerateParam().getRouteGoal();
         vector.put("goalLocalMatch", bit(RouteGoal.LOCAL == routeGoal) * localStopRatio);
         vector.put("goalClassicMatch", bit(RouteGoal.CLASSIC == routeGoal) * classicStopRatio);
+        vector.put("goalQuietMatch", bit(RouteGoal.QUIET == routeGoal) * quietStopRatio);
         vector.put("goalPhotoMatch", bit(RouteGoal.PHOTO == routeGoal) * photoFriendlyStopRatio);
         vector.put("goalNightMatch", bit(RouteGoal.NIGHT == routeGoal) * nightFriendlyStopRatio);
-        vector.put("goalLowBudgetMismatch", bit(RouteGoal.LOW_BUDGET == routeGoal) * budgetPressure);
         vector.put("goalSteadyDistancePressure", bit(RouteGoal.STEADY == routeGoal) * totalDistanceNorm);
         vector.put("goalSteadyRiskPressure", bit(RouteGoal.STEADY == routeGoal) * highRiskStopRatio);
 
@@ -474,10 +470,6 @@ public class RouteInputFeatureExtractor {
         Set<String> hits = new LinkedHashSet<>();
         for (RouteStopDTO stop : route.stops()) {
             String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
-            PoiCandidateDTO candidate = source.candidatesByPoiId().get(poiId);
-            if (candidate != null) {
-                hits.addAll(candidate.matchedInterestTags());
-            }
             hits.addAll(source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty()).poiTagHits());
         }
         hits.retainAll(requestTags);
@@ -492,7 +484,9 @@ public class RouteInputFeatureExtractor {
             String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiCandidateDTO candidate = source.candidatesByPoiId().get(poiId);
             PoiSemanticProfile semantic = source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty());
-            boolean relevant = semantic.isConsumable() || this.isMealStop(stop, semantic) || this.isRestStop(stop);
+            boolean relevant = semantic.isConsumable()
+                    || this.isRouteRole(stop, semantic, candidate, -1, "MEAL")
+                    || this.isRouteRole(stop, semantic, candidate, -1, "REST");
             if (!relevant) {
                 continue;
             }
@@ -572,12 +566,23 @@ public class RouteInputFeatureExtractor {
         for (RouteStopDTO stop : route.stops()) {
             String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiSemanticProfile semantic = source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty());
-            groups.add(semantic.categoryGroups().stream()
-                    .sorted()
-                    .findFirst()
-                    .orElse(stop.category() == null ? "UNKNOWN" : stop.category()));
+            String primaryCategoryGroup = semantic.primaryCategoryGroup();
+            groups.add(primaryCategoryGroup == null || primaryCategoryGroup.isBlank()
+                    ? this.normalizeCategoryFallback(stop.category())
+                    : primaryCategoryGroup);
         }
         return groups;
+    }
+
+    private String normalizeCategoryFallback(String category) {
+        if (category == null || category.isBlank()) {
+            return "UNKNOWN";
+        }
+        return switch (category) {
+            case "REST" -> "DRINK";
+            case "LOCAL", "NIGHT", "PHOTO", "MUST_VISIT" -> "UNKNOWN";
+            default -> category;
+        };
     }
 
     private int dominantCategoryCount(List<String> categoryGroups) {
@@ -655,11 +660,11 @@ public class RouteInputFeatureExtractor {
         return new TransitFeature(0d, 0d, 1d, distanceNorm);
     }
 
-    private boolean overlapsMealWindow(Instant departureTime, int durationMinutes, LocalTime start, LocalTime end) {
+    private boolean overlapsMealWindow(LocalDateTime departureTime, int durationMinutes, LocalTime start, LocalTime end) {
         if (departureTime == null) {
             return false;
         }
-        LocalDateTime routeStart = LocalDateTime.ofInstant(departureTime, CHINA_ZONE);
+        LocalDateTime routeStart = departureTime;
         LocalDateTime routeEnd = routeStart.plusMinutes(durationMinutes);
         LocalDate cursorDate = routeStart.toLocalDate();
         while (!cursorDate.isAfter(routeEnd.toLocalDate())) {
@@ -671,6 +676,10 @@ public class RouteInputFeatureExtractor {
             cursorDate = cursorDate.plusDays(1);
         }
         return false;
+    }
+
+    private String localDateTimeText(LocalDateTime localDateTime) {
+        return localDateTime == null ? null : DateTimeFormatConstant.BEIJING_LOCAL_DATE_TIME_FORMATTER.format(localDateTime);
     }
 
     private double routeComfortDistanceMeters(RouteGenerationContext context) {
@@ -687,13 +696,46 @@ public class RouteInputFeatureExtractor {
         };
     }
 
-    private boolean isMealStop(RouteStopDTO stop, PoiSemanticProfile semantic) {
-        return semantic.isMealCandidate() || this.containsAny(stop.slotLabel(), "餐", "饭", "美食")
-                || this.containsAny(stop.category(), "FOOD");
+    private boolean isRouteRole(
+            RouteStopDTO stop,
+            PoiSemanticProfile semantic,
+            PoiCandidateDTO candidate,
+            int index,
+            String routeRole
+    ) {
+        if (!isBlank(stop.routeRole())) {
+            return routeRole.equalsIgnoreCase(stop.routeRole());
+        }
+        return switch (routeRole) {
+            case "MUST_VISIT" -> candidate != null && candidate.mustVisit();
+            case "ANCHOR" -> index == 0;
+            case "MEAL" -> semantic.isMealCandidate();
+            case "REST" -> semantic.isRestCandidate();
+            case "LOCAL" -> semantic.local() || semantic.localExperienceCandidate();
+            case "PHOTO" -> semantic.photoFriendly();
+            case "BACKUP" -> this.containsAny(stop.slotLabel(), "备选", "backup");
+            default -> false;
+        };
     }
 
-    private boolean isRestStop(RouteStopDTO stop) {
-        return this.containsAny(stop.slotLabel(), "休息", "咖啡") || this.containsAny(stop.category(), "REST");
+    private MealCoverage mealCoverage(List<RouteStopDTO> stops, long mealStopCount) {
+        boolean hasComposerMealWindow = stops.stream().anyMatch(stop -> !isBlank(stop.intendedMealWindow()));
+        if (hasComposerMealWindow) {
+            boolean lunchCovered = stops.stream().anyMatch(stop ->
+                    "MEAL".equalsIgnoreCase(stop.routeRole()) && "LUNCH".equalsIgnoreCase(stop.intendedMealWindow())
+            );
+            boolean dinnerCovered = stops.stream().anyMatch(stop ->
+                    "MEAL".equalsIgnoreCase(stop.routeRole()) && "DINNER".equalsIgnoreCase(stop.intendedMealWindow())
+            );
+            return new MealCoverage(lunchCovered, dinnerCovered);
+        }
+        boolean dinnerCovered = stops.stream().anyMatch(stop -> this.containsAny(stop.slotLabel(), "晚", "夜"));
+        boolean lunchCovered = mealStopCount > 0 && !dinnerCovered;
+        if (mealStopCount > 1) {
+            lunchCovered = true;
+            dinnerCovered = true;
+        }
+        return new MealCoverage(lunchCovered, dinnerCovered);
     }
 
     private boolean containsAny(String value, String... tokens) {
@@ -723,7 +765,9 @@ public class RouteInputFeatureExtractor {
             return TagAffinityStats.zero();
         }
 
-        double profileAffinitySum = profile.tagAffinities().entrySet().stream()
+        Map<String, BigDecimal> normalizedAffinities = com.urbansidequest.backend.handler.route.linear.InterestTagNormalizer
+                .normalizedAffinities(profile.tagAffinities(), source.interestTagCatalog());
+        double profileAffinitySum = normalizedAffinities.entrySet().stream()
                 .filter(entry -> !isBlank(entry.getKey()))
                 .map(Map.Entry::getValue)
                 .filter(value -> value != null && value.compareTo(BigDecimal.ZERO) > 0)
@@ -734,7 +778,7 @@ public class RouteInputFeatureExtractor {
         }
 
         Map<String, Double> profileWeights = new LinkedHashMap<>();
-        profile.tagAffinities().entrySet().stream()
+        normalizedAffinities.entrySet().stream()
                 .filter(entry -> !isBlank(entry.getKey()))
                 .filter(entry -> entry.getValue() != null && entry.getValue().compareTo(BigDecimal.ZERO) > 0)
                 .forEach(entry -> profileWeights.put(entry.getKey(), entry.getValue().doubleValue() / profileAffinitySum));
@@ -769,7 +813,7 @@ public class RouteInputFeatureExtractor {
         }
         double jaccard = jaccardDenominator <= 0d ? 0d : jaccardNumerator / jaccardDenominator;
 
-        List<String> topTags = profile.tagAffinities().entrySet().stream()
+        List<String> topTags = normalizedAffinities.entrySet().stream()
                 .filter(entry -> !isBlank(entry.getKey()))
                 .filter(entry -> entry.getValue() != null && entry.getValue().compareTo(BigDecimal.ZERO) > 0)
                 .sorted(Comparator.<Map.Entry<String, BigDecimal>, Double>comparing(entry -> entry.getValue().doubleValue()).reversed())
@@ -794,7 +838,10 @@ public class RouteInputFeatureExtractor {
         for (RouteStopDTO stop : route.stops()) {
             String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
             PoiSemanticProfile semantic = source.semanticByPoiId().getOrDefault(poiId, PoiSemanticProfile.empty());
-            for (String tag : semantic.poiTagHits()) {
+            for (String tag : com.urbansidequest.backend.handler.route.linear.InterestTagNormalizer.normalizedPoiTags(
+                    semantic.poiTagHits(),
+                    source.interestTagCatalog()
+            )) {
                 if (!isBlank(tag)) {
                     counts.merge(tag, 1, Integer::sum);
                 }
@@ -849,8 +896,12 @@ public class RouteInputFeatureExtractor {
     private record FeatureSource(
             Map<String, PoiCandidateDTO> candidatesByPoiId,
             Map<String, PoiLinearTraceDTO> tracesByPoiId,
-            Map<String, PoiSemanticProfile> semanticByPoiId
+            Map<String, PoiSemanticProfile> semanticByPoiId,
+            List<InterestTagCatalogPO> interestTagCatalog
     ) {
+    }
+
+    private record MealCoverage(boolean lunchCovered, boolean dinnerCovered) {
     }
 
     private record SegmentFeature(

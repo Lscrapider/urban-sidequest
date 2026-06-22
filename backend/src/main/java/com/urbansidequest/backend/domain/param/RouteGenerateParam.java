@@ -1,5 +1,7 @@
 package com.urbansidequest.backend.domain.param;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.urbansidequest.backend.domain.constant.DateTimeFormatConstant;
 import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
 import com.urbansidequest.backend.domain.enums.AreaMode;
 import com.urbansidequest.backend.domain.enums.BudgetLevel;
@@ -9,7 +11,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,7 +39,8 @@ public class RouteGenerateParam {
     private String routeCityAdcode;
 
     @NotNull
-    private Instant departureTime;
+    @JsonFormat(pattern = DateTimeFormatConstant.BEIJING_LOCAL_DATE_TIME_PATTERN)
+    private LocalDateTime departureTime;
 
     @NotNull
     @Min(60)
@@ -124,11 +127,11 @@ public class RouteGenerateParam {
         this.routeCityAdcode = routeCityAdcode;
     }
 
-    public Instant getDepartureTime() {
+    public LocalDateTime getDepartureTime() {
         return this.departureTime;
     }
 
-    public void setDepartureTime(Instant departureTime) {
+    public void setDepartureTime(LocalDateTime departureTime) {
         this.departureTime = departureTime;
     }
 

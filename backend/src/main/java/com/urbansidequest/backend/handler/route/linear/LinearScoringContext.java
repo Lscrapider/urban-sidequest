@@ -4,6 +4,8 @@ import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
+import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
+import java.util.List;
 
 /**
  * 一次请求级、对所有 POI 相同的 Linear 打分上下文（request/environment/userPreference 三组的派生量）。
@@ -24,6 +26,7 @@ public record LinearScoringContext(
         double heatLevel,
         boolean transportSignalAvailable,
         UserPreferenceProfileDTO profile,
+        List<InterestTagCatalogPO> interestTagCatalog,
         double affinityNorm
 ) {
 }

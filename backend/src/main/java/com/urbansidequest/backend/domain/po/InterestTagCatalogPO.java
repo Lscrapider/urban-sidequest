@@ -19,6 +19,21 @@ public class InterestTagCatalogPO {
     @TableField("display_name")
     private String displayName;
 
+    @TableField("parent_tag_code")
+    private String parentTagCode;
+
+    @TableField("tag_level")
+    private String tagLevel;
+
+    @TableField("selectable")
+    private Boolean selectable;
+
+    @TableField("max_sibling_selected")
+    private Integer maxSiblingSelected;
+
+    @TableField(value = "rollup_tag_codes", select = false)
+    private List<String> rollupTagCodes;
+
     @TableField(value = "amap_type_codes", select = false)
     private List<String> amapTypeCodes;
 
@@ -30,6 +45,9 @@ public class InterestTagCatalogPO {
 
     @TableField("sort_order")
     private Integer sortOrder;
+
+    @TableField("catalog_version")
+    private String catalogVersion;
 
     private Boolean enabled;
 
@@ -63,6 +81,46 @@ public class InterestTagCatalogPO {
         this.displayName = displayName;
     }
 
+    public String getParentTagCode() {
+        return this.parentTagCode;
+    }
+
+    public void setParentTagCode(String parentTagCode) {
+        this.parentTagCode = parentTagCode;
+    }
+
+    public String getTagLevel() {
+        return this.tagLevel;
+    }
+
+    public void setTagLevel(String tagLevel) {
+        this.tagLevel = tagLevel;
+    }
+
+    public Boolean getSelectable() {
+        return this.selectable;
+    }
+
+    public void setSelectable(Boolean selectable) {
+        this.selectable = selectable;
+    }
+
+    public Integer getMaxSiblingSelected() {
+        return this.maxSiblingSelected;
+    }
+
+    public void setMaxSiblingSelected(Integer maxSiblingSelected) {
+        this.maxSiblingSelected = maxSiblingSelected;
+    }
+
+    public List<String> getRollupTagCodes() {
+        return this.rollupTagCodes;
+    }
+
+    public void setRollupTagCodes(List<String> rollupTagCodes) {
+        this.rollupTagCodes = rollupTagCodes;
+    }
+
     public List<String> getAmapTypeCodes() {
         return this.amapTypeCodes;
     }
@@ -93,6 +151,14 @@ public class InterestTagCatalogPO {
 
     public void setSortOrder(Integer sortOrder) {
         this.sortOrder = sortOrder;
+    }
+
+    public String getCatalogVersion() {
+        return this.catalogVersion;
+    }
+
+    public void setCatalogVersion(String catalogVersion) {
+        this.catalogVersion = catalogVersion;
     }
 
     public Boolean getEnabled() {

@@ -10,11 +10,13 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * 把单个 POI 映射成 {@link PoiSemanticProfile}：先按 typecode 前缀匹配，再按 keytag/rectag/name/category
- * 关键词补充。命中多行时语义并集（见 PoiSemanticProfile）。
+ * 把单个 POI 映射成 {@link PoiSemanticProfile}：优先按 typecode / 精确 typecode 匹配；
+ * keywordPatterns 只用于少量 EVENT 特例。命中多行时语义并集（见 PoiSemanticProfile）。
  */
 @Component
 public class PoiSemanticResolver {
+
+    private static final String AMAP_TYPECODE_SEPARATOR_REGEX = "\\|";
 
     public PoiSemanticProfile resolve(PoiCandidateDTO candidate, List<PoiSemanticMappingPO> mappings) {
         if (mappings == null || mappings.isEmpty()) {
@@ -28,6 +30,9 @@ public class PoiSemanticResolver {
         boolean nightFriendly = false;
         boolean quiet = false;
         boolean hiddenGem = false;
+        boolean mealCandidate = false;
+        boolean restCandidate = false;
+        boolean localExperienceCandidate = false;
         double weatherSensitive = 0d;
         boolean matchedAny = false;
 
@@ -42,6 +47,9 @@ public class PoiSemanticResolver {
             if (StrUtil.isNotBlank(mapping.getCategoryGroup())) {
                 categoryGroups.add(mapping.getCategoryGroup());
             }
+            if (StrUtil.isNotBlank(mapping.getPrimaryCategoryGroup())) {
+                categoryGroups.add(mapping.getPrimaryCategoryGroup());
+            }
             if (mapping.getInterestTagCodes() != null) {
                 poiTagHits.addAll(mapping.getInterestTagCodes());
             }
@@ -51,6 +59,9 @@ public class PoiSemanticResolver {
             nightFriendly |= Boolean.TRUE.equals(mapping.getNightFriendly());
             quiet |= Boolean.TRUE.equals(mapping.getQuiet());
             hiddenGem |= Boolean.TRUE.equals(mapping.getHiddenGem());
+            mealCandidate |= Boolean.TRUE.equals(mapping.getMealCandidate());
+            restCandidate |= Boolean.TRUE.equals(mapping.getRestCandidate());
+            localExperienceCandidate |= Boolean.TRUE.equals(mapping.getLocalExperienceCandidate());
             BigDecimal sensitivity = mapping.getWeatherSensitivity();
             if (sensitivity != null) {
                 weatherSensitive = Math.max(weatherSensitive, sensitivity.doubleValue());
@@ -61,6 +72,7 @@ public class PoiSemanticResolver {
             return PoiSemanticProfile.empty();
         }
         return new PoiSemanticProfile(
+                PoiSemanticProfile.resolvePrimaryCategoryGroup(categoryGroups),
                 categoryGroups,
                 classic,
                 local,
@@ -68,16 +80,33 @@ public class PoiSemanticResolver {
                 nightFriendly,
                 quiet,
                 hiddenGem,
+                mealCandidate,
+                restCandidate,
+                localExperienceCandidate,
                 weatherSensitive,
                 poiTagHits
         );
     }
 
     private boolean matches(PoiSemanticMappingPO mapping, String typecode, String haystack) {
-        if (StrUtil.isNotBlank(typecode) && mapping.getAmapTypePrefixes() != null) {
-            for (String prefix : mapping.getAmapTypePrefixes()) {
-                if (StrUtil.isNotBlank(prefix) && typecode.startsWith(prefix)) {
+        List<String> typecodeTokens = this.typecodeTokens(typecode);
+        if (StrUtil.isNotBlank(typecode) && mapping.getExactTypecodes() != null) {
+            for (String exactTypecode : mapping.getExactTypecodes()) {
+                if (StrUtil.isNotBlank(exactTypecode)
+                        && (exactTypecode.equals(typecode) || typecodeTokens.contains(exactTypecode))) {
                     return true;
+                }
+            }
+        }
+        if (!typecodeTokens.isEmpty() && mapping.getAmapTypePrefixes() != null) {
+            for (String prefix : mapping.getAmapTypePrefixes()) {
+                if (StrUtil.isBlank(prefix)) {
+                    continue;
+                }
+                for (String token : typecodeTokens) {
+                    if (token.startsWith(prefix)) {
+                        return true;
+                    }
                 }
             }
         }
@@ -89,6 +118,16 @@ public class PoiSemanticResolver {
             }
         }
         return false;
+    }
+
+    private List<String> typecodeTokens(String typecode) {
+        if (StrUtil.isBlank(typecode)) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(typecode.split(AMAP_TYPECODE_SEPARATOR_REGEX))
+                .map(String::trim)
+                .filter(StrUtil::isNotBlank)
+                .toList();
     }
 
     private String keywordHaystack(PoiCandidateDTO candidate) {

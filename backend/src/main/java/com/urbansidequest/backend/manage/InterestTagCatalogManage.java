@@ -10,6 +10,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class InterestTagCatalogManage extends ServiceImpl<InterestTagCatalogMapper, InterestTagCatalogPO> {
 
+    public List<InterestTagCatalogPO> findEnabled() {
+        return this.baseMapper.findEnabled();
+    }
+
     public List<InterestTagCatalogPO> findEnabledByTagCodes(List<String> tagCodes) {
         if (CollUtil.isEmpty(tagCodes)) {
             return List.of();

@@ -30,6 +30,8 @@ public class RouteGenerationContext {
 
     private UserPreferenceProfileDTO userPreferenceProfile = UserPreferenceProfileDTO.empty();
 
+    private List<InterestTagCatalogPO> interestTagCatalog = new ArrayList<>();
+
     private List<InterestTagCatalogPO> interestTags = new ArrayList<>();
 
     private List<PoiSemanticMappingPO> poiSemanticMappings = new ArrayList<>();
@@ -93,6 +95,14 @@ public class RouteGenerationContext {
 
     public void setUserPreferenceProfile(UserPreferenceProfileDTO userPreferenceProfile) {
         this.userPreferenceProfile = userPreferenceProfile == null ? UserPreferenceProfileDTO.empty() : userPreferenceProfile;
+    }
+
+    public List<InterestTagCatalogPO> getInterestTagCatalog() {
+        return this.interestTagCatalog;
+    }
+
+    public void setInterestTagCatalog(List<InterestTagCatalogPO> interestTagCatalog) {
+        this.interestTagCatalog = interestTagCatalog == null ? new ArrayList<>() : new ArrayList<>(interestTagCatalog);
     }
 
     public List<InterestTagCatalogPO> getInterestTags() {

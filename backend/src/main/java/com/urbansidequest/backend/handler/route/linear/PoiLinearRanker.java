@@ -16,6 +16,7 @@ import com.urbansidequest.backend.handler.route.support.GeoMath;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
@@ -84,8 +85,12 @@ public class PoiLinearRanker {
         int routeStartMinutes = this.routeStartMinutes(param.getDepartureTime());
 
         UserPreferenceProfileDTO profile = context.getUserPreferenceProfile();
+        Map<String, BigDecimal> normalizedAffinities = InterestTagNormalizer.normalizedAffinities(
+                profile.tagAffinities(),
+                context.getInterestTagCatalog()
+        );
         double affinityNorm = 0d;
-        for (BigDecimal affinity : profile.tagAffinities().values()) {
+        for (BigDecimal affinity : normalizedAffinities.values()) {
             if (affinity != null) {
                 affinityNorm += affinity.doubleValue();
             }
@@ -104,16 +109,16 @@ public class PoiLinearRanker {
                 this.heatLevel(weather),
                 context.isTransportSignalAvailable(),
                 profile,
+                context.getInterestTagCatalog(),
                 affinityNorm
         );
     }
 
-    private int routeStartMinutes(java.time.Instant departureTime) {
+    private int routeStartMinutes(java.time.LocalDateTime departureTime) {
         if (departureTime == null) {
             return -1;
         }
-        java.time.ZonedDateTime zoned = departureTime.atZone(java.time.ZoneId.of("Asia/Shanghai"));
-        return zoned.getHour() * 60 + zoned.getMinute();
+        return departureTime.getHour() * 60 + departureTime.getMinute();
     }
 
     private double distanceToCenter(PoiCandidateDTO candidate, GeoPointDTO center) {

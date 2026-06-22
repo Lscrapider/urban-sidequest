@@ -1,7 +1,6 @@
 package com.urbansidequest.backend.handler.route.step;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
@@ -22,7 +21,7 @@ import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.district.RouteDistrictPlanner;
 import com.urbansidequest.backend.handler.route.scoring.RouteGoalScoringStrategy;
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -30,7 +29,7 @@ import org.junit.jupiter.api.Test;
 class ScoreAndSelectRoutesStepTest {
 
     @Test
-    void throwsWhenAllRoutesFailDurationConstraint() {
+    void returnsEmptyRoutesWhenAllRoutesFailDurationConstraint() {
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -45,10 +44,10 @@ class ScoreAndSelectRoutesStepTest {
                 List.of(alwaysZeroScoringStrategy())
         );
 
-        assertThatThrownBy(() -> step.execute(context))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("没有候选路线通过约束");
+        step.execute(context);
+
         assertThat(context.getSelectedRoutes()).isEmpty();
+        assertThat(context.getWarnings()).anyMatch(warning -> warning.contains("没有候选路线通过后端约束"));
     }
 
     @Test
@@ -72,7 +71,7 @@ class ScoreAndSelectRoutesStepTest {
     }
 
     @Test
-    void fallsBackToLeastOverBudgetRouteWhenAllRoutesExceedDistrictBudget() {
+    void returnsEmptyRoutesWhenAllRoutesExceedDistrictBudget() {
         RouteGenerationContext context = routeContextForDistrictBudget();
         CandidateRouteDTO twoDistrictRoute = route("A", List.of(stop("p1-A", "p1"), stop("p3-A", "p3")), 20);
         CandidateRouteDTO threeDistrictRoute = route("B", List.of(stop("p1-B", "p1"), stop("p3-B", "p3"), stop("p4-B", "p4")), 90);
@@ -87,15 +86,15 @@ class ScoreAndSelectRoutesStepTest {
 
         assertThat(context.getSelectedRoutes())
                 .extracting(CandidateRouteDTO::routeCode)
-                .containsExactly("A");
-        assertThat(context.getWarnings()).anyMatch(warning -> warning.contains("跨片区预算兜底"));
+                .isEmpty();
+        assertThat(context.getWarnings()).anyMatch(warning -> warning.contains("没有候选路线通过后端约束"));
     }
 
     private static RouteGenerateParam baseParam(int durationMinutes) {
         RouteGenerateParam param = new RouteGenerateParam();
         param.setAreaMode(AreaMode.AUTO_RADIUS);
         param.setCenter(center());
-        param.setDepartureTime(Instant.parse("2026-06-17T02:00:00Z"));
+        param.setDepartureTime(LocalDateTime.of(2026, 6, 17, 10, 0));
         param.setDurationMinutes(durationMinutes);
         param.setTransportProfile(TransportProfile.WALK_ONLY);
         param.setRouteGoal(RouteGoal.STEADY);

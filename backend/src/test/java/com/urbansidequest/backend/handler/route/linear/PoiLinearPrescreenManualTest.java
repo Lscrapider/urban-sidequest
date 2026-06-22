@@ -22,7 +22,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -170,7 +170,7 @@ class PoiLinearPrescreenManualTest {
         param.setRadiusMeters(scenario.radiusMeters());
         param.setRouteCityName(scenario.routeCityName());
         param.setRouteCityAdcode(scenario.routeCityAdcode());
-        param.setDepartureTime(Instant.parse("2026-06-20T10:00:00Z"));
+        param.setDepartureTime(LocalDateTime.of(2026, 6, 20, 18, 0));
         param.setDurationMinutes(240);
         param.setTransportProfile(transportProfile);
         param.setRouteGoal(RouteGoal.LOCAL);

@@ -10,6 +10,8 @@ public record RouteStopDTO(
         String name,
         String slotLabel,
         String category,
+        String routeRole,
+        String intendedMealWindow,
         GeoPointDTO location,
         BigDecimal rating,
         int stayMinutes,
@@ -21,4 +23,41 @@ public record RouteStopDTO(
         String reason,
         String riskNote
 ) {
+    public RouteStopDTO(
+            String stopId,
+            int order,
+            String name,
+            String slotLabel,
+            String category,
+            GeoPointDTO location,
+            BigDecimal rating,
+            int stayMinutes,
+            SegmentTransportMode transportToNext,
+            Integer distanceToNextMeters,
+            Integer durationToNextMinutes,
+            String description,
+            List<String> imageUrls,
+            String reason,
+            String riskNote
+    ) {
+        this(
+                stopId,
+                order,
+                name,
+                slotLabel,
+                category,
+                null,
+                null,
+                location,
+                rating,
+                stayMinutes,
+                transportToNext,
+                distanceToNextMeters,
+                durationToNextMinutes,
+                description,
+                imageUrls,
+                reason,
+                riskNote
+        );
+    }
 }

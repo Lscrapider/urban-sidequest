@@ -17,7 +17,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -46,8 +45,6 @@ public class BaiduPoiCandidateProvider implements PoiCandidateProvider {
     private static final int MAX_CANDIDATE_COUNT = 100;
 
     private static final int MIN_CANDIDATE_COUNT = 3;
-
-    private static final ZoneId ROUTE_ZONE = ZoneId.of("Asia/Shanghai");
 
     private static final LocalTime LUNCH_START = LocalTime.of(11, 30);
 
@@ -356,7 +353,7 @@ public class BaiduPoiCandidateProvider implements PoiCandidateProvider {
     }
 
     private boolean overlaps(RouteGenerationContext context, LocalTime windowStart, LocalTime windowEnd) {
-        LocalDateTime routeStart = LocalDateTime.ofInstant(context.getGenerateParam().getDepartureTime(), ROUTE_ZONE);
+        LocalDateTime routeStart = context.getGenerateParam().getDepartureTime();
         LocalDateTime routeEnd = routeStart.plusMinutes(context.getGenerateParam().getDurationMinutes());
         LocalDate cursorDate = routeStart.toLocalDate();
         while (!cursorDate.isAfter(routeEnd.toLocalDate())) {

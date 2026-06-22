@@ -149,11 +149,12 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
                     .or(() -> this.fetchAndCachePlan(origin, destination, mode, context));
             if (plan.isPresent()) {
                 RouteSegmentSource source = index == 0 ? RouteSegmentSource.AMAP_DIRECT : RouteSegmentSource.AMAP_FALLBACK;
+                SegmentTransportMode segmentMode = this.segmentMode(initialMode, mode, source);
+                RoutePlanDTO segmentPlan = this.segmentPlan(segmentMode, mode, plan.get());
                 if (source == RouteSegmentSource.AMAP_FALLBACK) {
-                    context.addWarning(routeCode + " 线第 " + order + " 段 " + this.modeLabel(initialMode)
-                            + " 无可用路线，已降级为 " + this.modeLabel(mode));
+                    context.addWarning(this.fallbackWarning(routeCode, order, initialMode, mode, segmentMode));
                 }
-                return Optional.of(this.toRouteSegment(order, origin, destination, mode, plan.get(), source));
+                return Optional.of(this.toRouteSegment(order, origin, destination, segmentMode, segmentPlan, source));
             }
         }
         Optional<RouteSegmentDTO> fallbackSegment = this.fallbackSegment(order, origin, destination);
@@ -168,6 +169,49 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
         modes.add(initialMode);
         modes.addAll(this.segmentModeResolver.fallbackChain(initialMode));
         return new ArrayList<>(modes);
+    }
+
+    private SegmentTransportMode segmentMode(
+            SegmentTransportMode initialMode,
+            SegmentTransportMode planMode,
+            RouteSegmentSource source
+    ) {
+        if (source == RouteSegmentSource.AMAP_FALLBACK
+                && initialMode == SegmentTransportMode.BIKE
+                && planMode == SegmentTransportMode.WALK) {
+            return SegmentTransportMode.BIKE;
+        }
+        return planMode;
+    }
+
+    private RoutePlanDTO segmentPlan(SegmentTransportMode segmentMode, SegmentTransportMode planMode, RoutePlanDTO plan) {
+        if (segmentMode == SegmentTransportMode.BIKE && planMode == SegmentTransportMode.WALK) {
+            return new RoutePlanDTO(
+                    plan.distanceMeters(),
+                    plan.durationMinutes(),
+                    plan.polyline(),
+                    plan.steps(),
+                    "骑行/推行约 " + Math.max(1, plan.durationMinutes()) + " 分钟，" + plan.distanceMeters() + " 米",
+                    plan.rawPayload()
+            );
+        }
+        return plan;
+    }
+
+    private String fallbackWarning(
+            String routeCode,
+            int order,
+            SegmentTransportMode initialMode,
+            SegmentTransportMode planMode,
+            SegmentTransportMode segmentMode
+    ) {
+        if (initialMode == SegmentTransportMode.BIKE
+                && planMode == SegmentTransportMode.WALK
+                && segmentMode == SegmentTransportMode.BIKE) {
+            return routeCode + " 线第 " + order + " 段骑行路线无可用，已按骑行/推行路径估算";
+        }
+        return routeCode + " 线第 " + order + " 段 " + this.modeLabel(initialMode)
+                + " 无可用路线，已降级为 " + this.modeLabel(planMode);
     }
 
     private Optional<RoutePlanDTO> findCachedPlan(
@@ -290,6 +334,8 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
                 stop.name(),
                 stop.slotLabel(),
                 stop.category(),
+                stop.routeRole(),
+                stop.intendedMealWindow(),
                 stop.location(),
                 stop.rating(),
                 stop.stayMinutes(),

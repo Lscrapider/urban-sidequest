@@ -14,9 +14,10 @@ import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.district.RouteDistrictPlanner;
+import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import com.urbansidequest.backend.handler.route.pool.PoiDiversitySampler;
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,7 @@ class LlmRoutePromptInputExpansionTest {
     private final PoiDiversitySampler sampler = new PoiDiversitySampler();
 
     private final LlmRoutePromptPayloadFactory payloadFactory =
-            new LlmRoutePromptPayloadFactory(new RouteDistrictPlanner());
+            new LlmRoutePromptPayloadFactory(new RouteDistrictPlanner(), new PoiSemanticResolver());
 
     @Test
     void taxiFullDayPromptInputContainsReservedMidFarDistrictsWhenLinearCandidatesHaveCleanQuality() {
@@ -209,7 +210,7 @@ class LlmRoutePromptInputExpansionTest {
         RouteGenerateParam param = new RouteGenerateParam();
         param.setAreaMode(AreaMode.AUTO_RADIUS);
         param.setCenter(center());
-        param.setDepartureTime(Instant.parse("2026-06-17T02:00:00Z"));
+        param.setDepartureTime(LocalDateTime.of(2026, 6, 17, 10, 0));
         param.setDurationMinutes(durationMinutes);
         param.setTransportProfile(transportProfile);
         param.setRouteGoal(RouteGoal.STEADY);

@@ -24,6 +24,7 @@ public class DefaultRouteGoalScoringStrategy implements RouteGoalScoringStrategy
         }
         score += switch (context.getGenerateParam().getRouteGoal()) {
             case STEADY -> -route.totalDistanceMeters() / 100;
+            case QUIET -> RiskLevel.LOW == route.riskLevel() ? 80 : 0;
             case CLASSIC -> route.stops().size() * 15;
             case LOCAL -> this.containsCategory(route, "LOCAL") || this.containsCategory(route, "FOOD")
                     ? 90
