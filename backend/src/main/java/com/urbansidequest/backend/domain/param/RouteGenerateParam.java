@@ -5,6 +5,7 @@ import com.urbansidequest.backend.domain.constant.DateTimeFormatConstant;
 import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
 import com.urbansidequest.backend.domain.enums.AreaMode;
 import com.urbansidequest.backend.domain.enums.BudgetLevel;
+import com.urbansidequest.backend.domain.enums.MealWindow;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import jakarta.validation.Valid;
@@ -56,6 +57,8 @@ public class RouteGenerateParam {
     private BudgetLevel budgetLevel = BudgetLevel.NORMAL;
 
     private List<String> interestTags = new ArrayList<>();
+
+    private List<MealWindow> mealWindows = new ArrayList<>();
 
     @Valid
     private List<MustVisitPointParam> mustVisitPoints = new ArrayList<>();
@@ -173,6 +176,14 @@ public class RouteGenerateParam {
 
     public void setInterestTags(List<String> interestTags) {
         this.interestTags = interestTags == null ? new ArrayList<>() : interestTags;
+    }
+
+    public List<MealWindow> getMealWindows() {
+        return this.mealWindows;
+    }
+
+    public void setMealWindows(List<MealWindow> mealWindows) {
+        this.mealWindows = mealWindows == null ? new ArrayList<>() : mealWindows;
     }
 
     public List<MustVisitPointParam> getMustVisitPoints() {

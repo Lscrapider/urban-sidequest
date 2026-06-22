@@ -25,7 +25,7 @@
     }
   ],
   "judge": {
-    "promptVersion": "llm-sim-user-v2",
+    "promptVersion": "llm-sim-user-v3",
     "judgesPerCandidateSet": 2,
     "fullJudgeRatio": 0.1,
     "maxRetries": 1,

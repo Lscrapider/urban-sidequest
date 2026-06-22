@@ -9,6 +9,7 @@ import com.urbansidequest.backend.domain.enums.RiskLevel;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.segment.SegmentCostStrategy;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -444,40 +445,13 @@ public class BeamSearchRouteSelector {
 
     private int resolveMealNeed(RouteGenerationContext context) {
         int need = 0;
-        if (this.overlapsMealWindow(context, 11, 30, 13, 30)) {
+        if (MealWindowSupport.requiresLunch(context.getGenerateParam())) {
             need++;
         }
-        if (this.overlapsMealWindow(context, 17, 30, 20, 0)) {
+        if (MealWindowSupport.requiresDinner(context.getGenerateParam())) {
             need++;
         }
         return need;
-    }
-
-    private boolean overlapsMealWindow(
-            RouteGenerationContext context,
-            int startHour,
-            int startMinute,
-            int endHour,
-            int endMinute
-    ) {
-        java.time.LocalDateTime routeStart = context.getGenerateParam().getDepartureTime();
-        java.time.LocalDateTime routeEnd = routeStart.plusMinutes(context.getGenerateParam().getDurationMinutes());
-        java.time.LocalDate cursorDate = routeStart.toLocalDate();
-        while (!cursorDate.isAfter(routeEnd.toLocalDate())) {
-            java.time.LocalDateTime candidateStart = java.time.LocalDateTime.of(
-                    cursorDate,
-                    java.time.LocalTime.of(startHour, startMinute)
-            );
-            java.time.LocalDateTime candidateEnd = java.time.LocalDateTime.of(
-                    cursorDate,
-                    java.time.LocalTime.of(endHour, endMinute)
-            );
-            if (routeStart.isBefore(candidateEnd) && routeEnd.isAfter(candidateStart)) {
-                return true;
-            }
-            cursorDate = cursorDate.plusDays(1);
-        }
-        return false;
     }
 
     private int resolveRestNeed(RouteGenerationContext context) {

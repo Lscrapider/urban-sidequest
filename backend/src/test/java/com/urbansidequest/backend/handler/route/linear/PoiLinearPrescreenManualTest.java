@@ -18,6 +18,7 @@ import com.urbansidequest.backend.handler.route.step.LoadUserPreferenceProfileSt
 import com.urbansidequest.backend.handler.route.step.ResolveAreaStep;
 import com.urbansidequest.backend.handler.route.step.SelectPoiPoolStep;
 import com.urbansidequest.backend.handler.route.step.ValidateRouteRequestStep;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -175,7 +176,8 @@ class PoiLinearPrescreenManualTest {
         param.setTransportProfile(transportProfile);
         param.setRouteGoal(RouteGoal.LOCAL);
         param.setBudgetLevel(BudgetLevel.NORMAL);
-        param.setInterestTags(List.of("FOOD", "LOCAL", "NIGHT"));
+        param.setInterestTags(List.of("FOOD_LOCAL_FLAVOR", "LOCAL", "NIGHT"));
+        param.setMealWindows(MealWindowSupport.feasibleMealWindows(param));
         return param;
     }
 

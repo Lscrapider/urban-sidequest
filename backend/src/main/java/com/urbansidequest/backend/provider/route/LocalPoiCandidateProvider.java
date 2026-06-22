@@ -7,24 +7,14 @@ import com.urbansidequest.backend.domain.param.MustVisitPointParam;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
 public class LocalPoiCandidateProvider implements PoiCandidateProvider {
-
-    private static final LocalTime LUNCH_START = LocalTime.of(11, 30);
-
-    private static final LocalTime LUNCH_END = LocalTime.of(13, 30);
-
-    private static final LocalTime DINNER_START = LocalTime.of(17, 30);
-
-    private static final LocalTime DINNER_END = LocalTime.of(20, 0);
 
     private static final int SHORT_ROUTE_MINUTES = 180;
 
@@ -119,7 +109,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
     private List<PoiCandidateDTO> buildFunctionalCandidates(RouteGenerationContext context) {
         GeoPointDTO center = context.getArea().center();
         List<PoiCandidateDTO> candidates = new ArrayList<>();
-        if (this.overlaps(context, LUNCH_START, LUNCH_END)) {
+        if (MealWindowSupport.requiresLunch(context.getGenerateParam())) {
             candidates.add(this.buildCandidate(
                     "seed-lunch",
                     "附近风味餐厅",
@@ -134,7 +124,7 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
                     "路线覆盖午餐时间，适合作为用餐停留"
             ));
         }
-        if (this.overlaps(context, DINNER_START, DINNER_END)) {
+        if (MealWindowSupport.requiresDinner(context.getGenerateParam())) {
             candidates.add(this.buildCandidate(
                     "seed-dinner",
                     "本地晚餐小馆",
@@ -269,21 +259,6 @@ public class LocalPoiCandidateProvider implements PoiCandidateProvider {
             return PoiCandidateRole.MEAL;
         }
         return PoiCandidateRole.ANCHOR;
-    }
-
-    private boolean overlaps(RouteGenerationContext context, LocalTime windowStart, LocalTime windowEnd) {
-        LocalDateTime routeStart = context.getGenerateParam().getDepartureTime();
-        LocalDateTime routeEnd = routeStart.plusMinutes(context.getGenerateParam().getDurationMinutes());
-        LocalDate cursorDate = routeStart.toLocalDate();
-        while (!cursorDate.isAfter(routeEnd.toLocalDate())) {
-            LocalDateTime candidateStart = LocalDateTime.of(cursorDate, windowStart);
-            LocalDateTime candidateEnd = LocalDateTime.of(cursorDate, windowEnd);
-            if (routeStart.isBefore(candidateEnd) && routeEnd.isAfter(candidateStart)) {
-                return true;
-            }
-            cursorDate = cursorDate.plusDays(1);
-        }
-        return false;
     }
 
     private InterestTagCatalogPO defaultTag(String tagCode, String displayName, String categoryGroup) {

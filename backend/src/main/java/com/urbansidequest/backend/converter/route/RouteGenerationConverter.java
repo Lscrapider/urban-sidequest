@@ -64,6 +64,8 @@ public class RouteGenerationConverter {
                 stop.name(),
                 stop.slotLabel(),
                 stop.category(),
+                stop.routeRole(),
+                stop.intendedMealWindow(),
                 this.toGeoPointVO(stop.location()),
                 stop.rating(),
                 stop.stayMinutes(),

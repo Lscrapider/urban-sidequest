@@ -4,6 +4,7 @@ import com.urbansidequest.backend.domain.constant.DateTimeFormatConstant;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
+import com.urbansidequest.backend.domain.enums.MealWindow;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
@@ -14,7 +15,9 @@ import com.urbansidequest.backend.handler.route.district.RouteDistrictPlan;
 import com.urbansidequest.backend.handler.route.district.RouteDistrictPlanner;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticProfile;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -49,10 +52,13 @@ public class LlmRoutePromptPayloadFactory {
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("request", this.requestPayload(context));
-        payload.put("mealWindows", List.of(
-                this.mealWindowPayload("LUNCH", "11:30", "13:30"),
-                this.mealWindowPayload("DINNER", "17:30", "20:00")
-        ));
+        payload.put("mealWindowDefinitions", Arrays.stream(MealWindow.values())
+                .map(mealWindow -> this.mealWindowPayload(
+                        mealWindow.name(),
+                        MealWindowSupport.startText(mealWindow),
+                        MealWindowSupport.endText(mealWindow)
+                ))
+                .toList());
         Map<String, Object> transportPolicy = new LinkedHashMap<>();
         transportPolicy.put("profile", context.getGenerateParam().getTransportProfile());
         transportPolicy.put("districtBudget", districtPlan.effectiveDistrictBudget());
@@ -77,6 +83,7 @@ public class LlmRoutePromptPayloadFactory {
         payload.put("routeGoal", context.getGenerateParam().getRouteGoal());
         payload.put("routeGoalPolicy", this.routeGoalPolicy(context.getGenerateParam().getRouteGoal()));
         payload.put("interestTags", context.getGenerateParam().getInterestTags());
+        payload.put("mealWindows", context.getGenerateParam().getMealWindows());
         payload.put("mustVisitPoiIds", context.getPoiCandidates().stream()
                 .filter(PoiCandidateDTO::mustVisit)
                 .map(PoiCandidateDTO::poiId)
@@ -219,6 +226,7 @@ public class LlmRoutePromptPayloadFactory {
         payload.put("routeRoleHints", this.routeRoleHints(candidate, semantic));
         payload.put("recallSources", candidate.reasonSeed() == null ? List.of() : List.of(candidate.reasonSeed()));
         payload.put("rawType", candidate.rawType());
+        payload.put("typecode", candidate.typecode());
         payload.put("keytag", candidate.keytag());
         payload.put("rectag", candidate.rectag());
         payload.put("mealCandidate", semantic.isMealCandidate());

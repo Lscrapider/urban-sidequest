@@ -2,9 +2,11 @@ package com.urbansidequest.backend.handler.route.step;
 
 import cn.hutool.core.collection.CollUtil;
 import com.urbansidequest.backend.domain.enums.AreaMode;
+import com.urbansidequest.backend.domain.enums.MealWindow;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import com.urbansidequest.backend.manage.InterestTagCatalogManage;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -50,7 +52,40 @@ public class ValidateRouteRequestStep implements RouteGenerationStep {
         if (RouteGoal.LOW_BUDGET == context.getGenerateParam().getRouteGoal()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOW_BUDGET 已退出路线目标，请使用 budgetLevel 表达预算偏好");
         }
+        this.validateMealWindows(context);
         this.validateInterestTags(context);
+    }
+
+    private void validateMealWindows(RouteGenerationContext context) {
+        List<MealWindow> mealWindows = context.getGenerateParam().getMealWindows();
+        if (mealWindows == null || mealWindows.isEmpty()) {
+            return;
+        }
+        Set<MealWindow> uniqueWindows = new LinkedHashSet<>();
+        List<String> duplicateWindows = new ArrayList<>();
+        for (MealWindow mealWindow : mealWindows) {
+            if (mealWindow == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "mealWindows 不能包含空饭点");
+            }
+            if (!uniqueWindows.add(mealWindow)) {
+                duplicateWindows.add(mealWindow.name());
+            }
+        }
+        if (!duplicateWindows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "mealWindows 不能重复：" + String.join(",", duplicateWindows));
+        }
+
+        Set<MealWindow> feasibleWindows = new LinkedHashSet<>(MealWindowSupport.feasibleMealWindows(context.getGenerateParam()));
+        List<String> infeasibleWindows = uniqueWindows.stream()
+                .filter(mealWindow -> !feasibleWindows.contains(mealWindow))
+                .map(MealWindow::name)
+                .toList();
+        if (!infeasibleWindows.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "mealWindows 包含当前路线时间不可安排的饭点：" + String.join(",", infeasibleWindows)
+            );
+        }
     }
 
     private void validateInterestTags(RouteGenerationContext context) {
@@ -91,10 +126,26 @@ public class ValidateRouteRequestStep implements RouteGenerationStep {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "interestTags 包含未知或不可选标签：" + String.join(",", invalidTags));
         }
 
+        this.validateFoodInterestRequiresMealWindow(context, tagByCode, enabledTagByCode);
         this.validateGlobalInterestBucketCount(tagByCode, enabledTagByCode);
         this.validateFoodInterestTagCount(tagByCode, enabledTagByCode);
         this.validateFoodParentChildExclusive(tagByCode, enabledTagByCode);
         this.validateMaxSiblingSelected(tagByCode);
+    }
+
+    private void validateFoodInterestRequiresMealWindow(
+            RouteGenerationContext context,
+            Map<String, InterestTagCatalogPO> tagByCode,
+            Map<String, InterestTagCatalogPO> enabledTagByCode
+    ) {
+        if (CollUtil.isNotEmpty(context.getGenerateParam().getMealWindows())) {
+            return;
+        }
+        boolean hasFoodInterest = tagByCode.values().stream()
+                .anyMatch(tag -> this.isFoodTag(tag, enabledTagByCode));
+        if (hasFoodInterest) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未选择午餐或晚餐时不能选择 FOOD 餐饮偏好");
+        }
     }
 
     private void validateGlobalInterestBucketCount(

@@ -13,10 +13,8 @@ import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.param.MustVisitPointParam;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -45,14 +43,6 @@ public class BaiduPoiCandidateProvider implements PoiCandidateProvider {
     private static final int MAX_CANDIDATE_COUNT = 100;
 
     private static final int MIN_CANDIDATE_COUNT = 3;
-
-    private static final LocalTime LUNCH_START = LocalTime.of(11, 30);
-
-    private static final LocalTime LUNCH_END = LocalTime.of(13, 30);
-
-    private static final LocalTime DINNER_START = LocalTime.of(17, 30);
-
-    private static final LocalTime DINNER_END = LocalTime.of(20, 0);
 
     private static final int SHORT_ROUTE_MINUTES = 180;
 
@@ -179,7 +169,7 @@ public class BaiduPoiCandidateProvider implements PoiCandidateProvider {
             ));
         }
 
-        if (this.overlaps(context, LUNCH_START, LUNCH_END)) {
+        if (MealWindowSupport.requiresLunch(context.getGenerateParam())) {
             plans.add(new PoiSearchPlan(
                     this.queryFor(context, "FOOD", List.of("午餐", "本地菜", "小吃")),
                     PoiCandidateRole.MEAL,
@@ -188,7 +178,7 @@ public class BaiduPoiCandidateProvider implements PoiCandidateProvider {
                     "路线覆盖午餐时间，适合作为用餐停留"
             ));
         }
-        if (this.overlaps(context, DINNER_START, DINNER_END)) {
+        if (MealWindowSupport.requiresDinner(context.getGenerateParam())) {
             plans.add(new PoiSearchPlan(
                     this.queryFor(context, "FOOD", List.of("晚餐", "本地菜", "小吃")),
                     PoiCandidateRole.MEAL,
@@ -350,21 +340,6 @@ public class BaiduPoiCandidateProvider implements PoiCandidateProvider {
             return 1;
         }
         return 2;
-    }
-
-    private boolean overlaps(RouteGenerationContext context, LocalTime windowStart, LocalTime windowEnd) {
-        LocalDateTime routeStart = context.getGenerateParam().getDepartureTime();
-        LocalDateTime routeEnd = routeStart.plusMinutes(context.getGenerateParam().getDurationMinutes());
-        LocalDate cursorDate = routeStart.toLocalDate();
-        while (!cursorDate.isAfter(routeEnd.toLocalDate())) {
-            LocalDateTime candidateStart = LocalDateTime.of(cursorDate, windowStart);
-            LocalDateTime candidateEnd = LocalDateTime.of(cursorDate, windowEnd);
-            if (routeStart.isBefore(candidateEnd) && routeEnd.isAfter(candidateStart)) {
-                return true;
-            }
-            cursorDate = cursorDate.plusDays(1);
-        }
-        return false;
     }
 
     private List<String> keywordsFor(InterestTagCatalogPO tag) {

@@ -12,6 +12,7 @@ import com.urbansidequest.backend.domain.dto.RouteAreaDTO;
 import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
 import com.urbansidequest.backend.domain.enums.AreaMode;
 import com.urbansidequest.backend.domain.enums.BudgetLevel;
+import com.urbansidequest.backend.domain.enums.MealWindow;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
@@ -61,7 +62,7 @@ class LlmRoutePromptPayloadFactoryTest {
 
         assertThat(new ArrayList<>(payload.keySet())).containsExactly(
                 "request",
-                "mealWindows",
+                "mealWindowDefinitions",
                 "transportPolicy",
                 "districtBudget",
                 "districtOrder",
@@ -276,12 +277,15 @@ class LlmRoutePromptPayloadFactoryTest {
                 .contains("\"departureTime\":\"2026-06-17T10:00:00\"")
                 .doesNotContain("\"departureTime\":\"2026-06-17T02:00:00Z\"")
                 .contains("\"routeGoal\":\"QUIET\"")
+                .contains("\"mealWindows\":[\"LUNCH\"]")
+                .contains("\"mealWindowDefinitions\"")
                 .contains("\"routeGoalPolicy\"")
                 .contains("优先选择安静")
                 .contains("\"districtDistanceMatrix\"")
                 .contains("\"primaryCategoryGroup\":\"FOOD\"")
                 .contains("\"poiTagHits\":[\"FOOD_CHINESE\",\"LOCAL\"]")
                 .contains("\"routeRoleHints\":[\"MEAL\",\"REST\",\"LOCAL\"]")
+                .contains("\"typecode\":\"050100\"")
                 .contains("\"mealCandidate\":true")
                 .contains("\"restCandidate\":true")
                 .contains("\"localExperienceCandidate\":true")
@@ -292,11 +296,12 @@ class LlmRoutePromptPayloadFactoryTest {
                 .contains("\"semanticTags\":[\"PHOTO_FRIENDLY\",\"QUIET\"]")
                 .contains("根据 primaryCategoryGroup、poiTagHits、semanticTags")
                 .contains("mealCandidate=true 或 routeRoleHints 含 MEAL")
+                .contains("不要连续安排 3 个及以上高度同质的 POI")
+                .contains("相同 typecode、相同 rawType")
                 .doesNotContain("根据 category、role、tags、features")
                 .doesNotContain("category=FOOD 或 role=MEAL")
                 .doesNotContain("不要求 tags 额外包含")
                 .doesNotContain("\"amapPoiId\"")
-                .doesNotContain("\"typecode\"")
                 .doesNotContain("\"address\"")
                 .doesNotContain("\"category\":")
                 .doesNotContain("\"tags\":")
@@ -332,6 +337,7 @@ class LlmRoutePromptPayloadFactoryTest {
         param.setRouteCityName("上海市");
         param.setRouteCityAdcode("310000");
         param.setInterestTags(List.of("FOOD_SICHUAN", "COFFEE", "SCENIC"));
+        param.setMealWindows(List.of(MealWindow.LUNCH));
         return param;
     }
 

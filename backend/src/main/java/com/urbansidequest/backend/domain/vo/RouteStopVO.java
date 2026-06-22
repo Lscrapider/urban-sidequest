@@ -10,6 +10,8 @@ public record RouteStopVO(
         String name,
         String slotLabel,
         String category,
+        String routeRole,
+        String intendedMealWindow,
         GeoPointVO location,
         BigDecimal rating,
         int stayMinutes,

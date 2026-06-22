@@ -6,8 +6,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
+import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
 import com.urbansidequest.backend.domain.enums.AreaMode;
+import com.urbansidequest.backend.domain.enums.MealWindow;
+import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
@@ -26,7 +29,34 @@ import org.junit.jupiter.api.Test;
 class RouteInputFeatureExtractorTest {
 
     @Test
-    void detectsDinnerWindowWhenRouteCrossesMidnight() throws Exception {
+    void readsDinnerRequirementFromSelectedMealWindows() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
+                objectMapper,
+                new PoiSemanticResolver(),
+                new SegmentModeResolver()
+        );
+        RouteGenerationContext context = new RouteGenerationContext(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                baseParam()
+        );
+        context.getGenerateParam().setMealWindows(List.of(MealWindow.DINNER));
+
+        RouteInputFeatureSnapshot snapshot = extractor.extract(routeWithoutMealStops(), context);
+        Map<String, Object> routeDerivedVector = objectMapper.readValue(
+                snapshot.routeDerivedVectorJson(),
+                new TypeReference<>() {
+                }
+        );
+
+        assertThat(routeDerivedVector)
+                .containsEntry("requiresDinnerFlag", 1.0)
+                .containsEntry("missingRequiredMealFlag", 1.0);
+    }
+
+    @Test
+    void doesNotInferMealRequirementFromRouteTimeWhenMealWindowsAreEmpty() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
                 objectMapper,
@@ -45,10 +75,16 @@ class RouteInputFeatureExtractorTest {
                 new TypeReference<>() {
                 }
         );
+        Map<String, Object> contextJson = objectMapper.readValue(
+                snapshot.contextJson(),
+                new TypeReference<>() {
+                }
+        );
 
         assertThat(routeDerivedVector)
-                .containsEntry("requiresDinnerFlag", 1.0)
-                .containsEntry("missingRequiredMealFlag", 1.0);
+                .containsEntry("requiresDinnerFlag", 0.0)
+                .containsEntry("missingRequiredMealFlag", 0.0);
+        assertThat(contextJson).containsEntry("mealWindows", List.of());
     }
 
     @Test
@@ -105,6 +141,7 @@ class RouteInputFeatureExtractorTest {
                 UUID.randomUUID(),
                 baseParam()
         );
+        context.getGenerateParam().setMealWindows(List.of(MealWindow.DINNER));
 
         RouteInputFeatureSnapshot snapshot = extractor.extract(routeWithComposerDinnerStop(), context);
         List<Map<String, Object>> stopMatrix = objectMapper.readValue(
@@ -126,6 +163,41 @@ class RouteInputFeatureExtractorTest {
                 .containsEntry("requiresDinnerFlag", 1.0)
                 .containsEntry("dinnerCoveredFlag", 1.0)
                 .containsEntry("missingRequiredMealFlag", 0.0);
+    }
+
+    @Test
+    void extractsAmapTypecodeDiversityFromCandidateTypecode() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
+                objectMapper,
+                new PoiSemanticResolver(),
+                new SegmentModeResolver()
+        );
+        RouteGenerationContext context = new RouteGenerationContext(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                baseParam()
+        );
+        context.setPoiCandidates(List.of(
+                candidate("p1", "110105"),
+                candidate("p2", " 110105 "),
+                candidate("p3", null),
+                candidate("p4", ""),
+                candidate("p5", "110101")
+        ));
+
+        RouteInputFeatureSnapshot snapshot = extractor.extract(routeWithFiveStops(), context);
+        Map<String, Object> routeDerivedVector = objectMapper.readValue(
+                snapshot.routeDerivedVectorJson(),
+                new TypeReference<>() {
+                }
+        );
+
+        assertThat(routeDerivedVector)
+                .containsEntry("amapTypecodeDiversityRatio", 0.8)
+                .containsEntry("dominantAmapTypecodeRatio", 0.4)
+                .containsEntry("consecutiveSameAmapTypecodeMaxNorm", 0.4)
+                .containsEntry("missingAmapTypecodeRatio", 0.4);
     }
 
     private static RouteGenerateParam baseParam() {
@@ -173,6 +245,58 @@ class RouteInputFeatureExtractorTest {
                 ),
                 List.of(),
                 0
+        );
+    }
+
+    private static CandidateRouteDTO routeWithFiveStops() {
+        return new CandidateRouteDTO(
+                "A",
+                "路线 A",
+                "summary",
+                360,
+                0,
+                null,
+                RiskLevel.LOW,
+                "explanation",
+                List.of(
+                        stop("p1-A", 0, "大慈恩寺广场", "景点"),
+                        stop("p2-A", 1, "脸谱广场", "景点"),
+                        stop("p3-A", 2, "未知类型点 1", "景点"),
+                        stop("p4-A", 3, "未知类型点 2", "景点"),
+                        stop("p5-A", 4, "曲江池遗址公园", "景点")
+                ),
+                List.of(),
+                0
+        );
+    }
+
+    private static PoiCandidateDTO candidate(String poiId, String typecode) {
+        return new PoiCandidateDTO(
+                poiId,
+                poiId,
+                poiId,
+                "SCENIC",
+                PoiCandidateRole.ANCHOR,
+                new GeoPointDTO(new BigDecimal("121.4737"), new BigDecimal("31.2304")),
+                null,
+                "description",
+                new BigDecimal("4.6"),
+                null,
+                List.of("SCENIC"),
+                List.of(),
+                0,
+                "风景名胜;公园广场;城市广场",
+                typecode,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                "UNKNOWN",
+                null,
+                false,
+                "reason"
         );
     }
 

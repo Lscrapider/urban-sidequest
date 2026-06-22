@@ -120,12 +120,20 @@ python3 -m scripts.route_preference_simulator run \
 内置 request 会覆盖：
 
 ```text
-LOCAL / CLASSIC / LOW_BUDGET / NIGHT / PHOTO / STEADY
+STEADY / QUIET / CLASSIC / LOCAL / NIGHT / PHOTO
 WALK_ONLY / WALK_SUBWAY / WALK_BUS / WALK_TRANSIT / BIKE_SUBWAY / WALK_TAXI
 LOW / NORMAL / FLEXIBLE
 ```
 
-生成时 `request.interestTags` 会从模板主题里随机抽取 2-4 个，`persona.tagAffinities` 会从画像偏好里随机抽取 3-6 个；合法兴趣标签为 `FOOD / COFFEE / MUSEUM / SCENIC / PHOTO / SHOPPING / NIGHT / LOCAL`。
+生成时 `request.interestTags` 会先抽取 2-5 个全局兴趣大类；如果包含 FOOD，会在 FOOD 子树内额外抽取 1-3 个可选标签，因此总标签数可以超过 5。`persona.tagAffinities` 会从画像偏好里随机抽取 3-6 个。`routeGoal` 不再传 `LOW_BUDGET`，预算只用 `budgetLevel` 表达。`departureTime` 使用北京时间本地字符串，例如 `2026-06-22T14:30:00`，不带 `Z` 或时区偏移。
+
+`request.mealWindows` 表示用户本次明确选择的正餐饭点，只能包含 `LUNCH / DINNER`。生成器会按 `departureTime + durationMinutes` 计算可行饭点并默认带上；如果某个请求没有可行饭点，则会从 `request.interestTags` 中移除 FOOD 子标签，避免生成后端必拒的请求。
+
+`request.interestTags` 只传稳定 `tagCode`。非 FOOD 标签传顶层兴趣：`SCENIC / CULTURE / MUSEUM / COFFEE / SHOPPING / LOCAL / NIGHT / PHOTO / ENTERTAINMENT / EVENT`。FOOD 不允许传根标签，只能传子标签，例如 `FOOD_LOCAL_FLAVOR / FOOD_SICHUAN / FOOD_HOT_POT / FOOD_CANTONESE / FOOD_WESTERN / FOOD_AMERICAN` 等。
+
+全局兴趣大类最多 5 个；FOOD 子树无论传几个都只算一个全局大类。FOOD 内部最多显式选择 3 个标签，且不能同时选择同一父子链，例如不能同时传 `FOOD_CHINESE` 和 `FOOD_SICHUAN`。
+
+模拟用户 prompt 会把本次 request 当作当前强意图，把 persona 当作长期偏好背景。例如距离敏感用户这次选择 `WALK_TAXI` 时，prompt 会表达“愿意为了更值得的地点出远门，但无意义绕路和折返仍应降分”。FOOD 子标签也是强意图：如果本次选择 `FOOD_SICHUAN`，路线只命中普通 FOOD 只能算弱替代，不能当作完全满足。
 
 ## 输出保存
 
@@ -142,7 +150,7 @@ POST /api/route-preferences/judgments
   "candidateSetId": "...",
   "judgeType": "LLM_SIM_USER",
   "judgeModel": "provider:model",
-  "judgePromptVersion": "llm-sim-user-v2",
+  "judgePromptVersion": "llm-sim-user-v3",
   "ranking": ["A", "B", "C"],
   "acceptedRouteCodes": ["A"],
   "rejectedRouteCodes": ["C"],

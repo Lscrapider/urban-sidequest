@@ -20,6 +20,7 @@ import com.urbansidequest.backend.handler.route.step.LoadUserPreferenceProfileSt
 import com.urbansidequest.backend.handler.route.step.ResolveAreaStep;
 import com.urbansidequest.backend.handler.route.step.SelectPoiPoolStep;
 import com.urbansidequest.backend.handler.route.step.ValidateRouteRequestStep;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -167,7 +168,6 @@ class LlmRoutePromptFullChainManualTest {
                 .contains("\"districtBudget\":")
                 .contains("\"pois\":[")
                 .doesNotContain("\"amapPoiId\"")
-                .doesNotContain("\"typecode\"")
                 .doesNotContain("\"address\"")
                 .doesNotContain("\"category\":")
                 .doesNotContain("\"tags\":")
@@ -282,6 +282,7 @@ class LlmRoutePromptFullChainManualTest {
         param.setRouteGoal(routeGoal);
         param.setBudgetLevel(budgetLevel);
         param.setInterestTags(interestTags);
+        param.setMealWindows(MealWindowSupport.feasibleMealWindows(param));
         return param;
     }
 

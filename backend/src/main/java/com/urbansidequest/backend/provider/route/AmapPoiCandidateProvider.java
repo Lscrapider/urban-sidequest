@@ -16,6 +16,7 @@ import com.urbansidequest.backend.domain.param.MustVisitPointParam;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
 import com.urbansidequest.backend.domain.po.PoiRecallPlanConfigPO;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import com.urbansidequest.backend.manage.AmapPoiSearchCacheManage;
 import com.urbansidequest.backend.manage.PoiRecallPlanConfigManage;
 import java.math.BigDecimal;
@@ -24,9 +25,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -61,14 +59,6 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
     private static final int MIN_CANDIDATE_COUNT = 3;
 
     private static final int POI_CACHE_TTL_HOURS = 24;
-
-    private static final LocalTime LUNCH_START = LocalTime.of(11, 30);
-
-    private static final LocalTime LUNCH_END = LocalTime.of(13, 30);
-
-    private static final LocalTime DINNER_START = LocalTime.of(17, 30);
-
-    private static final LocalTime DINNER_END = LocalTime.of(20, 0);
 
     private static final int SHORT_ROUTE_MINUTES = 180;
 
@@ -217,10 +207,10 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
 
         boolean hasFoodInterest = this.hasFoodInterest(context.getGenerateParam().getInterestTags());
         List<String> systemPlanTypes = new ArrayList<>();
-        if (!hasFoodInterest && this.overlaps(context, LUNCH_START, LUNCH_END)) {
+        if (!hasFoodInterest && MealWindowSupport.requiresLunch(context.getGenerateParam())) {
             systemPlanTypes.add(PLAN_TYPE_MEAL_LUNCH);
         }
-        if (!hasFoodInterest && this.overlaps(context, DINNER_START, DINNER_END)) {
+        if (!hasFoodInterest && MealWindowSupport.requiresDinner(context.getGenerateParam())) {
             systemPlanTypes.add(PLAN_TYPE_MEAL_DINNER);
         }
         if (this.resolveRestNeed(context) > 0) {
@@ -351,7 +341,7 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
 
     private List<PoiSearchPlan> defaultSystemPlans(RouteGenerationContext context, boolean hasFoodInterest) {
         List<PoiSearchPlan> plans = new ArrayList<>();
-        if (!hasFoodInterest && this.overlaps(context, LUNCH_START, LUNCH_END)) {
+        if (!hasFoodInterest && MealWindowSupport.requiresLunch(context.getGenerateParam())) {
             plans.addAll(this.typeOnlySystemPlan(
                     context,
                     List.of("050100", "050200", "050300"),
@@ -360,7 +350,7 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
                     "路线覆盖午餐时间，适合作为用餐停留"
             ));
         }
-        if (!hasFoodInterest && this.overlaps(context, DINNER_START, DINNER_END)) {
+        if (!hasFoodInterest && MealWindowSupport.requiresDinner(context.getGenerateParam())) {
             plans.addAll(this.typeOnlySystemPlan(
                     context,
                     List.of("050100", "050200", "050300"),
@@ -653,21 +643,6 @@ public class AmapPoiCandidateProvider implements PoiCandidateProvider {
             return 1;
         }
         return 2;
-    }
-
-    private boolean overlaps(RouteGenerationContext context, LocalTime windowStart, LocalTime windowEnd) {
-        LocalDateTime routeStart = context.getGenerateParam().getDepartureTime();
-        LocalDateTime routeEnd = routeStart.plusMinutes(context.getGenerateParam().getDurationMinutes());
-        LocalDate cursorDate = routeStart.toLocalDate();
-        while (!cursorDate.isAfter(routeEnd.toLocalDate())) {
-            LocalDateTime candidateStart = LocalDateTime.of(cursorDate, windowStart);
-            LocalDateTime candidateEnd = LocalDateTime.of(cursorDate, windowEnd);
-            if (routeStart.isBefore(candidateEnd) && routeEnd.isAfter(candidateStart)) {
-                return true;
-            }
-            cursorDate = cursorDate.plusDays(1);
-        }
-        return false;
     }
 
     private GeoPointDTO parseLocation(String locationText) {

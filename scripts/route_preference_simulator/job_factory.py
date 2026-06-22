@@ -1,20 +1,47 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta
 import random
 
 from .presets import CITY_PRESETS, INTEREST_TAG_CODES, PERSONA_ARCHETYPES, REQUEST_TEMPLATES
 
 
-REQUEST_INTEREST_TAG_MIN = 2
-REQUEST_INTEREST_TAG_MAX = 4
+REQUEST_GLOBAL_INTEREST_BUCKET_MIN = 2
+REQUEST_GLOBAL_INTEREST_BUCKET_MAX = 5
+REQUEST_FOOD_INTEREST_TAG_MAX = 3
 PERSONA_TAG_AFFINITY_MIN = 3
 PERSONA_TAG_AFFINITY_MAX = 6
 PERSONA_EXTRA_TAG_AFFINITY_MIN = 0.20
 PERSONA_EXTRA_TAG_AFFINITY_MAX = 0.55
 REQUEST_PRIMARY_TAG_COUNT = 1
 PERSONA_CORE_TAG_COUNT = 2
+
+MEAL_WINDOW_TIMES = {
+    "LUNCH": (time(11, 30), time(13, 30)),
+    "DINNER": (time(17, 30), time(20, 0)),
+}
+
+FOOD_PARENT_BY_TAG = {
+    "FOOD_CHINESE": "FOOD",
+    "FOOD_FOREIGN": "FOOD",
+    "FOOD_FAST_FOOD": "FOOD",
+    "FOOD_SICHUAN": "FOOD_CHINESE",
+    "FOOD_CANTONESE": "FOOD_CHINESE",
+    "FOOD_SHANDONG": "FOOD_CHINESE",
+    "FOOD_JIANGSU": "FOOD_CHINESE",
+    "FOOD_ZHEJIANG": "FOOD_CHINESE",
+    "FOOD_HUNAN": "FOOD_CHINESE",
+    "FOOD_DONG_BEI": "FOOD_CHINESE",
+    "FOOD_OLD_BRAND": "FOOD_CHINESE",
+    "FOOD_HOT_POT": "FOOD_CHINESE",
+    "FOOD_LOCAL_FLAVOR": "FOOD_CHINESE",
+    "FOOD_HALAL": "FOOD_CHINESE",
+    "FOOD_WESTERN": "FOOD_FOREIGN",
+    "FOOD_AMERICAN": "FOOD_FOREIGN",
+    "FOOD_INDIAN": "FOOD_FOREIGN",
+    "FOOD_MEXICAN": "FOOD_FOREIGN",
+}
 
 
 def build_jobs(
@@ -28,7 +55,7 @@ def build_jobs(
 ) -> list[dict]:
     rng = random.Random(seed)
     selected_city_keys = city_keys or list(CITY_PRESETS.keys())
-    base_date = datetime(2026, 6, 20, tzinfo=timezone.utc)
+    base_date = datetime(2026, 6, 20)
     if request_count is not None:
         return build_request_probe_jobs(
             request_count=request_count,
@@ -122,7 +149,11 @@ def build_request(index: int, rng: random.Random, city_keys: list[str], base_dat
     area = deepcopy(rng.choice(city["areas"]))
     template = deepcopy(rng.choice(REQUEST_TEMPLATES))
     departure = base_date + timedelta(days=rng.randrange(28), hours=template.pop("hour"))
+    duration_minutes = template["durationMinutes"]
     interest_tags = select_request_interest_tags(template["interestTags"], rng)
+    meal_windows = feasible_meal_windows(departure, duration_minutes)
+    if not meal_windows:
+        interest_tags = [tag_code for tag_code in interest_tags if not is_food_tag(tag_code)]
     return {
         "areaMode": "AUTO_RADIUS",
         "areaLabel": area["areaLabel"],
@@ -130,25 +161,37 @@ def build_request(index: int, rng: random.Random, city_keys: list[str], base_dat
         "areaPolygonGcj02": [],
         "routeCityName": city["routeCityName"],
         "routeCityAdcode": city["routeCityAdcode"],
-        "departureTime": departure.isoformat().replace("+00:00", "Z"),
-        "durationMinutes": template["durationMinutes"],
+        "departureTime": departure.strftime("%Y-%m-%dT%H:%M:%S"),
+        "durationMinutes": duration_minutes,
         "transportProfile": template["transportProfile"],
         "routeGoal": template["routeGoal"],
         "budgetLevel": template["budgetLevel"],
         "interestTags": interest_tags,
+        "mealWindows": meal_windows,
         "mustVisitPoints": [],
     }
 
 
 def select_request_interest_tags(base_tags: list[str], rng: random.Random) -> list[str]:
-    target_count = rng.randint(REQUEST_INTEREST_TAG_MIN, REQUEST_INTEREST_TAG_MAX)
-    target_count = min(target_count, len(INTEREST_TAG_CODES))
+    target_bucket_count = rng.randint(REQUEST_GLOBAL_INTEREST_BUCKET_MIN, REQUEST_GLOBAL_INTEREST_BUCKET_MAX)
     primary_tags = unique_tags(base_tags[:REQUEST_PRIMARY_TAG_COUNT])
-    selected = primary_tags[:target_count]
+    selected = []
+    for tag_code in primary_tags:
+        if len(global_interest_buckets(selected)) >= target_bucket_count:
+            break
+        if can_add_request_tag(selected, tag_code):
+            selected.append(tag_code)
     candidates = unique_tags(base_tags[REQUEST_PRIMARY_TAG_COUNT:] + [
         tag_code for tag_code in INTEREST_TAG_CODES if tag_code not in selected
     ])
-    return selected + rng.sample(candidates, target_count - len(selected))
+    rng.shuffle(candidates)
+    for tag_code in candidates:
+        if len(global_interest_buckets(selected)) >= target_bucket_count:
+            break
+        if can_add_request_tag(selected, tag_code):
+            selected.append(tag_code)
+    selected = expand_food_tags(selected, candidates, rng)
+    return selected
 
 
 def select_persona_tag_affinities(base_affinities: dict[str, float], rng: random.Random) -> dict[str, float]:
@@ -176,6 +219,72 @@ def select_persona_tag_affinities(base_affinities: dict[str, float], rng: random
 
 def unique_tags(tags: list[str]) -> list[str]:
     return list(dict.fromkeys(tags))
+
+
+def can_add_request_tag(selected: list[str], tag_code: str) -> bool:
+    if tag_code in selected:
+        return False
+    candidate_buckets = global_interest_buckets(selected + [tag_code])
+    if len(candidate_buckets) > REQUEST_GLOBAL_INTEREST_BUCKET_MAX:
+        return False
+    if not is_food_tag(tag_code):
+        return True
+    if food_parent_child_conflicts(selected, tag_code):
+        return False
+    return sum(1 for selected_tag in selected if is_food_tag(selected_tag)) < REQUEST_FOOD_INTEREST_TAG_MAX
+
+
+def is_food_tag(tag_code: str) -> bool:
+    return tag_code.startswith("FOOD_")
+
+
+def global_interest_buckets(tags: list[str]) -> set[str]:
+    return {"FOOD" if is_food_tag(tag_code) else tag_code for tag_code in tags}
+
+
+def expand_food_tags(selected: list[str], candidates: list[str], rng: random.Random) -> list[str]:
+    if not any(is_food_tag(tag_code) for tag_code in selected):
+        return selected
+    food_target = rng.randint(1, REQUEST_FOOD_INTEREST_TAG_MAX)
+    expanded = list(selected)
+    food_candidates = [tag_code for tag_code in candidates if is_food_tag(tag_code)]
+    rng.shuffle(food_candidates)
+    for tag_code in food_candidates:
+        if sum(1 for selected_tag in expanded if is_food_tag(selected_tag)) >= food_target:
+            break
+        if can_add_request_tag(expanded, tag_code):
+            expanded.append(tag_code)
+    return expanded
+
+
+def feasible_meal_windows(departure: datetime, duration_minutes: int) -> list[str]:
+    route_end = departure + timedelta(minutes=duration_minutes)
+    result = []
+    current_date = departure.date()
+    while current_date <= route_end.date():
+        for meal_window, (start, end) in MEAL_WINDOW_TIMES.items():
+            window_start = datetime.combine(current_date, start)
+            window_end = datetime.combine(current_date, end)
+            if departure < window_end and route_end > window_start and meal_window not in result:
+                result.append(meal_window)
+        current_date += timedelta(days=1)
+    return result
+
+
+def food_parent_child_conflicts(selected: list[str], tag_code: str) -> bool:
+    ancestors = food_ancestors(tag_code)
+    if any(selected_tag in ancestors for selected_tag in selected):
+        return True
+    return any(tag_code in food_ancestors(selected_tag) for selected_tag in selected)
+
+
+def food_ancestors(tag_code: str) -> set[str]:
+    ancestors = set()
+    parent = FOOD_PARENT_BY_TAG.get(tag_code)
+    while parent:
+        ancestors.add(parent)
+        parent = FOOD_PARENT_BY_TAG.get(parent)
+    return ancestors
 
 
 def jitter(value: float, rng: random.Random, width: float = 0.08) -> float:

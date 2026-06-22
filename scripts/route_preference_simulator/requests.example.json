@@ -10,11 +10,13 @@
       "areaPolygonGcj02": [],
       "routeCityName": "上海",
       "routeCityAdcode": "310000",
-      "departureTime": "2026-06-20T06:00:00Z",
+      "departureTime": "2026-06-20T14:00:00",
       "durationMinutes": 240,
       "transportProfile": "WALK_SUBWAY",
       "routeGoal": "LOCAL",
-      "interestTags": ["LOCAL", "FOOD", "COFFEE"],
+      "budgetLevel": "LOW",
+      "interestTags": ["LOCAL", "FOOD_LOCAL_FLAVOR", "COFFEE"],
+      "mealWindows": ["DINNER"],
       "mustVisitPoints": []
     },
     "persona": {
@@ -25,7 +27,7 @@
       "profileConfidence": 0.8,
       "tagAffinities": {
         "LOCAL": 0.9,
-        "FOOD": 0.8,
+        "FOOD_LOCAL_FLAVOR": 0.8,
         "COFFEE": 0.7,
         "SCENIC": 0.3
       },

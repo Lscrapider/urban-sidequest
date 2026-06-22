@@ -24,11 +24,10 @@ import com.urbansidequest.backend.handler.route.linear.LinearScoreConstants;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticProfile;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -57,13 +56,7 @@ public class RouteInputFeatureExtractor {
 
     private static final double RISK_COST_THRESHOLD = -0.12d;
 
-    private static final LocalTime LUNCH_START = LocalTime.of(11, 30);
-
-    private static final LocalTime LUNCH_END = LocalTime.of(13, 30);
-
-    private static final LocalTime DINNER_START = LocalTime.of(17, 30);
-
-    private static final LocalTime DINNER_END = LocalTime.of(20, 0);
+    private static final String MISSING_AMAP_TYPECODE_PREFIX = "__MISSING_AMAP_TYPECODE__";
 
     private final ObjectMapper objectMapper;
 
@@ -279,8 +272,8 @@ public class RouteInputFeatureExtractor {
         vector.put("estimatedTravelMinutesNorm", estimatedTravelMinutes / durationMinutes);
         vector.put("timeBudgetUsageRatio", (estimatedStayMinutes + estimatedTravelMinutes) / durationMinutes);
 
-        boolean requiresLunch = this.overlapsMealWindow(context.getGenerateParam().getDepartureTime(), durationMinutes, LUNCH_START, LUNCH_END);
-        boolean requiresDinner = this.overlapsMealWindow(context.getGenerateParam().getDepartureTime(), durationMinutes, DINNER_START, DINNER_END);
+        boolean requiresLunch = MealWindowSupport.requiresLunch(context.getGenerateParam());
+        boolean requiresDinner = MealWindowSupport.requiresDinner(context.getGenerateParam());
         long mealStopCount = stopMatrix.stream().filter(row -> doubleValue(row.get("routeRole_MEAL")) > 0d).count();
         long restStopCount = stopMatrix.stream().filter(row -> doubleValue(row.get("routeRole_REST")) > 0d).count();
         MealCoverage mealCoverage = this.mealCoverage(stops, mealStopCount);
@@ -341,8 +334,16 @@ public class RouteInputFeatureExtractor {
 
         List<String> categoryGroups = this.categoryGroups(route, source);
         vector.put("categoryDiversityRatio", stopCount == 0 ? 0d : new LinkedHashSet<>(categoryGroups).size() / (double) stopCount);
-        vector.put("dominantCategoryRatio", stopCount == 0 ? 0d : this.dominantCategoryCount(categoryGroups) / (double) stopCount);
-        vector.put("consecutiveSameCategoryMaxNorm", stopCount == 0 ? 0d : this.maxConsecutiveCategoryCount(categoryGroups) / (double) stopCount);
+        vector.put("dominantCategoryRatio", stopCount == 0 ? 0d : this.dominantValueCount(categoryGroups) / (double) stopCount);
+        vector.put("consecutiveSameCategoryMaxNorm", stopCount == 0 ? 0d : this.maxConsecutiveValueCount(categoryGroups) / (double) stopCount);
+        List<String> amapTypecodeKeys = this.amapTypecodeKeys(route, source);
+        long missingAmapTypecodeCount = amapTypecodeKeys.stream()
+                .filter(key -> key.startsWith(MISSING_AMAP_TYPECODE_PREFIX))
+                .count();
+        vector.put("amapTypecodeDiversityRatio", stopCount == 0 ? 0d : new LinkedHashSet<>(amapTypecodeKeys).size() / (double) stopCount);
+        vector.put("dominantAmapTypecodeRatio", stopCount == 0 ? 0d : this.dominantValueCount(amapTypecodeKeys) / (double) stopCount);
+        vector.put("consecutiveSameAmapTypecodeMaxNorm", stopCount == 0 ? 0d : this.maxConsecutiveValueCount(amapTypecodeKeys) / (double) stopCount);
+        vector.put("missingAmapTypecodeRatio", stopCount == 0 ? 0d : missingAmapTypecodeCount / (double) stopCount);
 
         BudgetStats budgetStats = this.budgetStats(route, context, source);
         vector.put("budgetTotalNorm", budgetStats.budgetTotalNorm());
@@ -369,6 +370,7 @@ public class RouteInputFeatureExtractor {
         contextJson.put("transportProfile", context.getGenerateParam().getTransportProfile());
         contextJson.put("budgetLevel", context.getGenerateParam().getBudgetLevel());
         contextJson.put("interestTags", context.getGenerateParam().getInterestTags());
+        contextJson.put("mealWindows", context.getGenerateParam().getMealWindows());
         contextJson.put("departureTime", this.localDateTimeText(context.getGenerateParam().getDepartureTime()));
         contextJson.put("durationMinutes", context.getGenerateParam().getDurationMinutes());
         contextJson.put("routeTimeStructure", timeStructure);
@@ -585,24 +587,37 @@ public class RouteInputFeatureExtractor {
         };
     }
 
-    private int dominantCategoryCount(List<String> categoryGroups) {
+    private List<String> amapTypecodeKeys(CandidateRouteDTO route, FeatureSource source) {
+        List<String> keys = new ArrayList<>();
+        List<RouteStopDTO> stops = route.stops();
+        for (int index = 0; index < stops.size(); index++) {
+            RouteStopDTO stop = stops.get(index);
+            String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode());
+            PoiCandidateDTO candidate = source.candidatesByPoiId().get(poiId);
+            String key = candidate == null ? null : candidate.typecode();
+            keys.add(isBlank(key) ? MISSING_AMAP_TYPECODE_PREFIX + index : key.trim());
+        }
+        return keys;
+    }
+
+    private int dominantValueCount(List<String> values) {
         Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String group : categoryGroups) {
-            counts.merge(group, 1, Integer::sum);
+        for (String value : values) {
+            counts.merge(value, 1, Integer::sum);
         }
         return counts.values().stream().max(Comparator.naturalOrder()).orElse(0);
     }
 
-    private int maxConsecutiveCategoryCount(List<String> categoryGroups) {
+    private int maxConsecutiveValueCount(List<String> values) {
         int max = 0;
         int current = 0;
         String previous = null;
-        for (String group : categoryGroups) {
-            if (group.equals(previous)) {
+        for (String value : values) {
+            if (value.equals(previous)) {
                 current++;
             } else {
                 current = 1;
-                previous = group;
+                previous = value;
             }
             max = Math.max(max, current);
         }
@@ -658,24 +673,6 @@ public class RouteInputFeatureExtractor {
             return new TransitFeature(0d, 1d, 0d, distanceNorm);
         }
         return new TransitFeature(0d, 0d, 1d, distanceNorm);
-    }
-
-    private boolean overlapsMealWindow(LocalDateTime departureTime, int durationMinutes, LocalTime start, LocalTime end) {
-        if (departureTime == null) {
-            return false;
-        }
-        LocalDateTime routeStart = departureTime;
-        LocalDateTime routeEnd = routeStart.plusMinutes(durationMinutes);
-        LocalDate cursorDate = routeStart.toLocalDate();
-        while (!cursorDate.isAfter(routeEnd.toLocalDate())) {
-            LocalDateTime windowStart = LocalDateTime.of(cursorDate, start);
-            LocalDateTime windowEnd = LocalDateTime.of(cursorDate, end);
-            if (routeStart.isBefore(windowEnd) && routeEnd.isAfter(windowStart)) {
-                return true;
-            }
-            cursorDate = cursorDate.plusDays(1);
-        }
-        return false;
     }
 
     private String localDateTimeText(LocalDateTime localDateTime) {

@@ -3,10 +3,12 @@ package com.urbansidequest.backend.handler.route.search;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.domain.constant.DateTimeFormatConstant;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
+import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
 import com.urbansidequest.backend.domain.enums.AreaMode;
 import com.urbansidequest.backend.domain.enums.BudgetLevel;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
@@ -26,6 +28,7 @@ import com.urbansidequest.backend.handler.route.step.ResolveAreaStep;
 import com.urbansidequest.backend.handler.route.step.ScoreAndSelectRoutesStep;
 import com.urbansidequest.backend.handler.route.step.SelectPoiPoolStep;
 import com.urbansidequest.backend.handler.route.step.ValidateRouteRequestStep;
+import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
 import com.urbansidequest.backend.handler.route.training.RouteInputFeatureExtractor;
 import com.urbansidequest.backend.handler.route.training.RouteInputFeatureSnapshot;
 import com.urbansidequest.backend.handler.route.training.RoutePreferenceFeatureSchema;
@@ -46,6 +49,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -163,10 +167,10 @@ class LlmRoutePreferenceFeatureFullChainManualTest {
 
         this.loadPoiCandidatesStep.execute(context);
         List<PoiCandidateDTO> recalledCandidates = List.copyOf(context.getPoiCandidates());
-        assertThat(recalledCandidates).hasSize(EXPECTED_RECALL_COUNT);
+        assertThat(recalledCandidates).hasSize(scenario.expectedRecallCount());
 
         this.enrichPoiDetailsStep.execute(context);
-        assertThat(context.getPoiCandidates()).hasSize(EXPECTED_RECALL_COUNT);
+        assertThat(context.getPoiCandidates()).hasSize(scenario.expectedRecallCount());
 
         this.selectPoiPoolStep.execute(context);
         List<PoiCandidateDTO> selectedCandidates = List.copyOf(context.getPoiCandidates());
@@ -205,6 +209,11 @@ class LlmRoutePreferenceFeatureFullChainManualTest {
                 calibratedSelectedRoutes,
                 featureSnapshots
         );
+    }
+
+    @Test
+    void writesRoutePreferenceFeaturesForPythonRequestsJsonScenario() throws Exception {
+        this.writesRoutePreferenceFeaturesAfterLlmComposition(this.pythonRequestsJsonScenario());
     }
 
     private static Stream<Arguments> manualScenarios() {
@@ -262,6 +271,33 @@ class LlmRoutePreferenceFeatureFullChainManualTest {
         );
     }
 
+    private ManualScenario pythonRequestsJsonScenario() throws IOException {
+        JsonNode root = this.objectMapper.readTree(pythonRequestsJsonPath().toFile());
+        assertThat(root.isArray()).isTrue();
+        assertThat(root).isNotEmpty();
+        JsonNode job = root.get(0);
+        RouteGenerateParam param = this.objectMapper.convertValue(job.get("request"), RouteGenerateParam.class);
+        if (job.hasNonNull("persona")) {
+            param.setUserPreferenceProfileOverride(
+                    this.objectMapper.convertValue(job.get("persona"), UserPreferenceProfileDTO.class)
+            );
+        }
+        return new ManualScenario(
+                "python_requests_json_xian_dayanta",
+                "Python requests.json 西安大雁塔复现",
+                param,
+                80
+        );
+    }
+
+    private static Path pythonRequestsJsonPath() {
+        Path projectRootPath = Path.of("scripts", "route_preference_simulator", "requests.json");
+        if (Files.exists(projectRootPath)) {
+            return projectRootPath;
+        }
+        return Path.of("..", "scripts", "route_preference_simulator", "requests.json");
+    }
+
     private static ManualScenario scenario(
             String code,
             String title,
@@ -310,6 +346,7 @@ class LlmRoutePreferenceFeatureFullChainManualTest {
         param.setRouteGoal(routeGoal);
         param.setBudgetLevel(budgetLevel);
         param.setInterestTags(interestTags);
+        param.setMealWindows(MealWindowSupport.feasibleMealWindows(param));
         return param;
     }
 
@@ -372,7 +409,18 @@ class LlmRoutePreferenceFeatureFullChainManualTest {
         RouteGenerateParam request = context.getGenerateParam();
         output.put("areaMode", request.getAreaMode());
         output.put("areaLabel", request.getAreaLabel());
-        output.put("areaPolygonGcj02", request.getAreaPolygonGcj02());
+        if (request.getCenter() != null) {
+            output.put("center", request.getCenter());
+        }
+        if (request.getRadiusMeters() != null) {
+            output.put("radiusMeters", request.getRadiusMeters());
+        }
+        if (!request.getAreaPolygonGcj02().isEmpty()) {
+            output.put("areaPolygonGcj02", request.getAreaPolygonGcj02());
+        }
+        if (!request.getAdminAdcodes().isEmpty()) {
+            output.put("adminAdcodes", request.getAdminAdcodes());
+        }
         output.put("routeCityName", request.getRouteCityName());
         output.put("routeCityAdcode", request.getRouteCityAdcode());
         output.put("departureTime", request.getDepartureTime() == null
@@ -383,6 +431,13 @@ class LlmRoutePreferenceFeatureFullChainManualTest {
         output.put("routeGoal", request.getRouteGoal());
         output.put("budgetLevel", request.getBudgetLevel());
         output.put("interestTags", request.getInterestTags());
+        output.put("mealWindows", request.getMealWindows());
+        if (!request.getMustVisitPoints().isEmpty()) {
+            output.put("mustVisitPoints", request.getMustVisitPoints());
+        }
+        if (request.getUserPreferenceProfileOverride() != null) {
+            output.put("userPreferenceProfileOverride", request.getUserPreferenceProfileOverride());
+        }
         return output;
     }
 
@@ -595,7 +650,11 @@ class LlmRoutePreferenceFeatureFullChainManualTest {
         Files.createDirectories(outputDir);
     }
 
-    private record ManualScenario(String code, String title, RouteGenerateParam param) {
+    private record ManualScenario(String code, String title, RouteGenerateParam param, int expectedRecallCount) {
+
+        private ManualScenario(String code, String title, RouteGenerateParam param) {
+            this(code, title, param, EXPECTED_RECALL_COUNT);
+        }
 
         @Override
         public String toString() {
