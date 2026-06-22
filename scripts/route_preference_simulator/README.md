@@ -135,6 +135,8 @@ LOW / NORMAL / FLEXIBLE
 
 模拟用户 prompt 会把本次 request 当作当前强意图，把 persona 当作长期偏好背景。例如距离敏感用户这次选择 `WALK_TAXI` 时，prompt 会表达“愿意为了更值得的地点出远门，但无意义绕路和折返仍应降分”。FOOD 子标签也是强意图：如果本次选择 `FOOD_SICHUAN`，路线只命中普通 FOOD 只能算弱替代，不能当作完全满足。
 
+当前 `llm-sim-user-v4-debug` 会要求 LLM 额外输出 `debugRationale`，用于本地排查判断原因。该字段不会写入 Java judgment 接口；正式用 LLM 批量造训练数据前，应删除 prompt/validation/runner 中的 `debugRationale` 调试支持，并切回非 debug prompt version。
+
 ## 输出保存
 
 保存到 Java 接口：
@@ -150,7 +152,7 @@ POST /api/route-preferences/judgments
   "candidateSetId": "...",
   "judgeType": "LLM_SIM_USER",
   "judgeModel": "provider:model",
-  "judgePromptVersion": "llm-sim-user-v3",
+  "judgePromptVersion": "llm-sim-user-v4-debug",
   "ranking": ["A", "B", "C"],
   "acceptedRouteCodes": ["A"],
   "rejectedRouteCodes": ["C"],

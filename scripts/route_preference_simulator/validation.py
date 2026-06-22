@@ -7,6 +7,8 @@ ALLOWED_REASON_CODES = {
     "LOW_INTEREST_COVERAGE",
     "WEAK_GOAL_FIT",
     "LOW_DIVERSITY",
+    "LOW_ROUTE_DIVERSITY",
+    "REPETITIVE_POI_TYPE",
     "BAD_SPATIAL_FLOW",
     "BAD_TIME_STRUCTURE",
     "HIGH_FATIGUE",
@@ -57,10 +59,15 @@ def validate_judgment(raw: dict, route_codes: list[str]) -> dict:
     if confidence_decimal < Decimal("0") or confidence_decimal > Decimal("1"):
         raise ValueError("confidence 必须在 [0, 1]")
 
+    # 临时调试字段：用于排查 LLM judge 是否按预期理解 request × persona。
+    # 正式用 LLM 造训练数据前，应删除 debugRationale 的 prompt 要求和这里的解析。
+    debug_rationale = str(raw.get("debugRationale") or "").strip()
+
     return {
         "ranking": ranking,
         "acceptedRouteCodes": accepted,
         "rejectedRouteCodes": rejected,
         "reasonCodes": normalized_reasons,
         "confidence": float(confidence_decimal),
+        "debugRationale": debug_rationale,
     }

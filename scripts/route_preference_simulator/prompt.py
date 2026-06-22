@@ -9,15 +9,19 @@ SYSTEM_PROMPT = """你是一个真实的城市漫步用户。系统为你生成�
 
 判断只能基于你作为用户的真实体验感：兴趣是否对味、目标是否贴合、是否有趣不重复、
 走法顺不顺、时间安排合不合理、累不累、花费合不合适、有没有风险。
+评价时必须把本次 request 和长期 persona 联合理解：request 是今天的明确意图，
+persona 是你在距离、预算、换乘、小众/经典偏好上的长期权衡方式；不要把两者拆开各判各的。
 
 评价兴趣覆盖时，只能把 POI 的真实语义当证据：primaryCategoryGroup、categoryGroups、
 semanticTags、poiTagHits、mealCandidate、restCandidate、localExperienceCandidate、
-routeRole、intendedMealWindow、价格、交通、距离、时间和 fallback。matchedInterestTags、
+routeRole、intendedMealWindow、typecode、rawType、价格、交通、距离、时间和 fallback。matchedInterestTags、
 recallSources、搜索计划名、召回计划名只能说明候选点从哪里被找到，不能当作用户兴趣被满足的证据。
 
 你需要按这几类依据综合排序：是否满足兴趣、是否符合 routeGoal、饭点/休息是否合理、
-预算/交通/距离是否合理、为什么更偏好某条路线。最终仍只输出结构化 JSON 字段，
-不要输出自然语言解释。
+预算/交通/距离是否合理、路线是否重复单调、为什么更偏好某条路线。
+如果路线虽然命中了兴趣标签，但多个 POI 是相同 typecode/rawType 或明显同一种体验，
+尤其连续 3 个及以上同类体验，应明显扣分；5 个点都是广场/商圈/同类景点这类路线不能只因 SCENIC 命中就算好。
+最终仍只输出结构化 JSON 字段，不要输出自然语言解释。
 
 ranking 是主要训练信号。reasonCodes 只是给明显不该推荐的 rejectedRouteCodes 写弱解释；
 如果一条路线只是比其他路线弱，但还不算明显不该推荐，可以只把它排后，不必强行 reject。
@@ -26,19 +30,29 @@ reasonCodes 必须是 JSON 对象，key 只能是 rejectedRouteCodes 里的 rout
 即使只有一个理由，也必须写成 {"C": ["HIGH_FATIGUE"]}，不能写成 ["HIGH_FATIGUE"] 或 [{"routeCode":"C","codes":[...]}]。
 acceptedRouteCodes 里的路线不要出现在 reasonCodes；如果一条路线值得推荐，就不要再给它写负向 reason code。
 
-reasonCodes 只能从下面 8 个里选，不许自创：
-LOW_INTEREST_COVERAGE / WEAK_GOAL_FIT / LOW_DIVERSITY / BAD_SPATIAL_FLOW /
-BAD_TIME_STRUCTURE / HIGH_FATIGUE / BUDGET_MISMATCH / HIGH_ROUTE_RISK
+reasonCodes 只能从下面 10 个里选，不许自创：
+LOW_INTEREST_COVERAGE / WEAK_GOAL_FIT / LOW_DIVERSITY / LOW_ROUTE_DIVERSITY /
+REPETITIVE_POI_TYPE / BAD_SPATIAL_FLOW / BAD_TIME_STRUCTURE / HIGH_FATIGUE /
+BUDGET_MISMATCH / HIGH_ROUTE_RISK
 
 BUDGET_MISMATCH 只在路线预算明显高于本次 budgetLevel，或明显高于其他候选路线时使用；
 routeGoal 不表达预算，预算只看 budgetLevel。
 如果主要问题是步行距离过长、单段太远、总时长吃紧，应优先使用 HIGH_FATIGUE 或 BAD_SPATIAL_FLOW。
+LOW_ROUTE_DIVERSITY 用于整条路线体验面过窄；REPETITIVE_POI_TYPE 用于同 typecode/rawType 或明显同体验 POI 重复堆叠。
+如果同类 POI 重复已经让整条路线只剩一种体验，应同时给 LOW_ROUTE_DIVERSITY 和 REPETITIVE_POI_TYPE。
+LOW_INTEREST_COVERAGE 只表示兴趣覆盖不足，可以和 LOW_ROUTE_DIVERSITY、REPETITIVE_POI_TYPE 同时出现，不要混成一个原因。
+如果本次显式 FOOD 子标签没有被对应或近似满足，应给 LOW_INTEREST_COVERAGE，不要只写 WEAK_GOAL_FIT。
+如果 debugRationale 里写了“未命中兴趣/餐饮偏好/路线单调/体验重复/空间折返/疲劳高”等问题，
+reasonCodes 必须包含对应的结构化 reason code，不能让自然语言解释和 reasonCodes 脱节。
 
 ranking 必须包含本批所有候选 routeCode，按从最想选到最不想选排序；
 acceptedRouteCodes 和 rejectedRouteCodes 只是从 ranking 中分别摘出值得推荐和明显不该推荐的路线。
 即使路线被拒绝，也必须出现在 ranking 的靠后位置，不能从 ranking 里省略。
 
-只输出 JSON，不要任何解释性文字。JSON 只能包含 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence 五个字段。
+debugRationale 是临时调试字段，用自然语言简要说明为什么这样排序，必须覆盖兴趣、routeGoal、饭点/休息、
+预算/交通/距离/时间、路线重复单调这几类判断。这个字段只用于人工排查，正式用 LLM 造训练数据前必须从 prompt 和解析里删除。
+
+只输出 JSON，不要任何解释性文字。JSON 只能包含 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence、debugRationale 六个字段。
 输出示例：
 {
   "ranking": ["A", "B", "C"],
@@ -47,7 +61,8 @@ acceptedRouteCodes 和 rejectedRouteCodes 只是从 ranking 中分别摘出值�
   "reasonCodes": {
     "C": ["HIGH_FATIGUE", "BAD_SPATIAL_FLOW"]
   },
-  "confidence": 0.72
+  "confidence": 0.72,
+  "debugRationale": "A 更好地覆盖本次兴趣且饭点顺；C 步行压力和折返明显，体验重复。"
 }"""
 
 
@@ -94,18 +109,39 @@ TAG_LABELS = {
 }
 
 
+SEARCH_CONTEXT_KEYWORDS = (
+    "高德真实 POI 搜索",
+    "百度 POI 搜索",
+    "搜索计划",
+    "召回计划",
+    "recallSource",
+    "matchedInterestTags",
+)
+
+
 def build_user_prompt(route_request: dict, route_generation: dict, persona: dict | None) -> str:
     routes = route_generation.get("routes") or []
     route_codes = [route.get("routeCode") for route in routes if isinstance(route, dict) and route.get("routeCode")]
     return "\n\n".join(
         [
-            "【本次请求】\n" + render_request(route_request),
-            "【你的偏好】\n" + render_persona(persona, route_request),
+            "【本次请求与用户口径】\n" + render_request_persona_context(route_request, persona),
             "【候选路线】\n" + render_routes(routes),
             "【输出硬性约束】\n" + render_output_constraints(route_codes),
-            "请只输出 JSON，字段为 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence。"
+            "请只输出 JSON，字段为 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence、debugRationale。"
             "reasonCodes 必须是对象，例如 {\"C\": [\"HIGH_FATIGUE\"]}，不能是数组。",
         ]
+    )
+
+
+def render_request_persona_context(route_request: dict, persona: dict | None) -> str:
+    return (
+        render_request(route_request)
+        + "\n"
+        + "当前心态: "
+        + render_current_mindset(route_request, persona)
+        + "\n"
+        + "综合评价口径: "
+        + render_persona(persona, route_request)
     )
 
 
@@ -161,6 +197,94 @@ def render_persona(persona: dict | None, route_request: dict | None = None) -> s
     if distance_attitude:
         lines.append(distance_attitude)
     return "".join(lines) if lines else "你按本次请求中的目标、预算、交通方式和兴趣标签做选择。"
+
+
+def render_current_mindset(route_request: dict, persona: dict | None) -> str:
+    interest_tags = route_request.get("interestTags") or []
+    goal = route_request.get("routeGoal")
+    transport_profile = route_request.get("transportProfile")
+    budget_level = route_request.get("budgetLevel") or "NORMAL"
+    meal_windows = route_request.get("mealWindows") or []
+    distance_sensitivity = float((persona or {}).get("distanceSensitivity") or 0.5)
+    budget_sensitivity = float((persona or {}).get("budgetSensitivity") or 0.5)
+    hidden_gem_affinity = float((persona or {}).get("hiddenGemAffinity") or 0.5)
+
+    parts = [
+        render_goal_motivation(goal, hidden_gem_affinity),
+        render_interest_motivation(interest_tags, meal_windows),
+        render_transport_motivation(transport_profile, distance_sensitivity),
+        render_budget_motivation(budget_level, budget_sensitivity),
+    ]
+    return "".join(part for part in parts if part)
+
+
+def render_goal_motivation(goal: str | None, hidden_gem_affinity: float) -> str:
+    if goal == "LOCAL":
+        if hidden_gem_affinity >= 0.6:
+            return "你今天不是想打卡热门景点，而是想找有生活感、街区感和本地人会去的地方。"
+        return "你今天想要本地生活感，但仍希望地点质量稳定、不要过于冷门难懂。"
+    if goal == "QUIET":
+        return "你今天想要安静、低干扰、节奏舒缓的路线，热闹但吵杂的点不算贴合。"
+    if goal == "CLASSIC":
+        return "你今天想看代表性强、辨识度高的经典地点，过于普通或同质的点不算贴合。"
+    if goal == "NIGHT":
+        return "你今天是夜间出行心态，更在意夜间开放、灯光氛围、安全和交通收尾。"
+    if goal == "PHOTO":
+        return "你今天想拍照和记录城市，地点需要有取景变化、光线或视觉记忆点。"
+    if goal == "STEADY":
+        return "你今天想要稳妥、省心、节奏平衡的路线，不想冒太多信息缺失或时间风险。"
+    return "你今天会按本次路线目标判断路线是否对味。"
+
+
+def render_interest_motivation(interest_tags: list[str], meal_windows: list[str]) -> str:
+    if not interest_tags:
+        return "你没有主动选择具体兴趣，所以不会把兴趣覆盖当作唯一标准。"
+    food_tags = [tag for tag in interest_tags if is_food_tag(tag)]
+    non_food_tags = [tag for tag in interest_tags if not is_food_tag(tag)]
+    parts = []
+    if food_tags:
+        food_labels = "、".join(TAG_LABELS.get(tag, tag) for tag in food_tags)
+        if meal_windows:
+            parts.append(f"你选择 {food_labels} 是希望正餐真的有对应口味或近似风味，而不是随便塞一个普通餐厅。")
+        else:
+            parts.append(f"你虽然选择了 {food_labels}，但没有正餐饭点时它更像轻偏好，不能强行要求安排大餐。")
+    if non_food_tags:
+        labels = "、".join(TAG_LABELS.get(tag, tag) for tag in non_food_tags)
+        parts.append(f"你选择 {labels}，表示这趟路线要围绕这些体验组织，而不是只靠召回来源或标签表面命中。")
+    return "".join(parts)
+
+
+def render_transport_motivation(transport_profile: str | None, distance_sensitivity: float) -> str:
+    band = distance_sensitivity_band(distance_sensitivity)
+    if transport_profile == "WALK_ONLY":
+        if band == "HIGH":
+            return "你平时就怕累，这次又选纯步行，说明你想在近处轻松逛，不接受远距离硬走。"
+        return "你这次选纯步行，说明今天更像轻松城市漫步，距离尺度应保持在步行小圈内。"
+    if transport_profile in {"WALK_SUBWAY", "WALK_TRANSIT"}:
+        if band == "HIGH":
+            return f"你平时对距离敏感但这次选 {transport_profile}，说明可以坐车去更对味的片区，但只接受值得的跨区，不接受普通远点和来回折返。"
+        return f"你选 {transport_profile}，说明愿意用公共交通扩大范围，但远必须换来更好的兴趣满足和路线体验。"
+    if transport_profile == "WALK_BUS":
+        if band == "HIGH":
+            return "你平时怕累但接受公交衔接，说明想比纯步行多一点选择，但仍希望路线近、顺、少折腾。"
+        return "你选公交衔接，说明可以适度展开，但不是为了跨很远，而是为了够到更贴合的点。"
+    if transport_profile == "BIKE_SUBWAY":
+        return "你选择骑行接驳地铁，说明能接受更灵活的片区连接，但路线仍要有清楚的空间组织。"
+    if transport_profile == "WALK_TAXI":
+        if band == "HIGH":
+            return "你平时不喜欢太累但这次愿意打车，说明愿意为更值得的地点突破近处范围；远点必须更对味，否则会觉得不值。"
+        return "你这次愿意打车，说明可以为高质量 POI 走远一点，但不能把绕路本身当优点。"
+    return ""
+
+
+def render_budget_motivation(budget_level: str, budget_sensitivity: float) -> str:
+    if budget_level == "LOW":
+        return "你这次明确低预算，价格不合适会直接影响路线接受度。"
+    if budget_level == "FLEXIBLE":
+        return "你这次预算更灵活，可以为明确更好的体验多花一点，但普通高价点仍不值得。"
+    if budget_sensitivity >= 0.6:
+        return "你平时在意花费，但这次预算是 NORMAL，所以可以接受正常消费，不接受明显溢价。"
+    return "你这次预算正常，价格主要用来排除明显不划算或相对过贵的路线。"
 
 
 def render_distance_attitude(transport_profile: str | None, distance_sensitivity: float) -> str:
@@ -298,7 +422,11 @@ def render_route(route: dict) -> str:
     segment_lines = render_segments(route.get("segments") or [])
     budget_cent = route.get("budgetCent")
     budget_text = "未知" if budget_cent is None else f"¥{budget_cent / 100:.0f}"
-    warnings = route.get("warnings") or route.get("globalWarnings") or []
+    warnings = [
+        warning_text
+        for warning in (route.get("warnings") or route.get("globalWarnings") or [])
+        if (warning_text := sanitize_user_visible_text(str(warning)))
+    ]
     warnings_text = "；".join(str(warning) for warning in warnings[:3]) if warnings else "无"
     return (
         f"路线 {route.get('routeCode')}: {route.get('title')}\n"
@@ -314,7 +442,7 @@ def render_route(route: dict) -> str:
 def render_stop(stop: dict, index: int, stop_count: int) -> str:
     label = stop.get("slotLabel") or stop.get("category") or "地点"
     stay = stop.get("stayMinutes")
-    description = truncate(stop.get("description") or stop.get("reason") or "", 70)
+    description = truncate(sanitize_user_visible_text(stop.get("description") or stop.get("reason") or ""), 70)
     semantic = render_stop_semantics(stop)
     if index == stop_count - 1:
         next_text = "终点，无下一段"
@@ -331,6 +459,10 @@ def render_stop(stop: dict, index: int, stop_count: int) -> str:
 def render_stop_semantics(stop: dict) -> str:
     fields = []
     for key in ("routeRole", "intendedMealWindow", "primaryCategoryGroup"):
+        value = stop.get(key)
+        if value:
+            fields.append(f"{key}={value}")
+    for key in ("typecode", "rawType"):
         value = stop.get(key)
         if value:
             fields.append(f"{key}={value}")
@@ -369,6 +501,12 @@ def truncate(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 1] + "…"
+
+
+def sanitize_user_visible_text(text: str) -> str:
+    if not text:
+        return ""
+    return "" if any(keyword in text for keyword in SEARCH_CONTEXT_KEYWORDS) else text
 
 
 def format_departure(value: str | None) -> str:

@@ -2,6 +2,7 @@ package com.urbansidequest.backend.converter.route;
 
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
+import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.RouteAreaDTO;
 import com.urbansidequest.backend.domain.dto.RouteSegmentDTO;
 import com.urbansidequest.backend.domain.dto.RouteStepDTO;
@@ -15,18 +16,32 @@ import com.urbansidequest.backend.domain.vo.RouteSegmentVO;
 import com.urbansidequest.backend.domain.vo.RouteStepVO;
 import com.urbansidequest.backend.domain.vo.RouteStopVO;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.linear.PoiSemanticProfile;
+import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
+import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 @Component
 public class RouteGenerationConverter {
 
+    private final PoiSemanticResolver poiSemanticResolver;
+
+    public RouteGenerationConverter(PoiSemanticResolver poiSemanticResolver) {
+        this.poiSemanticResolver = poiSemanticResolver;
+    }
+
     public RouteGenerationVO toRouteGenerationVO(RouteGenerationContext context) {
+        Map<String, PoiCandidateDTO> candidatesByPoiId = this.candidatesByPoiId(context);
         return new RouteGenerationVO(
                 context.getRequestId(),
                 context.getCandidateSetId(),
                 RouteRequestStatus.SUCCESS,
                 this.toAreaVO(context.getArea(), context.getGenerateParam().getDurationMinutes()),
-                context.getSelectedRoutes().stream().map(this::toGeneratedRouteVO).toList(),
+                context.getSelectedRoutes().stream()
+                        .map(route -> this.toGeneratedRouteVO(route, context, candidatesByPoiId))
+                        .toList(),
                 context.getWarnings()
         );
     }
@@ -42,7 +57,11 @@ public class RouteGenerationConverter {
         );
     }
 
-    private GeneratedRouteVO toGeneratedRouteVO(CandidateRouteDTO route) {
+    private GeneratedRouteVO toGeneratedRouteVO(
+            CandidateRouteDTO route,
+            RouteGenerationContext context,
+            Map<String, PoiCandidateDTO> candidatesByPoiId
+    ) {
         return new GeneratedRouteVO(
                 route.routeCode(),
                 route.title(),
@@ -52,12 +71,24 @@ public class RouteGenerationConverter {
                 route.budgetCent(),
                 route.riskLevel(),
                 route.explanation(),
-                route.stops().stream().map(this::toRouteStopVO).toList(),
+                route.stops().stream()
+                        .map(stop -> this.toRouteStopVO(stop, route.routeCode(), context, candidatesByPoiId))
+                        .toList(),
                 route.segments().stream().map(this::toRouteSegmentVO).toList()
         );
     }
 
-    private RouteStopVO toRouteStopVO(RouteStopDTO stop) {
+    private RouteStopVO toRouteStopVO(
+            RouteStopDTO stop,
+            String routeCode,
+            RouteGenerationContext context,
+            Map<String, PoiCandidateDTO> candidatesByPoiId
+    ) {
+        String poiId = RouteStopIdSupport.poiIdFromStopId(stop.stopId(), routeCode);
+        PoiCandidateDTO candidate = candidatesByPoiId.get(poiId);
+        PoiSemanticProfile semantic = candidate == null
+                ? PoiSemanticProfile.empty()
+                : this.poiSemanticResolver.resolve(candidate, context.getPoiSemanticMappings());
         return new RouteStopVO(
                 stop.stopId(),
                 stop.order(),
@@ -75,7 +106,17 @@ public class RouteGenerationConverter {
                 stop.description(),
                 stop.imageUrls(),
                 stop.reason(),
-                stop.riskNote()
+                stop.riskNote(),
+                semantic.primaryCategoryGroup(),
+                semantic.categoryGroups().stream().toList(),
+                semantic.semanticTags(),
+                semantic.poiTagHits().stream().toList(),
+                semantic.isMealCandidate(),
+                semantic.isRestCandidate(),
+                semantic.localExperienceCandidate(),
+                candidate == null ? null : candidate.rawType(),
+                candidate == null ? null : candidate.typecode(),
+                candidate == null ? null : candidate.avgPriceCent()
         );
     }
 
@@ -89,7 +130,8 @@ public class RouteGenerationConverter {
                 segment.durationMinutes(),
                 segment.polyline().stream().map(this::toGeoPointVO).toList(),
                 segment.steps().stream().map(this::toRouteStepVO).toList(),
-                segment.summary()
+                segment.summary(),
+                segment.source()
         );
     }
 
@@ -106,5 +148,13 @@ public class RouteGenerationConverter {
 
     private GeoPointVO toGeoPointVO(GeoPointDTO point) {
         return new GeoPointVO(point.longitudeGcj02(), point.latitudeGcj02());
+    }
+
+    private Map<String, PoiCandidateDTO> candidatesByPoiId(RouteGenerationContext context) {
+        Map<String, PoiCandidateDTO> candidatesByPoiId = new LinkedHashMap<>();
+        for (PoiCandidateDTO candidate : context.getPoiCandidates()) {
+            candidatesByPoiId.put(candidate.poiId(), candidate);
+        }
+        return candidatesByPoiId;
     }
 }

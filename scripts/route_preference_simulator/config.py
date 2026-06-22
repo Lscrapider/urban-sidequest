@@ -66,7 +66,7 @@ def load_config(path: Path, require_api_key: bool = True) -> AppConfig:
 
     judge_raw = raw.get("judge") or {}
     judge = JudgeConfig(
-        prompt_version=str(judge_raw.get("promptVersion") or "llm-sim-user-v3"),
+        prompt_version=str(judge_raw.get("promptVersion") or "llm-sim-user-v4-debug"),
         judges_per_candidate_set=int(judge_raw.get("judgesPerCandidateSet") or 2),
         full_judge_ratio=float(judge_raw.get("fullJudgeRatio") or 0.0),
         max_retries=int(judge_raw.get("maxRetries") or 1),

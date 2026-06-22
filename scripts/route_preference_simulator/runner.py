@@ -18,6 +18,7 @@ from .validation import validate_judgment
 
 MAX_LLM_FALLBACK_ATTEMPTS = 3
 PRINT_LOCK = Lock()
+DEBUG_RATIONALE_FIELD = "debugRationale"
 
 
 @dataclass(frozen=True)
@@ -187,15 +188,22 @@ def _run_one_job(
             continue
 
         try:
+            debug_rationale = judgment.get(DEBUG_RATIONALE_FIELD)
+            if debug_rationale:
+                _print_stderr(f"[{index}/{total_jobs}] debugRationale: {debug_rationale}")
+            judgment_payload = judgment_payload_for_save(judgment)
             payload = {
                 "candidateSetId": candidate_set_id,
                 "judgeType": "LLM_SIM_USER",
                 "judgeModel": judgment_llm.judge_model,
                 "judgePromptVersion": config.judge.prompt_version,
-                **judgment,
+                **judgment_payload,
             }
             if dry_run:
-                stdout_payloads.append(json.dumps(payload, ensure_ascii=False, indent=2))
+                debug_payload = dict(payload)
+                if debug_rationale:
+                    debug_payload[DEBUG_RATIONALE_FIELD] = debug_rationale
+                stdout_payloads.append(json.dumps(debug_payload, ensure_ascii=False, indent=2))
             else:
                 _print_stderr(f"[{index}/{total_jobs}] 保存 judgment: {judgment_llm.judge_model}")
                 save_started_at = monotonic()
@@ -288,6 +296,16 @@ def call_once(llm, config: AppConfig, user_prompt: str, route_codes: list[str]) 
         ) from validation_exception
 
 
+def judgment_payload_for_save(judgment: dict) -> dict:
+    # debugRationale 是临时排查字段，不写入 Java judgment 接口和训练标签。
+    # 正式用 LLM 造训练数据前，应删除 prompt/validation 中的 debugRationale 支持。
+    return {
+        key: value
+        for key, value in judgment.items()
+        if key != DEBUG_RATIONALE_FIELD
+    }
+
+
 def _debug_json(value, max_length: int = 3000) -> str:
     try:
         text = json.dumps(value, ensure_ascii=False, indent=2, default=str)
@@ -310,6 +328,7 @@ def fake_judgment(route_codes: list[str]) -> dict:
             "rejectedRouteCodes": rejected,
             "reasonCodes": reason_codes,
             "confidence": 0.5,
+            "debugRationale": "dry-run 调试解释：示例 judgment，非真实 LLM 判断。",
         },
         route_codes,
     )

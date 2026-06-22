@@ -21,6 +21,16 @@ public record RouteStopVO(
         String description,
         List<String> imageUrls,
         String reason,
-        String riskNote
+        String riskNote,
+        String primaryCategoryGroup,
+        List<String> categoryGroups,
+        List<String> semanticTags,
+        List<String> poiTagHits,
+        Boolean mealCandidate,
+        Boolean restCandidate,
+        Boolean localExperienceCandidate,
+        String rawType,
+        String typecode,
+        Integer avgPriceCent
 ) {
 }
