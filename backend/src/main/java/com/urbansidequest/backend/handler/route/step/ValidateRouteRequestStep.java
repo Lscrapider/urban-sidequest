@@ -25,6 +25,12 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class ValidateRouteRequestStep implements RouteGenerationStep {
 
+    private static final int MAX_GLOBAL_INTEREST_BUCKET_COUNT = 5;
+
+    private static final int MAX_FOOD_INTEREST_TAG_COUNT = 3;
+
+    private static final String FOOD_ROOT_TAG = "FOOD";
+
     private final InterestTagCatalogManage interestTagCatalogManage;
 
     public ValidateRouteRequestStep(InterestTagCatalogManage interestTagCatalogManage) {
@@ -66,10 +72,17 @@ public class ValidateRouteRequestStep implements RouteGenerationStep {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "interestTags 不能重复：" + String.join(",", duplicateTags));
         }
 
-        List<InterestTagCatalogPO> enabledTags = this.interestTagCatalogManage.findEnabledByTagCodes(requestedTags);
-        Map<String, InterestTagCatalogPO> tagByCode = new LinkedHashMap<>();
+        List<InterestTagCatalogPO> enabledTags = this.interestTagCatalogManage.findEnabled();
+        Map<String, InterestTagCatalogPO> enabledTagByCode = new LinkedHashMap<>();
         for (InterestTagCatalogPO tag : enabledTags) {
-            tagByCode.put(tag.getTagCode(), tag);
+            enabledTagByCode.put(tag.getTagCode(), tag);
+        }
+        Map<String, InterestTagCatalogPO> tagByCode = new LinkedHashMap<>();
+        for (String tagCode : requestedTags) {
+            InterestTagCatalogPO tag = enabledTagByCode.get(tagCode);
+            if (tag != null && Boolean.TRUE.equals(tag.getSelectable())) {
+                tagByCode.put(tagCode, tag);
+            }
         }
         List<String> invalidTags = requestedTags.stream()
                 .filter(tag -> !tagByCode.containsKey(tag))
@@ -78,23 +91,82 @@ public class ValidateRouteRequestStep implements RouteGenerationStep {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "interestTags 包含未知或不可选标签：" + String.join(",", invalidTags));
         }
 
-        this.validateFoodParentChildExclusive(tagByCode);
+        this.validateGlobalInterestBucketCount(tagByCode, enabledTagByCode);
+        this.validateFoodInterestTagCount(tagByCode, enabledTagByCode);
+        this.validateFoodParentChildExclusive(tagByCode, enabledTagByCode);
         this.validateMaxSiblingSelected(tagByCode);
     }
 
-    private void validateFoodParentChildExclusive(Map<String, InterestTagCatalogPO> tagByCode) {
+    private void validateGlobalInterestBucketCount(
+            Map<String, InterestTagCatalogPO> tagByCode,
+            Map<String, InterestTagCatalogPO> enabledTagByCode
+    ) {
+        Set<String> interestBuckets = new LinkedHashSet<>();
         for (InterestTagCatalogPO tag : tagByCode.values()) {
-            String parent = tag.getParentTagCode();
-            if (parent == null || parent.isBlank() || !parent.startsWith("FOOD_")) {
+            interestBuckets.add(this.globalInterestBucket(tag, enabledTagByCode));
+        }
+        if (interestBuckets.size() > MAX_GLOBAL_INTEREST_BUCKET_COUNT) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "interestTags 最多选择 " + MAX_GLOBAL_INTEREST_BUCKET_COUNT + " 个兴趣大类"
+            );
+        }
+    }
+
+    private void validateFoodInterestTagCount(
+            Map<String, InterestTagCatalogPO> tagByCode,
+            Map<String, InterestTagCatalogPO> enabledTagByCode
+    ) {
+        long foodTagCount = tagByCode.values().stream()
+                .filter(tag -> this.isFoodTag(tag, enabledTagByCode))
+                .count();
+        if (foodTagCount > MAX_FOOD_INTEREST_TAG_COUNT) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "FOOD 餐厅偏好最多选择 " + MAX_FOOD_INTEREST_TAG_COUNT + " 个"
+            );
+        }
+    }
+
+    private void validateFoodParentChildExclusive(
+            Map<String, InterestTagCatalogPO> tagByCode,
+            Map<String, InterestTagCatalogPO> enabledTagByCode
+    ) {
+        for (InterestTagCatalogPO tag : tagByCode.values()) {
+            if (!this.isFoodTag(tag, enabledTagByCode)) {
                 continue;
             }
-            if (tagByCode.containsKey(parent)) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "FOOD 同一分支二级和三级不能同时选择：" + parent + "," + tag.getTagCode()
-                );
+            String ancestorCode = tag.getParentTagCode();
+            while (ancestorCode != null && !ancestorCode.isBlank()) {
+                if (tagByCode.containsKey(ancestorCode)) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "FOOD 同一分支父级和子级不能同时选择：" + ancestorCode + "," + tag.getTagCode()
+                    );
+                }
+                InterestTagCatalogPO ancestor = enabledTagByCode.get(ancestorCode);
+                ancestorCode = ancestor == null ? null : ancestor.getParentTagCode();
             }
         }
+    }
+
+    private String globalInterestBucket(InterestTagCatalogPO tag, Map<String, InterestTagCatalogPO> enabledTagByCode) {
+        if (this.isFoodTag(tag, enabledTagByCode)) {
+            return FOOD_ROOT_TAG;
+        }
+        return tag.getTagCode();
+    }
+
+    private boolean isFoodTag(InterestTagCatalogPO tag, Map<String, InterestTagCatalogPO> enabledTagByCode) {
+        String tagCode = tag == null ? null : tag.getTagCode();
+        while (tagCode != null && !tagCode.isBlank()) {
+            if (FOOD_ROOT_TAG.equals(tagCode)) {
+                return true;
+            }
+            InterestTagCatalogPO current = enabledTagByCode.get(tagCode);
+            tagCode = current == null ? null : current.getParentTagCode();
+        }
+        return false;
     }
 
     private void validateMaxSiblingSelected(Map<String, InterestTagCatalogPO> tagByCode) {

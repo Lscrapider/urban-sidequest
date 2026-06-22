@@ -14,6 +14,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -198,7 +199,7 @@ val RouteGoalOptions = listOf(
     CodeOption("稳妥省心", "STEADY"),
     CodeOption("经典必看", "CLASSIC"),
     CodeOption("地道烟火", "LOCAL"),
-    CodeOption("低预算", "LOW_BUDGET"),
+    CodeOption("安静少打扰", "QUIET"),
     CodeOption("夜游", "NIGHT"),
     CodeOption("拍照出片", "PHOTO")
 )
@@ -224,7 +225,7 @@ private fun RouteConfigUiState.buildRequest(
         areaPolygonGcj02 = emptyList(),
         routeCityName = routeCityInfo?.cityName,
         routeCityAdcode = routeCityInfo?.cityAdcode,
-        departureTime = selectedDeparture.toInstantString(),
+        departureTime = selectedDeparture.toBeijingLocalDateTimeString(),
         durationMinutes = selectedDuration.minutes,
         transportProfile = selectedTransport.code,
         routeGoal = selectedGoal.code,
@@ -254,9 +255,10 @@ fun MustVisitPointRequest.isSamePlace(other: MustVisitPointRequest): Boolean {
         location.latitudeGcj02 == other.location.latitudeGcj02
 }
 
-private fun DepartureOption.toInstantString(): String {
+private val beijingLocalDateTimeFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+
+private fun DepartureOption.toBeijingLocalDateTimeString(): String {
     return LocalDateTime.of(LocalDate.now(RouteZone), time)
-        .atZone(RouteZone)
-        .toInstant()
-        .toString()
+        .format(beijingLocalDateTimeFormatter)
 }
