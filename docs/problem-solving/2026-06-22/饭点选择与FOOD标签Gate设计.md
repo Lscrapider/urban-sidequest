@@ -1,6 +1,6 @@
 # 饭点选择与 FOOD 标签 Gate 设计
 
-本文定义路线生成请求中“是否安排午餐/晚餐”与 `FOOD_*` 兴趣标签的关系。当前尚未上线，也没有可训练样本，因此可以直接调整请求契约和 Route X 口径，不需要兼容历史训练数据。
+本文定义路线生成请求中“是否安排午餐/晚餐”与 `FOOD_*` 兴趣标签的关系。该契约当前已在后端请求参数、校验、候选召回、LLM prompt payload、Route X 特征和路线偏好模拟器中落地；历史样本兼容以 `featureSchemaVersion` 为边界处理。
 
 ## 1. 问题背景
 
@@ -68,6 +68,15 @@ mealWindows 必须是 feasibleMealWindows 的子集。
 ```
 
 这不是恢复“时间覆盖就强制安排饭点”的旧逻辑。时间窗只做合法性边界，用户仍然可以取消任意可选饭点。
+
+当前实现入口：
+
+```text
+RouteGenerateParam.mealWindows
+MealWindowSupport.feasibleMealWindows(...)
+ValidateRouteRequestStep.validateMealWindows(...)
+ValidateRouteRequestStep.validateFoodInterestRequiresMealWindow(...)
+```
 
 ## 3. FOOD 标签 Gate
 
@@ -210,6 +219,8 @@ missingRequiredMealFlag = 0
 ```
 
 这样不会把“用户明确不要吃饭”的路线错误训练成坏样本。
+
+当前 `RouteInputFeatureExtractor` 已按 `mealWindows` 读取 `requiresLunchFlag` / `requiresDinnerFlag`，不再用 `departureTime + durationMinutes` 隐式推断饭点需求。
 
 ### 5.5 LLM judge / 模拟用户
 

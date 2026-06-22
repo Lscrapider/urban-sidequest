@@ -1,5 +1,7 @@
 # 城市副本技术设计文档
 
+> 当前实现状态：本文同时记录目标态技术设计和当前落地边界。Android 当前网络层仍使用 `HttpURLConnection`，会话保存使用 `SharedPreferences`，尚未接入 Retrofit/Ktor、Room 或 Hilt；路线生成接口当前为同步 `POST /api/routes/requests` 返回结果，不是任务 ID + 轮询模式。
+
 ## 1. 技术目标
 
 城市副本的技术设计需要支撑 Android APK、后续 iOS App 和 Web 后台。第一阶段重点不是做复杂个性化训练，而是稳定支撑路线生成闭环：地图选区、条件输入、路线生成、POI 解释、打卡反馈和后台维护。
@@ -25,9 +27,9 @@ Android App 使用：
 - 高德 Android 地图 SDK。
 - 高德 Android 定位 SDK。
 - 高德 Android POI 搜索、输入提示和 POI 详情能力。
-- Retrofit 或 Ktor Client 调用后端 API。
-- Room 做本地缓存。
-- Hilt 做依赖注入。
+- 目标态使用 Retrofit 或 Ktor Client 调用后端 API；当前实现仍为 `HttpURLConnection`。
+- 目标态使用 Room 做本地缓存；当前尚未落地。
+- 目标态使用 Hilt 做依赖注入；当前尚未落地。
 - ViewModel + StateFlow 管理页面状态。
 
 模块路径：`android-app/`。
@@ -107,7 +109,7 @@ App 负责交互和展示，后端负责路线产品逻辑、可复现生成、�
 - 生成中、生成成功、生成失败、部分成功等明确状态。
 - Pro 用户和普通用户的资源配额差异。
 
-路线生成接口不应依赖单次长连接阻塞到所有步骤完成。更稳妥的方式是提交生成任务，返回任务 ID，再由前端轮询或订阅任务状态。
+目标态路线生成接口不应依赖单次长连接阻塞到所有步骤完成，更稳妥的方式是提交生成任务，返回任务 ID，再由前端轮询或订阅任务状态。当前实现仍是同步生成接口，Android 直接等待 `POST /api/routes/requests` 返回路线结果。
 
 ## 5. 用户隔离
 

@@ -6,6 +6,12 @@
 
 当前状态：Java 主链路已通过 `LinearPoiPoolSelector` 使用本设计的 Linear Ranker，并在其上叠加 `PoiDiversitySampler` 做多样性采样。线上尚未接入 Neural residual、POI 级 DPO-like update 或模型文件推理。
 
+实现对齐说明：
+
+- `typecode`、`opentime_today/week`、`keytag`、`rectag` 和高德 `distance` 已进入 `PoiCandidateDTO`，并由 `AmapPoiCandidateProvider` 解析，不再是待补字段。
+- 新请求的 `routeGoal` 使用 `STEADY/QUIET/CLASSIC/LOCAL/NIGHT/PHOTO`；`LOW_BUDGET` 仅保留为历史兼容枚举，当前请求校验会拒绝它，预算偏好由 `budgetLevel` 表达。
+- 当前 `PoiLinearScorer` 会对 `WALK_ONLY` 的 `distanceNorm`、`isolatedDistanceNorm` 和 `distanceFatiguePressure` 加重惩罚；这与早期非步行展开方案中“不额外收紧 walk”的历史设想不同，以当前实现为准。
+
 ## 1. 目标和边界
 
 Linear Ranker 的目标是提供一个可解释、可控、冷启动可用的基础分：

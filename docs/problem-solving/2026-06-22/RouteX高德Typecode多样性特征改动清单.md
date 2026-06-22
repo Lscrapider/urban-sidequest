@@ -1,5 +1,9 @@
 # Route X 高德 Typecode 多样性特征改动清单
 
+> 归档状态：问题解决记录，日期 2026-06-22。当前实现口径请以 `backend/src/main/java/com/urbansidequest/backend/handler/route/training/RouteInputFeatureExtractor.java` 和 `backend/src/main/java/com/urbansidequest/backend/handler/route/training/RoutePreferenceFeatureSchema.java` 为准。
+>
+> 本清单定义的 4 个 `typecode` 特征已落入当前 `route_pref_v3` 训练输入；它不改变线上 serving 排序。
+
 本文记录 Route X 增加高德 `typecode` 级路线同质性特征的精确落地方案。目标是补足 `primaryCategoryGroup` 粒度过粗的问题，让训练输入能区分：
 
 ```text

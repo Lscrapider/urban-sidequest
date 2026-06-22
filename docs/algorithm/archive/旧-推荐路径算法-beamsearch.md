@@ -2,6 +2,8 @@
 
 本文档记录旧版 Beam Search 推荐路径算法，用于和当前 LLM 路线编排主线对照。当前主方案见 `docs/algorithm/推荐路径算法.md`。
 
+> 归档状态：旧 Beam Search 实现仍保留在代码中，但当前主路线生成链路已切到 LLM composer；`RouteGenerationPipeline` 不再调用 `BuildSegmentCostGraphStep` / `BeamSearchRouteSelector`。
+
 ## 目标
 
 本设计用于路线生成的下一阶段：后端接入高德 Web 服务 POI 搜索，使用本地交通成本先完成选点和排序，再只对最终路线段调用高德路径规划做校准。
