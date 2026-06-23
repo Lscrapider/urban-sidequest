@@ -9,6 +9,7 @@ import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import java.math.BigDecimal;
 import java.util.List;
@@ -28,6 +29,12 @@ public class PoiLinearFeatureExtractor {
 
     private static final String TRANSIT_TYPE_SUBWAY = "SUBWAY";
 
+    private final RouteScoringProperties routeScoringProperties;
+
+    public PoiLinearFeatureExtractor(RouteScoringProperties routeScoringProperties) {
+        this.routeScoringProperties = routeScoringProperties;
+    }
+
     public PoiLinearFeatures extract(
             int index,
             List<PoiCandidateDTO> candidates,
@@ -43,10 +50,11 @@ public class PoiLinearFeatureExtractor {
         // —— W_quality ——
         boolean ratingMissing = candidate.amapRating() == null;
         double ratingNorm = ratingMissing
-                ? LinearScoreConstants.RATING_MISSING_DEFAULT
-                : LinearScoreConstants.clamp01(candidate.amapRating().doubleValue() / LinearScoreConstants.RATING_FULL);
+                ? this.linearConstant("rating-missing-default")
+                : RouteScoringProperties.clamp01(candidate.amapRating().doubleValue() / this.linearConstant("rating-full"));
         double hasImage = candidate.hasImage() ? 1d : 0d;
-        double missingInfoRisk = 0.5d * (hasImage == 0d ? 1d : 0d) + 0.5d * (ratingMissing ? 1d : 0d);
+        double missingInfoRisk = this.feature("missing-info.image-weight") * (hasImage == 0d ? 1d : 0d)
+                + this.feature("missing-info.rating-weight") * (ratingMissing ? 1d : 0d);
 
         // —— W_budget（消费类门控）——
         boolean consumable = semantic.isConsumable();
@@ -57,23 +65,25 @@ public class PoiLinearFeatureExtractor {
         if (consumable) {
             Integer cost = candidate.avgPriceCent();
             if (cost == null) {
-                avgPriceNorm = LinearScoreConstants.PRICE_MISSING_DEFAULT;
+                avgPriceNorm = this.linearConstant("price-missing-default");
                 isPriceMissing = 1d;
             } else {
-                avgPriceNorm = Math.min(cost / LinearScoreConstants.BUDGET_CAP_CENT, LinearScoreConstants.PRICE_NORM_CAP);
+                avgPriceNorm = Math.min(cost / this.linearConstant("budget-cap-cent"), this.linearConstant("price-norm-cap"));
                 isFree = cost == 0 ? 1d : 0d;
             }
-            expensivePoiRisk = LinearScoreConstants.clamp01(avgPriceNorm - 1.0d);
+            expensivePoiRisk = RouteScoringProperties.clamp01(avgPriceNorm - this.feature("expensive-risk-offset"));
         }
 
         // —— W_distance（distanceNorm + pool-derived）——
         double effectiveRadius = Math.max(1d, env.effectiveRadiusMeters());
         double distanceMeters = distanceToCenter[index];
         double distanceNorm = distanceMeters < 0d
-                ? 1.0d
-                : Math.min(distanceMeters / effectiveRadius, LinearScoreConstants.DISTANCE_NORM_CAP);
+                ? this.feature("unknown-distance.norm")
+                : Math.min(distanceMeters / effectiveRadius, this.linearConstant("distance-norm-cap"));
         double fatigueRef = Math.max(1d, env.fatigueRefMeters());
-        double distanceFatiguePressure = distanceMeters < 0d ? 0d : LinearScoreConstants.clamp01(distanceMeters / fatigueRef);
+        double distanceFatiguePressure = distanceMeters < 0d
+                ? this.feature("unknown-distance.fatigue-pressure")
+                : RouteScoringProperties.clamp01(distanceMeters / fatigueRef);
 
         PoolDerived poolDerived = this.poolDerived(index, candidates, semanticProfiles, effectiveRadius);
 
@@ -191,7 +201,7 @@ public class PoiLinearFeatureExtractor {
             if (otherLocation != null) {
                 double d = GeoMath.distanceMeters(origin, otherLocation);
                 nearestOther = Math.min(nearestOther, d);
-                if (d <= LinearScoreConstants.NEIGHBOR_RADIUS_METERS) {
+                if (d <= this.linearConstant("neighbor-radius-meters")) {
                     neighborCount++;
                 }
             }
@@ -199,14 +209,14 @@ public class PoiLinearFeatureExtractor {
                 duplicateCount++;
             }
         }
-        double isolationRef = Math.max(1d, effectiveRadius / 3d);
+        double isolationRef = Math.max(1d, effectiveRadius / this.feature("isolation-ref-divisor"));
         double isolatedDistanceNorm = nearestOther == Double.MAX_VALUE
                 ? 0d
-                : Math.min(nearestOther / isolationRef, LinearScoreConstants.DISTANCE_NORM_CAP);
-        double clusterConnectivity = Math.min(neighborCount / LinearScoreConstants.CONNECT_FULL, 1d);
+                : Math.min(nearestOther / isolationRef, this.linearConstant("distance-norm-cap"));
+        double clusterConnectivity = Math.min(neighborCount / this.linearConstant("connect-full"), 1d);
         double categoryDuplicateRisk = myGroups.isEmpty()
                 ? 0d
-                : Math.min(duplicateCount / LinearScoreConstants.DUP_FULL, 1d);
+                : Math.min(duplicateCount / this.linearConstant("dup-full"), 1d);
         return new PoolDerived(isolatedDistanceNorm, clusterConnectivity, categoryDuplicateRisk);
     }
 
@@ -223,18 +233,30 @@ public class PoiLinearFeatureExtractor {
         TransitLookupStatus status = candidate.transitLookupStatus();
         if (status == TransitLookupStatus.UNAVAILABLE || status == TransitLookupStatus.FAILED) {
             // 批量不可用/失败会由 transportSignalAvailable=false 整体 mask；若未来出现单 POI 局部失败，按中性交通档降级。
-            return new TransitResult(0d, 1d, 0d, 1.0d, 0.5d);
+            return new TransitResult(
+                    0d,
+                    this.feature("transit-local-fail.medium"),
+                    0d,
+                    this.feature("transit-local-fail.distance-norm"),
+                    this.feature("transit-local-fail.score")
+            );
         }
         Integer nearestMeters = this.nearestTransitMeters(candidate.nearestTransit(), transportProfile);
         // SUCCESS_EMPTY / SUCCESS 但无站点：事实性差，归 transitLow + 站距 cap。
         if (nearestMeters == null) {
-            return new TransitResult(0d, 0d, 1d, LinearScoreConstants.TRANSIT_DIST_CAP, 0d);
+            return new TransitResult(
+                    0d,
+                    0d,
+                    this.feature("transit-empty.low"),
+                    this.feature("transit-empty.distance-norm"),
+                    this.feature("transit-empty.score")
+            );
         }
-        double distanceNorm = Math.min(nearestMeters / LinearScoreConstants.TRANSIT_REF_METERS, LinearScoreConstants.TRANSIT_DIST_CAP);
-        if (nearestMeters <= 300) {
+        double distanceNorm = Math.min(nearestMeters / this.linearConstant("transit-ref-meters"), this.linearConstant("transit-dist-cap"));
+        if (nearestMeters <= this.featureExtractorInt("transit-high-meters")) {
             return new TransitResult(1d, 0d, 0d, distanceNorm, 1d);
         }
-        if (nearestMeters <= 800) {
+        if (nearestMeters <= this.featureExtractorInt("transit-medium-meters")) {
             return new TransitResult(0d, 1d, 0d, distanceNorm, 0.5d);
         }
         return new TransitResult(0d, 0d, 1d, distanceNorm, 0d);
@@ -266,15 +288,16 @@ public class PoiLinearFeatureExtractor {
 
     private double walkingAccessibility(double distanceMeters, double transitScore) {
         double walkPart = distanceMeters < 0d
-                ? 0.5d
-                : LinearScoreConstants.clamp01(1d - distanceMeters / LinearScoreConstants.WALK_REF_METERS);
-        return 0.5d * walkPart + 0.5d * transitScore;
+                ? this.feature("walk-access.unknown-walk-part")
+                : RouteScoringProperties.clamp01(1d - distanceMeters / this.linearConstant("walk-ref-meters"));
+        return this.feature("walk-access.walk-weight") * walkPart
+                + this.feature("walk-access.transit-weight") * transitScore;
     }
 
     private double closeRisk(PoiCandidateDTO candidate, int routeStartMinutes) {
         String opentime = candidate.opentimeToday();
         if (StrUtil.isBlank(opentime) || routeStartMinutes < 0) {
-            return LinearScoreConstants.CLOSE_RISK_MISSING_DEFAULT;
+            return this.linearConstant("close-risk-missing-default");
         }
         // opentimeToday 形如 "08:00-16:30" 或 "09:00-12:00,13:00-18:00"；路线开始时刻落在任一营业段内→0，否则→1。
         boolean parsedAny = false;
@@ -296,7 +319,7 @@ public class PoiLinearFeatureExtractor {
                 return 0d;
             }
         }
-        return parsedAny ? 1d : LinearScoreConstants.CLOSE_RISK_MISSING_DEFAULT;
+        return parsedAny ? 1d : this.linearConstant("close-risk-missing-default");
     }
 
     private Integer toMinutes(String hhmm) {
@@ -319,7 +342,7 @@ public class PoiLinearFeatureExtractor {
             return 0d;
         }
         long hit = requestTags.stream().filter(poiTagHits::contains).count();
-        return LinearScoreConstants.clamp01((double) hit / requestTags.size());
+        return RouteScoringProperties.clamp01((double) hit / requestTags.size());
     }
 
     private double userInterestAffinity(
@@ -343,11 +366,23 @@ public class PoiLinearFeatureExtractor {
                 sum += affinity.doubleValue();
             }
         }
-        return confidence * LinearScoreConstants.clamp01(sum / affinityNorm);
+        return confidence * RouteScoringProperties.clamp01(sum / affinityNorm);
     }
 
     private static double doubleOf(BigDecimal value) {
         return value == null ? 0d : value.doubleValue();
+    }
+
+    private double linearConstant(String path) {
+        return this.routeScoringProperties.linearConstantDouble(path);
+    }
+
+    private double feature(String path) {
+        return this.routeScoringProperties.featureExtractorDouble(path);
+    }
+
+    private int featureExtractorInt(String path) {
+        return this.routeScoringProperties.featureExtractorInt(path);
     }
 
     private record PoolDerived(double isolatedDistanceNorm, double clusterConnectivity, double categoryDuplicateRisk) {

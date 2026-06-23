@@ -17,8 +17,11 @@ import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
 import com.urbansidequest.backend.handler.route.SegmentModeResolver;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
+import com.urbansidequest.backend.handler.route.config.RouteScoringTestSupport;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
+import com.urbansidequest.backend.handler.route.support.RouteSegmentDurationEstimator;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,14 +31,12 @@ import org.junit.jupiter.api.Test;
 
 class RouteInputFeatureExtractorTest {
 
+    private static final RouteScoringProperties ROUTE_SCORING_PROPERTIES = RouteScoringTestSupport.properties();
+
     @Test
     void readsDinnerRequirementFromSelectedMealWindows() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-        RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
-                objectMapper,
-                new PoiSemanticResolver(),
-                new SegmentModeResolver()
-        );
+        RouteInputFeatureExtractor extractor = extractor(objectMapper);
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -58,11 +59,7 @@ class RouteInputFeatureExtractorTest {
     @Test
     void doesNotInferMealRequirementFromRouteTimeWhenMealWindowsAreEmpty() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-        RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
-                objectMapper,
-                new PoiSemanticResolver(),
-                new SegmentModeResolver()
-        );
+        RouteInputFeatureExtractor extractor = extractor(objectMapper);
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -90,11 +87,7 @@ class RouteInputFeatureExtractorTest {
     @Test
     void omitsDistancePollutedPoiScoreFieldsFromTrainingInput() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-        RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
-                objectMapper,
-                new PoiSemanticResolver(),
-                new SegmentModeResolver()
-        );
+        RouteInputFeatureExtractor extractor = extractor(objectMapper);
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -131,11 +124,7 @@ class RouteInputFeatureExtractorTest {
     @Test
     void usesComposerRouteRoleAndMealWindowForRouteXWhenPresent() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-        RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
-                objectMapper,
-                new PoiSemanticResolver(),
-                new SegmentModeResolver()
-        );
+        RouteInputFeatureExtractor extractor = extractor(objectMapper);
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -168,11 +157,7 @@ class RouteInputFeatureExtractorTest {
     @Test
     void extractsAmapTypecodeDiversityFromCandidateTypecode() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-        RouteInputFeatureExtractor extractor = new RouteInputFeatureExtractor(
-                objectMapper,
-                new PoiSemanticResolver(),
-                new SegmentModeResolver()
-        );
+        RouteInputFeatureExtractor extractor = extractor(objectMapper);
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -208,6 +193,16 @@ class RouteInputFeatureExtractorTest {
         param.setTransportProfile(TransportProfile.WALK_ONLY);
         param.setRouteGoal(RouteGoal.NIGHT);
         return param;
+    }
+
+    private static RouteInputFeatureExtractor extractor(ObjectMapper objectMapper) {
+        return new RouteInputFeatureExtractor(
+                objectMapper,
+                new PoiSemanticResolver(),
+                new SegmentModeResolver(ROUTE_SCORING_PROPERTIES),
+                new RouteSegmentDurationEstimator(ROUTE_SCORING_PROPERTIES),
+                ROUTE_SCORING_PROPERTIES
+        );
     }
 
     private static CandidateRouteDTO routeWithoutMealStops() {

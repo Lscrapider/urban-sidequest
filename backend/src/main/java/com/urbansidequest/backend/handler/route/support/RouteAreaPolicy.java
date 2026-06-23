@@ -6,6 +6,7 @@ import com.urbansidequest.backend.domain.enums.AreaMode;
 import com.urbansidequest.backend.domain.enums.DurationBucket;
 import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,12 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class RouteAreaPolicy {
+
+    private final RouteScoringProperties routeScoringProperties;
+
+    public RouteAreaPolicy(RouteScoringProperties routeScoringProperties) {
+        this.routeScoringProperties = routeScoringProperties;
+    }
 
     public RouteAreaDTO resolve(RouteGenerateParam generateParam) {
         return switch (generateParam.getAreaMode()) {
@@ -52,8 +59,8 @@ public class RouteAreaPolicy {
         if (generateParam.getRadiusMeters() != null) {
             return generateParam.getRadiusMeters();
         }
-        DurationBucket durationBucket = DurationBucket.fromMinutes(generateParam.getDurationMinutes());
-        return generateParam.getTransportProfile().searchRadiusMeters(durationBucket);
+        DurationBucket durationBucket = this.routeScoringProperties.durationBucket(generateParam.getDurationMinutes());
+        return this.routeScoringProperties.transportProfileMeters(generateParam.getTransportProfile(), "search-radius", durationBucket);
     }
 
     private List<GeoPointDTO> buildRectanglePolygon(GeoPointDTO center, int radiusMeters) {

@@ -11,6 +11,7 @@ import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
+import com.urbansidequest.backend.handler.route.config.RouteScoringTestSupport;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -27,7 +28,7 @@ class PoiDiversitySamplerTest {
                 UUID.randomUUID(),
                 baseParam(TransportProfile.WALK_TAXI, 360)
         );
-        PoiDiversitySampler sampler = new PoiDiversitySampler();
+        PoiDiversitySampler sampler = new PoiDiversitySampler(RouteScoringTestSupport.properties());
         List<PoiDiversitySampler.RankedPoi> rankedCandidates = List.of(
                 ranked("near-1", 1000, 0.40, 10.0),
                 ranked("near-2", 1200, 0.40, 9.0),

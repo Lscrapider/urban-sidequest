@@ -6,7 +6,7 @@ import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransitLookupStatus;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
-import com.urbansidequest.backend.handler.route.linear.LinearScoreConstants;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
 import java.util.ArrayList;
@@ -20,6 +20,12 @@ public class SegmentModeResolver {
     private static final String TRANSIT_TYPE_BUS = "BUS";
 
     private static final String TRANSIT_TYPE_SUBWAY = "SUBWAY";
+
+    private final RouteScoringProperties routeScoringProperties;
+
+    public SegmentModeResolver(RouteScoringProperties routeScoringProperties) {
+        this.routeScoringProperties = routeScoringProperties;
+    }
 
     public SegmentTransportMode resolveInitialMode(
             TransportProfile profile,
@@ -63,19 +69,19 @@ public class SegmentModeResolver {
     }
 
     private SegmentTransportMode resolveByDistance(TransportProfile profile, int distanceMeters) {
-        if (distanceMeters <= LinearScoreConstants.SHORT_WALK_SEGMENT_METERS) {
+        if (distanceMeters <= this.linearConstantInt("short-walk-segment-meters")) {
             return SegmentTransportMode.WALK;
         }
         return switch (profile) {
             case WALK_ONLY -> SegmentTransportMode.WALK;
-            case WALK_SUBWAY -> distanceMeters <= LinearScoreConstants.SUBWAY_MIN_SEGMENT_METERS
+            case WALK_SUBWAY -> distanceMeters <= this.linearConstantInt("subway-min-segment-meters")
                     ? SegmentTransportMode.WALK
                     : SegmentTransportMode.SUBWAY;
             case WALK_BUS -> SegmentTransportMode.BUS;
-            case WALK_TRANSIT -> distanceMeters <= LinearScoreConstants.MID_DISTANCE_SEGMENT_METERS
+            case WALK_TRANSIT -> distanceMeters <= this.linearConstantInt("mid-distance-segment-meters")
                     ? SegmentTransportMode.BUS
                     : SegmentTransportMode.SUBWAY;
-            case BIKE_SUBWAY -> distanceMeters <= LinearScoreConstants.MID_DISTANCE_SEGMENT_METERS
+            case BIKE_SUBWAY -> distanceMeters <= this.linearConstantInt("mid-distance-segment-meters")
                     ? SegmentTransportMode.BIKE
                     : SegmentTransportMode.SUBWAY;
             case WALK_TAXI -> SegmentTransportMode.TAXI;
@@ -83,8 +89,8 @@ public class SegmentModeResolver {
     }
 
     private boolean requiresAccessGate(SegmentTransportMode mode, int distanceMeters) {
-        return distanceMeters > LinearScoreConstants.SHORT_WALK_SEGMENT_METERS
-                && distanceMeters <= LinearScoreConstants.MID_DISTANCE_SEGMENT_METERS
+        return distanceMeters > this.linearConstantInt("short-walk-segment-meters")
+                && distanceMeters <= this.linearConstantInt("mid-distance-segment-meters")
                 && (mode == SegmentTransportMode.SUBWAY || mode == SegmentTransportMode.BUS);
     }
 
@@ -108,7 +114,7 @@ public class SegmentModeResolver {
                 .filter(transit -> requiredType.equals(transit.type()))
                 .map(TransitFacilityDTO::distanceMeters)
                 .filter(distanceMeters -> distanceMeters != null)
-                .anyMatch(distanceMeters -> distanceMeters <= LinearScoreConstants.TRANSIT_ACCESS_MAX_METERS);
+                .anyMatch(distanceMeters -> distanceMeters <= this.linearConstantInt("transit-access-max-meters"));
     }
 
     private String requiredTransitType(SegmentTransportMode mode) {
@@ -124,5 +130,9 @@ public class SegmentModeResolver {
             case WALK_TRANSIT, WALK_BUS -> SegmentTransportMode.BUS;
             case WALK_ONLY, WALK_SUBWAY, WALK_TAXI -> SegmentTransportMode.WALK;
         };
+    }
+
+    private int linearConstantInt(String path) {
+        return this.routeScoringProperties.linearConstantInt(path);
     }
 }

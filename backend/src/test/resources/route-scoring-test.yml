@@ -1,0 +1,195 @@
+route:
+  scoring:
+    linear-weights:
+      interest-match: 0.11
+      goal:
+        classic: 0.12
+        local: 0.13
+        photo: 0.14
+        night-friendly: 0.15
+        quiet: 0.16
+        hidden: 0.17
+        night-match: 0.18
+        meal-match: 0.19
+      quality:
+        rating: 0.21
+        has-image: 0.22
+        rating-missing: -0.23
+      transit:
+        high: 0.31
+        medium: 0.32
+        low: -0.33
+        dist: -0.34
+        walk-access: 0.35
+        rain-risk: -0.36
+      distance:
+        norm: -0.41
+        isolated: -0.42
+        cluster: 0.43
+        fatigue: -0.44
+        heat-fatigue: -0.45
+      budget:
+        avg-price: -0.51
+        price-missing: -0.52
+        free: 0.53
+        expensive: -0.54
+      risk:
+        close: -0.61
+        weather-outdoor: -0.62
+        category-dup: -0.63
+        missing-info: -0.64
+      personalization:
+        user-affinity: 0.71
+        dist-pressure: -0.72
+        budget-pressure: -0.73
+        transit-pressure: -0.74
+        exploration: 0.75
+      night-delta:
+        nearest-transit-distance-norm: -0.81
+        distance-norm: -0.82
+        isolated: -0.83
+    goal-delta:
+      STEADY: { quiet: 0.01, hidden: 0.02 }
+      QUIET: { quiet: 0.03, nightFriendly: -0.04 }
+      CLASSIC: { classic: 0.05, hidden: -0.06 }
+      LOCAL: { local: 0.07, hidden: 0.08, classic: -0.09 }
+      NIGHT: { nightFriendly: 0.1 }
+      PHOTO: { photo: 0.11, classic: 0.12 }
+      LOW_BUDGET: { noop: 0 }
+    transport-delta:
+      WALK_ONLY: { distanceNorm: -0.01, isolated: -0.02, fatigue: -0.03 }
+      WALK_SUBWAY: { distanceNorm: 0.04, isolated: 0.05, fatigue: 0.06 }
+      WALK_BUS: { distanceNorm: 0.07, isolated: 0.08, fatigue: 0.09 }
+      WALK_TRANSIT: { distanceNorm: 0.1, isolated: 0.11, fatigue: 0.12 }
+      BIKE_SUBWAY: { distanceNorm: 0.13, isolated: 0.14, fatigue: 0.15 }
+      WALK_TAXI: { distanceNorm: 0.16, isolated: 0.17, fatigue: 0.18 }
+    budget-delta:
+      LOW: { price: -0.01, expensive: -0.02, free: 0.03 }
+      NORMAL: { noop: 0 }
+      FLEXIBLE: { price: 0.04, expensive: 0.05 }
+    linear-constants:
+      budget-cap-cent: 20000
+      transit-ref-meters: 1000
+      walk-ref-meters: 1200
+      short-walk-segment-meters: 731
+      subway-min-segment-meters: 1600
+      mid-distance-segment-meters: 2400
+      transit-access-max-meters: 600
+      max-walk-fallback-meters: 2200
+      neighbor-radius-meters: 250
+      connect-full: 4
+      dup-full: 6
+      distance-norm-cap: 1.6
+      price-norm-cap: 2.5
+      transit-dist-cap: 1.7
+      rating-missing-default: 0.4
+      price-missing-default: 0.45
+      close-risk-missing-default: 0.25
+      rating-full: 5
+      score-min: -1
+      score-max: 1
+    linear-ranker:
+      default-duration-minutes: 200
+      null-transport: { poi-distance-ref: 2600, fatigue-ref: 1700 }
+      weather-severity: { rain: 0.66, snow: 0.77, extreme: 0.88 }
+      rain-level: { rain: 0.55, snow: 0.44 }
+      heat-level: { hot: 0.33 }
+    feature-extractor:
+      missing-info: { image-weight: 0.6, rating-weight: 0.4 }
+      unknown-distance: { norm: 1.1, fatigue-pressure: 0.2 }
+      isolation-ref-divisor: 4
+      expensive-risk-offset: 1
+      transit-local-fail: { medium: 0.8, distance-norm: 1.2, score: 0.4 }
+      transit-empty: { low: 0.9, distance-norm: 1.7, score: 0 }
+      transit-high-meters: 200
+      transit-medium-meters: 600
+      walk-access: { walk-weight: 0.7, transit-weight: 0.3, unknown-walk-part: 0.45 }
+    transport-profile:
+      WALK_ONLY: &walk_only
+        search-radius: { short: 1000, half-day: 2000, full-day: 3000 }
+        poi-distance-ref: { short: 1100, half-day: 2100, full-day: 3100 }
+        route-distance-ref: { short: 1200, half-day: 2200, full-day: 3200 }
+        walking-fatigue-ref: { short: 1300, half-day: 2300, full-day: 3300 }
+      WALK_SUBWAY: *walk_only
+      WALK_BUS: *walk_only
+      WALK_TRANSIT: *walk_only
+      BIKE_SUBWAY: *walk_only
+      WALK_TAXI: *walk_only
+    duration-bucket:
+      short-max-minutes: 100
+      half-day-max-minutes: 300
+    district-planner:
+      budget:
+        null-default: { short: 1, half-day: 1, full-day: 1 }
+        walk-only: { short: 1, half-day: 1, full-day: 1 }
+        WALK_ONLY: { short: 1, half-day: 1, full-day: 1 }
+        WALK_SUBWAY: { short: 2, half-day: 2, full-day: 3 }
+        WALK_BUS: { short: 1, half-day: 2, full-day: 3 }
+        WALK_TRANSIT: { short: 2, half-day: 3, full-day: 3 }
+        BIKE_SUBWAY: { short: 2, half-day: 3, full-day: 3 }
+        WALK_TAXI: { short: 2, half-day: 3, full-day: 4 }
+    diversity-sampler:
+      max-llm-poi-count: 30
+      min: { meal: 2, rest: 1, anchor: 9 }
+      max-category-ratio: 0.37
+      backup-ratio: 0.16
+      category-penalty: 0.2
+      backup-penalty: 0.3
+      mid-distance-ratio: 0.47
+      clean-quality-min: 0.21
+      floors: { backup: 2, category: 3 }
+      temperature:
+        null-default: 0.2
+        WALK_ONLY: 0.21
+        WALK_SUBWAY: 0.22
+        WALK_BUS: 0.23
+        WALK_TRANSIT: 0.24
+        BIKE_SUBWAY: 0.25
+        WALK_TAXI: 0.26
+      mid-far-quota:
+        WALK_ONLY: 0
+        WALK_SUBWAY: 2
+        WALK_BUS: 3
+        WALK_TRANSIT: 4
+        BIKE_SUBWAY: 5
+        WALK_TAXI: 6
+    route-x:
+      max-stop-count: 10
+      top-tag-k: 2
+      stay-budget-ratio: 0.8
+      segment-comfort-duration-minutes: 25
+      min-segment-comfort-distance-meters: 400
+      long-segment-pressure-threshold: 1.2
+      visited-vicinity-threshold-meters: 200
+      risk-cost-threshold: -0.2
+      distance-pressure-clamp-max: 2.2
+      budget-pressure: { offset: 1.1, clamp-max: 2.3 }
+      expensive-risk-offset: 1
+      rating-missing-default: 0.35
+      avg-price-missing-default: 0.36
+      budget-cap:
+        LOW: 12000
+        NORMAL: 20000
+        FLEXIBLE: 40000
+      transit:
+        no-facility: { medium: 0.6, distance-norm: 1.1 }
+        has-facility-no-distance: { low: 0.7, distance-norm: 1.7 }
+        high-meters: 200
+        medium-meters: 600
+    estimate-duration:
+      bike: { speed: 100, base: 2 }
+      transit: { speed: 200, base: 10 }
+      taxi: { speed: 300, base: 8 }
+      walk: { speed: 50 }
+    route-goal-scoring:
+      base-score: 900
+      per-stop: 11
+      low-risk-bonus: 22
+      steady-distance-divisor: 100
+      quiet-low-risk-bonus: 33
+      classic-per-stop: 12
+      local-hit-bonus: 44
+      low-budget-missing-bonus: 55
+      low-budget-divisor: 1000
+      night-hit-bonus: 66
+      photo-hit-bonus: 77

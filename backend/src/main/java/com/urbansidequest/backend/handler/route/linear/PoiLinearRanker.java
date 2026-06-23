@@ -11,6 +11,7 @@ import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.enums.WeatherBucket;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import java.math.BigDecimal;
@@ -25,22 +26,24 @@ import org.springframework.stereotype.Component;
 @Component
 public class PoiLinearRanker {
 
-    private static final int DEFAULT_DURATION_MINUTES = 180;
-
     private final PoiSemanticResolver semanticResolver;
 
     private final PoiLinearFeatureExtractor featureExtractor;
 
     private final PoiLinearScorer scorer;
 
+    private final RouteScoringProperties routeScoringProperties;
+
     public PoiLinearRanker(
             PoiSemanticResolver semanticResolver,
             PoiLinearFeatureExtractor featureExtractor,
-            PoiLinearScorer scorer
+            PoiLinearScorer scorer,
+            RouteScoringProperties routeScoringProperties
     ) {
         this.semanticResolver = semanticResolver;
         this.featureExtractor = featureExtractor;
         this.scorer = scorer;
+        this.routeScoringProperties = routeScoringProperties;
     }
 
     public List<PoiLinearScoreDTO> score(RouteGenerationContext context, List<PoiCandidateDTO> candidates) {
@@ -72,13 +75,19 @@ public class PoiLinearRanker {
     private LinearScoringContext buildContext(RouteGenerationContext context) {
         RouteGenerateParam param = context.getGenerateParam();
         TransportProfile transport = param.getTransportProfile();
-        int durationMinutes = param.getDurationMinutes() == null ? DEFAULT_DURATION_MINUTES : param.getDurationMinutes();
-        DurationBucket bucket = DurationBucket.fromMinutes(durationMinutes);
+        int durationMinutes = param.getDurationMinutes() == null
+                ? this.routeScoringProperties.linearRankerInt("default-duration-minutes")
+                : param.getDurationMinutes();
+        DurationBucket bucket = this.routeScoringProperties.durationBucket(durationMinutes);
 
-        double poiDistanceRef = transport == null ? 2500d : transport.poiDistanceRefMeters(bucket);
+        double poiDistanceRef = transport == null
+                ? this.routeScoringProperties.linearRankerDouble("null-transport.poi-distance-ref")
+                : this.routeScoringProperties.transportProfileMeters(transport, "poi-distance-ref", bucket);
         double requestRadius = context.getArea() == null ? poiDistanceRef : context.getArea().radiusMeters();
         double effectiveRadius = Math.min(requestRadius <= 0 ? poiDistanceRef : requestRadius, poiDistanceRef);
-        double fatigueRef = transport == null ? 1500d : transport.walkingFatigueRefMeters(bucket);
+        double fatigueRef = transport == null
+                ? this.routeScoringProperties.linearRankerDouble("null-transport.fatigue-ref")
+                : this.routeScoringProperties.transportProfileMeters(transport, "walking-fatigue-ref", bucket);
 
         RouteWeatherDTO weather = context.getRouteWeather();
         RouteTimeStructure timeStructure = RouteTimeStructure.fromWindow(param.getDepartureTime(), durationMinutes);
@@ -134,9 +143,9 @@ public class PoiLinearRanker {
     private double badWeatherSeverity(RouteWeatherDTO weather) {
         WeatherBucket bucket = weather == null ? WeatherBucket.UNKNOWN : weather.weatherBucket();
         return switch (bucket) {
-            case RAIN -> 0.6d;
-            case SNOW -> 0.8d;
-            case EXTREME -> 1.0d;
+            case RAIN -> this.routeScoringProperties.linearRankerDouble("weather-severity.rain");
+            case SNOW -> this.routeScoringProperties.linearRankerDouble("weather-severity.snow");
+            case EXTREME -> this.routeScoringProperties.linearRankerDouble("weather-severity.extreme");
             default -> 0d;
         };
     }
@@ -144,8 +153,8 @@ public class PoiLinearRanker {
     private double rainLevel(RouteWeatherDTO weather) {
         WeatherBucket bucket = weather == null ? WeatherBucket.UNKNOWN : weather.weatherBucket();
         return switch (bucket) {
-            case RAIN -> 0.6d;
-            case SNOW -> 0.4d;
+            case RAIN -> this.routeScoringProperties.linearRankerDouble("rain-level.rain");
+            case SNOW -> this.routeScoringProperties.linearRankerDouble("rain-level.snow");
             default -> 0d;
         };
     }
@@ -154,6 +163,8 @@ public class PoiLinearRanker {
         if (weather == null || weather.temperatureLevel() == null) {
             return 0d;
         }
-        return weather.temperatureLevel() == com.urbansidequest.backend.domain.enums.TemperatureLevel.HOT ? 0.7d : 0d;
+        return weather.temperatureLevel() == com.urbansidequest.backend.domain.enums.TemperatureLevel.HOT
+                ? this.routeScoringProperties.linearRankerDouble("heat-level.hot")
+                : 0d;
     }
 }

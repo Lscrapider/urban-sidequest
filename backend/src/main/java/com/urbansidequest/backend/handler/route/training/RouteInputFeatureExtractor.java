@@ -19,12 +19,13 @@ import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.po.InterestTagCatalogPO;
 import com.urbansidequest.backend.handler.route.SegmentModeResolver;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
-import com.urbansidequest.backend.handler.route.linear.LinearScoreConstants;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticProfile;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import com.urbansidequest.backend.handler.route.support.MealWindowSupport;
+import com.urbansidequest.backend.handler.route.support.RouteSegmentDurationEstimator;
 import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -40,22 +41,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class RouteInputFeatureExtractor {
 
-    private static final int MAX_STOP_COUNT = 8;
-
-    private static final int TOP_TAG_K = 3;
-
-    private static final double STAY_BUDGET_RATIO = 0.85d;
-
-    private static final double SEGMENT_COMFORT_DURATION_MINUTES = 20d;
-
-    private static final double MIN_SEGMENT_COMFORT_DISTANCE_METERS = 500d;
-
-    private static final double LONG_SEGMENT_PRESSURE_THRESHOLD = 1.0d;
-
-    private static final double VISITED_VICINITY_THRESHOLD_METERS = 300d;
-
-    private static final double RISK_COST_THRESHOLD = -0.12d;
-
     private static final String MISSING_AMAP_TYPECODE_PREFIX = "__MISSING_AMAP_TYPECODE__";
 
     private final ObjectMapper objectMapper;
@@ -64,14 +49,22 @@ public class RouteInputFeatureExtractor {
 
     private final SegmentModeResolver segmentModeResolver;
 
+    private final RouteSegmentDurationEstimator routeSegmentDurationEstimator;
+
+    private final RouteScoringProperties routeScoringProperties;
+
     public RouteInputFeatureExtractor(
             ObjectMapper objectMapper,
             PoiSemanticResolver poiSemanticResolver,
-            SegmentModeResolver segmentModeResolver
+            SegmentModeResolver segmentModeResolver,
+            RouteSegmentDurationEstimator routeSegmentDurationEstimator,
+            RouteScoringProperties routeScoringProperties
     ) {
         this.objectMapper = objectMapper;
         this.poiSemanticResolver = poiSemanticResolver;
         this.segmentModeResolver = segmentModeResolver;
+        this.routeSegmentDurationEstimator = routeSegmentDurationEstimator;
+        this.routeScoringProperties = routeScoringProperties;
     }
 
     public RouteInputFeatureSnapshot extract(CandidateRouteDTO route, RouteGenerationContext context) {
@@ -134,21 +127,21 @@ public class RouteInputFeatureExtractor {
             row.put("isHiddenGem", bit(semantic.hiddenGem()));
 
             BigDecimal rating = stop.rating() == null && candidate != null ? candidate.amapRating() : stop.rating();
-            row.put("ratingNorm", rating == null ? LinearScoreConstants.RATING_MISSING_DEFAULT
-                    : clamp01(rating.doubleValue() / LinearScoreConstants.RATING_FULL));
+            row.put("ratingNorm", rating == null ? this.routeX("rating-missing-default")
+                    : clamp01(rating.doubleValue() / this.linearConstant("rating-full")));
             row.put("hasImage", bit((stop.imageUrls() != null && !stop.imageUrls().isEmpty())
                     || (candidate != null && candidate.hasImage())));
             row.put("isRatingMissing", bit(rating == null));
 
             Integer avgPriceCent = candidate == null ? null : candidate.avgPriceCent();
-            row.put("avgPriceNorm", avgPriceCent == null ? LinearScoreConstants.PRICE_MISSING_DEFAULT
-                    : Math.min(avgPriceCent / LinearScoreConstants.BUDGET_CAP_CENT, LinearScoreConstants.PRICE_NORM_CAP));
+            row.put("avgPriceNorm", avgPriceCent == null ? this.routeX("avg-price-missing-default")
+                    : Math.min(avgPriceCent / this.linearConstant("budget-cap-cent"), this.linearConstant("price-norm-cap")));
             row.put("isPriceMissing", bit(avgPriceCent == null));
             row.put("isFree", bit(avgPriceCent != null && avgPriceCent == 0));
             row.put("expensivePoiRisk", avgPriceCent == null ? 0d
-                    : clamp01(avgPriceCent / LinearScoreConstants.BUDGET_CAP_CENT - 1.0d));
+                    : clamp01(avgPriceCent / this.linearConstant("budget-cap-cent") - this.routeX("expensive-risk-offset")));
 
-            row.put("closeRisk", stop.riskNote() == null || stop.riskNote().isBlank() ? 0d : LinearScoreConstants.CLOSE_RISK_MISSING_DEFAULT);
+            row.put("closeRisk", stop.riskNote() == null || stop.riskNote().isBlank() ? 0d : this.linearConstant("close-risk-missing-default"));
             row.put("missingInfoRisk", bit(candidate == null || isBlank(stop.description())));
 
             TransitFeature transit = this.transitFeature(candidate);
@@ -207,7 +200,7 @@ public class RouteInputFeatureExtractor {
                     ? (missing ? 0 : GeoMath.distanceMeters(origin.location(), destination.location()))
                     : routeSegment.distanceMeters();
             int durationMinutes = routeSegment == null
-                    ? (missing ? 0 : this.estimateDurationMinutes(distanceMeters, mode))
+                    ? (missing ? 0 : this.routeSegmentDurationEstimator.estimateDurationMinutes(distanceMeters, mode))
                     : routeSegment.durationMinutes();
             RouteSegmentSource sourceType = routeSegment == null ? null : routeSegment.source();
             features.add(new SegmentFeature(index, mode, distanceMeters, durationMinutes, missing, sourceType));
@@ -226,13 +219,18 @@ public class RouteInputFeatureExtractor {
             return rows;
         }
         double routeComfortDistance = this.routeComfortDistanceMeters(context);
-        double segmentComfortDistance = Math.max(MIN_SEGMENT_COMFORT_DISTANCE_METERS, routeComfortDistance / Math.max(1, stops.size() - 1));
+        double segmentComfortDistance = Math.max(
+                this.routeX("min-segment-comfort-distance-meters"),
+                routeComfortDistance / Math.max(1, stops.size() - 1)
+        );
         for (SegmentFeature feature : segmentFeatures) {
-            double distancePressure = feature.missing() ? 1d : clamp(feature.distanceMeters() / segmentComfortDistance, 0d, 2d);
+            double distancePressure = feature.missing()
+                    ? 1d
+                    : clamp(feature.distanceMeters() / segmentComfortDistance, 0d, this.routeX("distance-pressure-clamp-max"));
 
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("straightDistanceNorm", feature.missing() ? 1d : feature.distanceMeters() / segmentComfortDistance);
-            row.put("estimatedDurationNorm", feature.missing() ? 1d : feature.durationMinutes() / SEGMENT_COMFORT_DURATION_MINUTES);
+            row.put("estimatedDurationNorm", feature.missing() ? 1d : feature.durationMinutes() / this.routeX("segment-comfort-duration-minutes"));
             row.put("transportMode_WALK", bit(feature.mode() == SegmentTransportMode.WALK));
             row.put("transportMode_BIKE", bit(feature.mode() == SegmentTransportMode.BIKE));
             row.put("transportMode_BUS", bit(feature.mode() == SegmentTransportMode.BUS));
@@ -263,12 +261,12 @@ public class RouteInputFeatureExtractor {
         int durationMinutes = Math.max(1, context.getGenerateParam().getDurationMinutes());
         int estimatedStayMinutes = stops.stream().mapToInt(RouteStopDTO::stayMinutes).sum();
         double estimatedTravelMinutes = segmentMatrix.stream()
-                .mapToDouble(row -> doubleValue(row.get("estimatedDurationNorm")) * SEGMENT_COMFORT_DURATION_MINUTES)
+                .mapToDouble(row -> doubleValue(row.get("estimatedDurationNorm")) * this.routeX("segment-comfort-duration-minutes"))
                 .sum();
 
         Map<String, Object> vector = new LinkedHashMap<>();
-        vector.put("stopCountNorm", stopCount / (double) MAX_STOP_COUNT);
-        vector.put("stayBudgetUsageRatio", estimatedStayMinutes / (durationMinutes * STAY_BUDGET_RATIO));
+        vector.put("stopCountNorm", stopCount / (double) this.routeXInt("max-stop-count"));
+        vector.put("stayBudgetUsageRatio", estimatedStayMinutes / (durationMinutes * this.routeX("stay-budget-ratio")));
         vector.put("estimatedTravelMinutesNorm", estimatedTravelMinutes / durationMinutes);
         vector.put("timeBudgetUsageRatio", (estimatedStayMinutes + estimatedTravelMinutes) / durationMinutes);
 
@@ -281,21 +279,24 @@ public class RouteInputFeatureExtractor {
         boolean dinnerCovered = mealCoverage.dinnerCovered();
         vector.put("requiresLunchFlag", bit(requiresLunch));
         vector.put("requiresDinnerFlag", bit(requiresDinner));
-        vector.put("mealStopCountNorm", mealStopCount / (double) MAX_STOP_COUNT);
-        vector.put("restStopCountNorm", restStopCount / (double) MAX_STOP_COUNT);
+        vector.put("mealStopCountNorm", mealStopCount / (double) this.routeXInt("max-stop-count"));
+        vector.put("restStopCountNorm", restStopCount / (double) this.routeXInt("max-stop-count"));
         vector.put("lunchCoveredFlag", bit(lunchCovered));
         vector.put("dinnerCoveredFlag", bit(dinnerCovered));
         vector.put("missingRequiredMealFlag", bit((requiresLunch && !lunchCovered) || (requiresDinner && !dinnerCovered)));
 
         double routeComfortDistance = this.routeComfortDistanceMeters(context);
-        double segmentComfortDistance = Math.max(MIN_SEGMENT_COMFORT_DISTANCE_METERS, routeComfortDistance / Math.max(1, stopCount - 1));
+        double segmentComfortDistance = Math.max(
+                this.routeX("min-segment-comfort-distance-meters"),
+                routeComfortDistance / Math.max(1, stopCount - 1)
+        );
         double totalDistanceNorm = segmentMatrix.stream().mapToDouble(row -> doubleValue(row.get("straightDistanceNorm")) * segmentComfortDistance).sum()
                 / routeComfortDistance;
         vector.put("totalDistanceNorm", totalDistanceNorm);
         vector.put("maxSegmentDistanceNorm", segmentMatrix.stream().mapToDouble(row -> doubleValue(row.get("straightDistanceNorm"))).max().orElse(0d));
         vector.put("avgSegmentDistanceNorm", segmentMatrix.stream().mapToDouble(row -> doubleValue(row.get("straightDistanceNorm"))).average().orElse(0d));
         vector.put("longSegmentRatio", segmentCount == 0 ? 0d : segmentMatrix.stream()
-                .filter(row -> doubleValue(row.get("distancePressure")) > LONG_SEGMENT_PRESSURE_THRESHOLD)
+                .filter(row -> doubleValue(row.get("distancePressure")) > this.routeX("long-segment-pressure-threshold"))
                 .count() / (double) segmentCount);
         vector.put("backtrackingSegmentRatio", segmentCount == 0 ? 0d : segmentMatrix.stream()
                 .filter(row -> doubleValue(row.get("isBacktracking")) > 0d)
@@ -355,7 +356,7 @@ public class RouteInputFeatureExtractor {
         vector.put("avgQualityScore", this.avg(stopMatrix, "qualityScore"));
         vector.put("avgRiskCost", this.avg(stopMatrix, "riskCost"));
         vector.put("highRiskStopRatio", stopCount == 0 ? 0d : stopMatrix.stream()
-                .filter(row -> doubleValue(row.get("riskCost")) <= RISK_COST_THRESHOLD)
+                .filter(row -> doubleValue(row.get("riskCost")) <= this.routeX("risk-cost-threshold"))
                 .count() / (double) stopCount);
         return vector;
     }
@@ -505,7 +506,11 @@ public class RouteInputFeatureExtractor {
         double budgetTotalNorm = totalCent / this.budgetCapCent(context.getGenerateParam().getBudgetLevel());
         return new BudgetStats(
                 budgetTotalNorm,
-                clamp(budgetTotalNorm - 1d, 0d, 2d),
+                clamp(
+                        budgetTotalNorm - this.routeX("budget-pressure.offset"),
+                        0d,
+                        this.routeX("budget-pressure.clamp-max")
+                ),
                 missingPriceCount / (double) budgetRelevantCount
         );
     }
@@ -637,25 +642,21 @@ public class RouteInputFeatureExtractor {
             return true;
         }
         for (int index = 0; index < segmentIndex - 1; index++) {
-            if (GeoMath.distanceMeters(next.location(), stops.get(index).location()) < VISITED_VICINITY_THRESHOLD_METERS) {
+            if (GeoMath.distanceMeters(next.location(), stops.get(index).location()) < this.routeX("visited-vicinity-threshold-meters")) {
                 return true;
             }
         }
         return false;
     }
 
-    private int estimateDurationMinutes(int distanceMeters, SegmentTransportMode mode) {
-        return switch (mode) {
-            case BIKE -> (int) Math.ceil(distanceMeters / 180d) + 3;
-            case BUS, SUBWAY, TRANSIT -> (int) Math.ceil(distanceMeters / 260d) + 12;
-            case TAXI, DRIVE -> (int) Math.ceil(distanceMeters / 300d) + 8;
-            case WALK -> (int) Math.ceil(distanceMeters / 70d);
-        };
-    }
-
     private TransitFeature transitFeature(PoiCandidateDTO candidate) {
         if (candidate == null || candidate.nearestTransit().isEmpty()) {
-            return new TransitFeature(0d, 1d, 0d, 1d);
+            return new TransitFeature(
+                    0d,
+                    this.routeX("transit.no-facility.medium"),
+                    0d,
+                    this.routeX("transit.no-facility.distance-norm")
+            );
         }
         Integer nearestMeters = candidate.nearestTransit().stream()
                 .map(transit -> transit.distanceMeters())
@@ -663,13 +664,18 @@ public class RouteInputFeatureExtractor {
                 .min(Integer::compareTo)
                 .orElse(null);
         if (nearestMeters == null) {
-            return new TransitFeature(0d, 0d, 1d, LinearScoreConstants.TRANSIT_DIST_CAP);
+            return new TransitFeature(
+                    0d,
+                    0d,
+                    this.routeX("transit.has-facility-no-distance.low"),
+                    this.routeX("transit.has-facility-no-distance.distance-norm")
+            );
         }
-        double distanceNorm = Math.min(nearestMeters / LinearScoreConstants.TRANSIT_REF_METERS, LinearScoreConstants.TRANSIT_DIST_CAP);
-        if (nearestMeters <= 300) {
+        double distanceNorm = Math.min(nearestMeters / this.linearConstant("transit-ref-meters"), this.linearConstant("transit-dist-cap"));
+        if (nearestMeters <= this.routeXInt("transit.high-meters")) {
             return new TransitFeature(1d, 0d, 0d, distanceNorm);
         }
-        if (nearestMeters <= 800) {
+        if (nearestMeters <= this.routeXInt("transit.medium-meters")) {
             return new TransitFeature(0d, 1d, 0d, distanceNorm);
         }
         return new TransitFeature(0d, 0d, 1d, distanceNorm);
@@ -681,16 +687,12 @@ public class RouteInputFeatureExtractor {
 
     private double routeComfortDistanceMeters(RouteGenerationContext context) {
         TransportProfile profile = context.getGenerateParam().getTransportProfile();
-        DurationBucket bucket = DurationBucket.fromMinutes(context.getGenerateParam().getDurationMinutes());
-        return profile.routeDistanceRefMeters(bucket);
+        DurationBucket bucket = this.routeScoringProperties.durationBucket(context.getGenerateParam().getDurationMinutes());
+        return this.routeScoringProperties.transportProfileMeters(profile, "route-distance-ref", bucket);
     }
 
     private double budgetCapCent(BudgetLevel budgetLevel) {
-        return switch (budgetLevel) {
-            case LOW -> 10000d;
-            case NORMAL -> LinearScoreConstants.BUDGET_CAP_CENT;
-            case FLEXIBLE -> 30000d;
-        };
+        return this.routeScoringProperties.routeXBudgetCap(budgetLevel);
     }
 
     private boolean isRouteRole(
@@ -814,10 +816,10 @@ public class RouteInputFeatureExtractor {
                 .filter(entry -> !isBlank(entry.getKey()))
                 .filter(entry -> entry.getValue() != null && entry.getValue().compareTo(BigDecimal.ZERO) > 0)
                 .sorted(Comparator.<Map.Entry<String, BigDecimal>, Double>comparing(entry -> entry.getValue().doubleValue()).reversed())
-                .limit(TOP_TAG_K)
+                .limit(this.routeXInt("top-tag-k"))
                 .map(Map.Entry::getKey)
                 .toList();
-        int topTagCount = Math.min(TOP_TAG_K, topTags.size());
+        int topTagCount = Math.min(this.routeXInt("top-tag-k"), topTags.size());
         double topTagHitRatio = topTagCount == 0 ? 0d : topTags.stream()
                 .filter(routeTags::contains)
                 .count() / (double) topTagCount;
@@ -880,6 +882,18 @@ public class RouteInputFeatureExtractor {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private double linearConstant(String path) {
+        return this.routeScoringProperties.linearConstantDouble(path);
+    }
+
+    private double routeX(String path) {
+        return this.routeScoringProperties.routeXDouble(path);
+    }
+
+    private int routeXInt(String path) {
+        return this.routeScoringProperties.routeXInt(path);
     }
 
     private String writeJson(Object value) {

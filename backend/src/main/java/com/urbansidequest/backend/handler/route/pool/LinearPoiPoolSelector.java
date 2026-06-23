@@ -3,6 +3,7 @@ package com.urbansidequest.backend.handler.route.pool;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.PoiLinearScoreDTO;
 import com.urbansidequest.backend.domain.dto.PoiLinearTraceDTO;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.linear.PoiLinearRanker;
 import com.urbansidequest.backend.handler.route.pool.PoiDiversitySampler.RankedPoi;
@@ -25,15 +26,20 @@ public class LinearPoiPoolSelector implements PoiPoolSelector {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LinearPoiPoolSelector.class);
 
-    private static final int MAX_LLM_POI_COUNT = 40;
-
     private final PoiLinearRanker linearRanker;
 
     private final PoiDiversitySampler poiDiversitySampler;
 
-    public LinearPoiPoolSelector(PoiLinearRanker linearRanker, PoiDiversitySampler poiDiversitySampler) {
+    private final RouteScoringProperties routeScoringProperties;
+
+    public LinearPoiPoolSelector(
+            PoiLinearRanker linearRanker,
+            PoiDiversitySampler poiDiversitySampler,
+            RouteScoringProperties routeScoringProperties
+    ) {
         this.linearRanker = linearRanker;
         this.poiDiversitySampler = poiDiversitySampler;
+        this.routeScoringProperties = routeScoringProperties;
     }
 
     @Override
@@ -60,7 +66,11 @@ public class LinearPoiPoolSelector implements PoiPoolSelector {
                 ))
                 .toList();
         context.setPoiLinearTraces(traces);
-        List<RankedPoi> selected = this.poiDiversitySampler.sample(context, scored, MAX_LLM_POI_COUNT);
+        List<RankedPoi> selected = this.poiDiversitySampler.sample(
+                context,
+                scored,
+                this.routeScoringProperties.diversitySamplerInt("max-llm-poi-count")
+        );
         this.dumpScores(scored, selected, context.isTransportSignalAvailable());
 
         return selected.stream()

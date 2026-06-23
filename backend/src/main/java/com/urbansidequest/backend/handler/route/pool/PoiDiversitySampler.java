@@ -5,6 +5,7 @@ import com.urbansidequest.backend.domain.dto.PoiLinearScoreDTO;
 import com.urbansidequest.backend.domain.enums.DurationBucket;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -23,23 +24,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class PoiDiversitySampler {
 
-    private static final int MIN_MEAL_COUNT = 2;
+    private final RouteScoringProperties routeScoringProperties;
 
-    private static final int MIN_REST_COUNT = 1;
-
-    private static final int MIN_ANCHOR_COUNT = 10;
-
-    private static final double MAX_CATEGORY_RATIO = 0.35d;
-
-    private static final double BACKUP_RATIO = 0.15d;
-
-    private static final double CATEGORY_PENALTY = 0.12d;
-
-    private static final double BACKUP_PENALTY = 0.18d;
-
-    private static final double MID_DISTANCE_RATIO = 0.45d;
-
-    private static final double CLEAN_QUALITY_MIN = 0.20d;
+    public PoiDiversitySampler(RouteScoringProperties routeScoringProperties) {
+        this.routeScoringProperties = routeScoringProperties;
+    }
 
     public List<RankedPoi> sample(RouteGenerationContext context, List<RankedPoi> rankedCandidates, int maxCount) {
         if (rankedCandidates.size() <= maxCount) {
@@ -47,13 +36,19 @@ public class PoiDiversitySampler {
         }
 
         Map<String, RankedPoi> selected = new LinkedHashMap<>();
-        int maxBackupCount = Math.max(2, (int) Math.ceil(maxCount * BACKUP_RATIO));
-        int maxCategoryCount = Math.max(3, (int) Math.ceil(maxCount * MAX_CATEGORY_RATIO));
+        int maxBackupCount = Math.max(
+                this.configInt("floors.backup"),
+                (int) Math.ceil(maxCount * this.configDouble("backup-ratio"))
+        );
+        int maxCategoryCount = Math.max(
+                this.configInt("floors.category"),
+                (int) Math.ceil(maxCount * this.configDouble("max-category-ratio"))
+        );
 
         this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().mustVisit());
-        this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.MEAL, MIN_MEAL_COUNT);
-        this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.REST, MIN_REST_COUNT);
-        this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.ANCHOR, MIN_ANCHOR_COUNT);
+        this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.MEAL, this.configInt("min.meal"));
+        this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.REST, this.configInt("min.rest"));
+        this.addRequired(selected, rankedCandidates, maxCount, candidate -> candidate.candidate().role() == PoiCandidateRole.ANCHOR, this.configInt("min.anchor"));
         this.addMidFarReserved(context, selected, rankedCandidates, maxCount, maxCategoryCount, maxBackupCount);
 
         List<RankedPoi> pool = new ArrayList<>(rankedCandidates);
@@ -115,7 +110,7 @@ public class PoiDiversitySampler {
         if (selectedMidFarCount >= quota) {
             return;
         }
-        double cleanQualityThreshold = Math.max(CLEAN_QUALITY_MIN, this.cleanQualityP50(rankedCandidates));
+        double cleanQualityThreshold = Math.max(this.configDouble("clean-quality-min"), this.cleanQualityP50(rankedCandidates));
         rankedCandidates.stream()
                 .filter(candidate -> !selected.containsKey(candidate.candidate().poiId()))
                 .filter(candidate -> this.isMidFarCandidate(context, candidate))
@@ -136,16 +131,7 @@ public class PoiDiversitySampler {
     }
 
     private int midFarQuota(RouteGenerationContext context) {
-        TransportProfile profile = context.getGenerateParam().getTransportProfile();
-        if (profile == null) {
-            return 0;
-        }
-        return switch (profile) {
-            case WALK_ONLY -> 0;
-            case WALK_BUS -> 4;
-            case WALK_SUBWAY, WALK_TRANSIT -> 6;
-            case BIKE_SUBWAY, WALK_TAXI -> 8;
-        };
+        return this.routeScoringProperties.midFarQuota(context.getGenerateParam().getTransportProfile());
     }
 
     private boolean isMidFarCandidate(RouteGenerationContext context, RankedPoi candidate) {
@@ -153,12 +139,12 @@ public class PoiDiversitySampler {
         if (profile == null) {
             return false;
         }
-        DurationBucket bucket = DurationBucket.fromMinutes(context.getGenerateParam().getDurationMinutes());
-        double poiDistanceRef = profile.poiDistanceRefMeters(bucket);
+        DurationBucket bucket = this.routeScoringProperties.durationBucket(context.getGenerateParam().getDurationMinutes());
+        double poiDistanceRef = this.routeScoringProperties.transportProfileMeters(profile, "poi-distance-ref", bucket);
         if (poiDistanceRef <= 0d) {
             return false;
         }
-        return candidate.score().distanceMeters() / poiDistanceRef >= MID_DISTANCE_RATIO;
+        return candidate.score().distanceMeters() / poiDistanceRef >= this.configDouble("mid-distance-ratio");
     }
 
     private double cleanQualityP50(List<RankedPoi> rankedCandidates) {
@@ -234,9 +220,9 @@ public class PoiDiversitySampler {
     private double diversityPenalty(RankedPoi candidate, Map<String, RankedPoi> selected) {
         String category = this.categoryKey(candidate);
         long sameCategoryCount = this.countSelected(selected, item -> this.categoryKey(item).equals(category));
-        double penalty = sameCategoryCount * CATEGORY_PENALTY;
+        double penalty = sameCategoryCount * this.configDouble("category-penalty");
         if (candidate.candidate().role() == PoiCandidateRole.BACKUP) {
-            penalty += BACKUP_PENALTY;
+            penalty += this.configDouble("backup-penalty");
         }
         return penalty;
     }
@@ -251,15 +237,15 @@ public class PoiDiversitySampler {
     }
 
     private double temperature(RouteGenerationContext context) {
-        TransportProfile profile = context.getGenerateParam().getTransportProfile();
-        if (profile == null) {
-            return 0.24d;
-        }
-        return switch (profile) {
-            case WALK_ONLY -> 0.18d;
-            case WALK_SUBWAY, WALK_BUS, WALK_TRANSIT, BIKE_SUBWAY -> 0.34d;
-            case WALK_TAXI -> 0.42d;
-        };
+        return this.routeScoringProperties.diversityTemperature(context.getGenerateParam().getTransportProfile());
+    }
+
+    private int configInt(String path) {
+        return this.routeScoringProperties.diversitySamplerInt(path);
+    }
+
+    private double configDouble(String path) {
+        return this.routeScoringProperties.diversitySamplerDouble(path);
     }
 
     public record RankedPoi(PoiCandidateDTO candidate, PoiLinearScoreDTO score) {

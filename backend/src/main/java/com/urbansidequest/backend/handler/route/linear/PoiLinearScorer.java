@@ -6,6 +6,7 @@ import com.urbansidequest.backend.domain.enums.BudgetLevel;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,57 +19,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class PoiLinearScorer {
 
-    // —— W_interest ——
-    private static final double W_INTEREST_MATCH = 0.25d;
+    private final RouteScoringProperties routeScoringProperties;
 
-    // —— W_goal base ——
-    private static final double W_GOAL_CLASSIC = 0.06d;
-    private static final double W_GOAL_LOCAL = 0.05d;
-    private static final double W_GOAL_PHOTO = 0.04d;
-    private static final double W_GOAL_NIGHT_FRIENDLY = 0.03d;
-    private static final double W_GOAL_QUIET = 0.02d;
-    private static final double W_GOAL_HIDDEN = 0.03d;
-    private static final double W_GOAL_NIGHT_MATCH = 0.05d;
-    private static final double W_GOAL_MEAL_MATCH = 0.05d;
-
-    // —— W_quality ——
-    private static final double W_QUALITY_RATING = 0.20d;
-    private static final double W_QUALITY_HAS_IMAGE = 0.05d;
-    private static final double W_QUALITY_RATING_MISSING = -0.03d;
-
-    // —— W_transport base ——
-    private static final double W_TRANSIT_HIGH = 0.10d;
-    private static final double W_TRANSIT_MEDIUM = 0.05d;
-    private static final double W_TRANSIT_LOW = -0.03d;
-    private static final double W_TRANSIT_DIST = -0.05d;
-    private static final double W_WALK_ACCESS = 0.06d;
-    private static final double W_RAIN_TRANSPORT_RISK = -0.08d;
-
-    // —— W_distance base ——
-    private static final double W_DISTANCE_NORM = -0.20d;
-    private static final double W_ISOLATED = -0.08d;
-    private static final double W_CLUSTER = 0.03d;
-    private static final double W_FATIGUE = -0.06d;
-    private static final double W_HEAT_FATIGUE = -0.05d;
-
-    // —— W_budget base ——
-    private static final double W_AVG_PRICE = -0.10d;
-    private static final double W_PRICE_MISSING = -0.01d;
-    private static final double W_FREE = 0.04d;
-    private static final double W_EXPENSIVE = -0.10d;
-
-    // —— W_risk ——
-    private static final double W_CLOSE_RISK = -0.20d;
-    private static final double W_WEATHER_OUTDOOR = -0.10d;
-    private static final double W_CATEGORY_DUP = -0.08d;
-    private static final double W_MISSING_INFO = -0.12d;
-
-    // —— W_personalization ——
-    private static final double W_USER_AFFINITY = 0.15d;
-    private static final double W_DIST_PRESSURE = -0.05d;
-    private static final double W_BUDGET_PRESSURE = -0.05d;
-    private static final double W_TRANSIT_PRESSURE = -0.03d;
-    private static final double W_EXPLORATION = 0.05d;
+    public PoiLinearScorer(RouteScoringProperties routeScoringProperties) {
+        this.routeScoringProperties = routeScoringProperties;
+    }
 
     public PoiLinearScoreDTO score(PoiCandidateDTO candidate, PoiLinearFeatures x, LinearScoringContext env) {
         RouteGoal goal = env.routeGoal();
@@ -76,60 +31,63 @@ public class PoiLinearScorer {
         BudgetLevel budget = env.budgetLevel();
         boolean night = env.routeTimeStructure() == RouteTimeStructure.NIGHT;
 
-        double interestScore = W_INTEREST_MATCH * x.interestMatchRatio();
+        double interestScore = this.weight("interest-match") * x.interestMatchRatio();
 
         double goalScore =
-                (W_GOAL_CLASSIC + goalDelta(goal, "classic")) * x.isClassic()
-                + (W_GOAL_LOCAL + goalDelta(goal, "local")) * x.isLocal()
-                + (W_GOAL_PHOTO + goalDelta(goal, "photo")) * x.isPhotoFriendly()
-                + (W_GOAL_NIGHT_FRIENDLY + goalDelta(goal, "nightFriendly")) * x.isNightFriendly()
-                + (W_GOAL_QUIET + goalDelta(goal, "quiet")) * x.isQuiet()
-                + (W_GOAL_HIDDEN + goalDelta(goal, "hidden")) * x.isHiddenGem()
-                + W_GOAL_NIGHT_MATCH * x.nightMatch()
-                + W_GOAL_MEAL_MATCH * x.mealMatch();
+                (this.weight("goal.classic") + this.goalDelta(goal, "classic")) * x.isClassic()
+                + (this.weight("goal.local") + this.goalDelta(goal, "local")) * x.isLocal()
+                + (this.weight("goal.photo") + this.goalDelta(goal, "photo")) * x.isPhotoFriendly()
+                + (this.weight("goal.night-friendly") + this.goalDelta(goal, "nightFriendly")) * x.isNightFriendly()
+                + (this.weight("goal.quiet") + this.goalDelta(goal, "quiet")) * x.isQuiet()
+                + (this.weight("goal.hidden") + this.goalDelta(goal, "hidden")) * x.isHiddenGem()
+                + this.weight("goal.night-match") * x.nightMatch()
+                + this.weight("goal.meal-match") * x.mealMatch();
 
         double qualityScore =
-                W_QUALITY_RATING * x.ratingNorm()
-                + W_QUALITY_HAS_IMAGE * x.hasImage()
-                + W_QUALITY_RATING_MISSING * x.isRatingMissing();
+                this.weight("quality.rating") * x.ratingNorm()
+                + this.weight("quality.has-image") * x.hasImage()
+                + this.weight("quality.rating-missing") * x.isRatingMissing();
 
         double transportScore =
-                (W_TRANSIT_HIGH + transportDelta(transport, "high")) * x.transitHigh()
-                + W_TRANSIT_MEDIUM * x.transitMedium()
-                + (W_TRANSIT_LOW + transportDelta(transport, "low")) * x.transitLow()
-                + (W_TRANSIT_DIST + transportDelta(transport, "transitDist") + (night ? -0.03d : 0d)) * x.nearestTransitDistanceNorm()
-                + (W_WALK_ACCESS + transportDelta(transport, "walkAcc")) * x.walkingAccessibility()
-                + W_RAIN_TRANSPORT_RISK * x.rainTransportRisk();
+                (this.weight("transit.high") + this.transportDelta(transport, "high")) * x.transitHigh()
+                + this.weight("transit.medium") * x.transitMedium()
+                + (this.weight("transit.low") + this.transportDelta(transport, "low")) * x.transitLow()
+                + (this.weight("transit.dist") + this.transportDelta(transport, "transitDist")
+                + (night ? this.weight("night-delta.nearest-transit-distance-norm") : 0d)) * x.nearestTransitDistanceNorm()
+                + (this.weight("transit.walk-access") + this.transportDelta(transport, "walkAcc")) * x.walkingAccessibility()
+                + this.weight("transit.rain-risk") * x.rainTransportRisk();
 
         double distanceCost =
-                (W_DISTANCE_NORM + transportDelta(transport, "distanceNorm") + (night ? -0.04d : 0d)) * x.distanceNorm()
-                + (W_ISOLATED + transportDelta(transport, "isolated") + (night ? -0.03d : 0d)) * x.isolatedDistanceNorm()
-                + (W_CLUSTER + transportDelta(transport, "cluster")) * x.clusterConnectivity()
-                + (W_FATIGUE + transportDelta(transport, "fatigue")) * x.distanceFatiguePressure()
-                + W_HEAT_FATIGUE * x.heatFatigueRisk();
+                (this.weight("distance.norm") + this.transportDelta(transport, "distanceNorm")
+                + (night ? this.weight("night-delta.distance-norm") : 0d)) * x.distanceNorm()
+                + (this.weight("distance.isolated") + this.transportDelta(transport, "isolated")
+                + (night ? this.weight("night-delta.isolated") : 0d)) * x.isolatedDistanceNorm()
+                + (this.weight("distance.cluster") + this.transportDelta(transport, "cluster")) * x.clusterConnectivity()
+                + (this.weight("distance.fatigue") + this.transportDelta(transport, "fatigue")) * x.distanceFatiguePressure()
+                + this.weight("distance.heat-fatigue") * x.heatFatigueRisk();
 
         double budgetCost =
-                (W_AVG_PRICE + budgetDelta(budget, "price")) * x.avgPriceNorm()
-                + W_PRICE_MISSING * x.isPriceMissing()
-                + (W_FREE + budgetDelta(budget, "free")) * x.isFree()
-                + (W_EXPENSIVE + budgetDelta(budget, "expensive")) * x.expensivePoiRisk();
+                (this.weight("budget.avg-price") + this.budgetDelta(budget, "price")) * x.avgPriceNorm()
+                + this.weight("budget.price-missing") * x.isPriceMissing()
+                + (this.weight("budget.free") + this.budgetDelta(budget, "free")) * x.isFree()
+                + (this.weight("budget.expensive") + this.budgetDelta(budget, "expensive")) * x.expensivePoiRisk();
 
         double riskCost =
-                W_CLOSE_RISK * x.closeRisk()
-                + W_WEATHER_OUTDOOR * x.weatherOutdoorRisk()
-                + W_CATEGORY_DUP * x.categoryDuplicateRisk()
-                + W_MISSING_INFO * x.missingInfoRisk();
+                this.weight("risk.close") * x.closeRisk()
+                + this.weight("risk.weather-outdoor") * x.weatherOutdoorRisk()
+                + this.weight("risk.category-dup") * x.categoryDuplicateRisk()
+                + this.weight("risk.missing-info") * x.missingInfoRisk();
 
         double personalizationScore =
-                W_USER_AFFINITY * x.userInterestAffinity()
-                + W_DIST_PRESSURE * x.personalizedDistancePressure()
-                + W_BUDGET_PRESSURE * x.personalizedBudgetPressure()
-                + W_TRANSIT_PRESSURE * x.personalizedTransitPressure()
-                + W_EXPLORATION * x.personalizedExplorationMatch();
+                this.weight("personalization.user-affinity") * x.userInterestAffinity()
+                + this.weight("personalization.dist-pressure") * x.personalizedDistancePressure()
+                + this.weight("personalization.budget-pressure") * x.personalizedBudgetPressure()
+                + this.weight("personalization.transit-pressure") * x.personalizedTransitPressure()
+                + this.weight("personalization.exploration") * x.personalizedExplorationMatch();
 
         double total = interestScore + goalScore + qualityScore + transportScore
                 + distanceCost + budgetCost + riskCost + personalizationScore;
-        double linearScore = LinearScoreConstants.clampScore(total);
+        double linearScore = this.routeScoringProperties.clampScore(total);
 
         return new PoiLinearScoreDTO(
                 candidate.poiId(),
@@ -153,102 +111,30 @@ public class PoiLinearScorer {
     }
 
     // —— Delta_goal（§7.1）：放大命中语义；LOW_BUDGET v1 no-op ——
-    private static double goalDelta(RouteGoal goal, String target) {
+    private double goalDelta(RouteGoal goal, String target) {
         if (goal == null) {
             return 0d;
         }
-        return switch (goal) {
-            case STEADY -> switch (target) {
-                case "quiet" -> 0.04d;
-                case "hidden" -> 0.01d;
-                default -> 0d;
-            };
-            case QUIET -> switch (target) {
-                case "quiet" -> 0.07d;
-                case "nightFriendly" -> -0.02d;
-                default -> 0d;
-            };
-            case CLASSIC -> switch (target) {
-                case "classic" -> 0.06d;
-                case "hidden" -> -0.02d;
-                default -> 0d;
-            };
-            case LOCAL -> switch (target) {
-                case "local" -> 0.06d;
-                case "hidden" -> 0.02d;
-                case "classic" -> -0.02d;
-                default -> 0d;
-            };
-            case NIGHT -> "nightFriendly".equals(target) ? 0.05d : 0d;
-            case PHOTO -> switch (target) {
-                case "photo" -> 0.06d;
-                case "classic" -> 0.02d;
-                default -> 0d;
-            };
-            case LOW_BUDGET -> 0d;
-        };
+        return this.routeScoringProperties.goalDelta(goal, target);
     }
 
     // —— Delta_transport（§7.2）：只调 W_distance 距离惩罚敏感度 ——
-    private static double transportDelta(TransportProfile transport, String target) {
+    private double transportDelta(TransportProfile transport, String target) {
         if (transport == null) {
             return 0d;
         }
-        return switch (transport) {
-            case WALK_ONLY -> switch (target) {
-                case "distanceNorm" -> -0.06d;
-                case "isolated" -> -0.03d;
-                case "fatigue" -> -0.03d;
-                default -> 0d;
-            };
-            case WALK_SUBWAY -> switch (target) {
-                case "distanceNorm" -> 0.04d;
-                case "isolated", "fatigue" -> 0.02d;
-                default -> 0d;
-            };
-            case WALK_BUS -> switch (target) {
-                case "distanceNorm" -> 0.02d;
-                case "isolated", "fatigue" -> 0.01d;
-                default -> 0d;
-            };
-            case WALK_TRANSIT -> switch (target) {
-                case "distanceNorm" -> 0.04d;
-                case "isolated", "fatigue" -> 0.02d;
-                default -> 0d;
-            };
-            case BIKE_SUBWAY -> switch (target) {
-                case "distanceNorm" -> 0.06d;
-                case "isolated" -> 0.03d;
-                case "fatigue" -> 0.04d;
-                default -> 0d;
-            };
-            case WALK_TAXI -> switch (target) {
-                case "distanceNorm" -> 0.08d;
-                case "isolated" -> 0.06d;
-                case "fatigue" -> 0.05d;
-                default -> 0d;
-            };
-        };
+        return this.routeScoringProperties.transportDelta(transport, target);
     }
 
     // —— Delta_budget（§7.3，v1 budgetLevel 默认 NORMAL no-op）——
-    private static double budgetDelta(BudgetLevel budget, String target) {
+    private double budgetDelta(BudgetLevel budget, String target) {
         if (budget == null) {
             return 0d;
         }
-        return switch (budget) {
-            case LOW -> switch (target) {
-                case "price" -> -0.06d;
-                case "expensive" -> -0.06d;
-                case "free" -> 0.04d;
-                default -> 0d;
-            };
-            case FLEXIBLE -> switch (target) {
-                case "price" -> 0.04d;
-                case "expensive" -> 0.04d;
-                default -> 0d;
-            };
-            case NORMAL -> 0d;
-        };
+        return this.routeScoringProperties.budgetDelta(budget, target);
+    }
+
+    private double weight(String path) {
+        return this.routeScoringProperties.linearWeight(path);
     }
 }

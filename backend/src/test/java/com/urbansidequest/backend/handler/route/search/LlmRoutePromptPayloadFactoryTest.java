@@ -19,6 +19,8 @@ import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
 import com.urbansidequest.backend.domain.po.PoiSemanticMappingPO;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
+import com.urbansidequest.backend.handler.route.config.RouteScoringTestSupport;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.district.RouteDistrictPlanner;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
@@ -33,6 +35,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 
 class LlmRoutePromptPayloadFactoryTest {
+
+    private static final RouteScoringProperties ROUTE_SCORING_PROPERTIES = RouteScoringTestSupport.properties();
 
     @Test
     void buildsDistrictPayloadInsteadOfFlatPoiPool() {
@@ -54,7 +58,7 @@ class LlmRoutePromptPayloadFactoryTest {
                 poi("far-1", "121.0500", "31.0000", List.of("photo"))
         ));
         LlmRoutePromptPayloadFactory factory = new LlmRoutePromptPayloadFactory(
-                new RouteDistrictPlanner(),
+                new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES),
                 new PoiSemanticResolver()
         );
 
@@ -72,7 +76,7 @@ class LlmRoutePromptPayloadFactoryTest {
         assertThat(payload)
                 .containsKeys("districts", "districtOrder", "districtBudget")
                 .doesNotContainKey("poiPool");
-        assertThat(payload.get("districtBudget")).isEqualTo(3);
+        assertThat(payload.get("districtBudget")).isEqualTo(4);
 
         List<Map<String, Object>> districts = districts(payload);
         assertThat(districts).hasSize(2);
@@ -105,7 +109,7 @@ class LlmRoutePromptPayloadFactoryTest {
         context.setPoiCandidates(List.of(poiWithTypecode("multi-role", "121.0000", "31.0000", "050100")));
         context.setPoiSemanticMappings(List.of(mapping("050100")));
         LlmRoutePromptPayloadFactory factory = new LlmRoutePromptPayloadFactory(
-                new RouteDistrictPlanner(),
+                new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES),
                 new PoiSemanticResolver()
         );
 
@@ -149,7 +153,7 @@ class LlmRoutePromptPayloadFactoryTest {
                 false
         )));
         LlmRoutePromptPayloadFactory factory = new LlmRoutePromptPayloadFactory(
-                new RouteDistrictPlanner(),
+                new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES),
                 new PoiSemanticResolver()
         );
 
@@ -465,7 +469,7 @@ class LlmRoutePromptPayloadFactoryTest {
         return new LlmRouteCandidateComposer(
                 chatClientBuilder,
                 new ObjectMapper().findAndRegisterModules(),
-                new LlmRoutePromptPayloadFactory(new RouteDistrictPlanner(), new PoiSemanticResolver())
+                new LlmRoutePromptPayloadFactory(new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES), new PoiSemanticResolver())
         );
     }
 }

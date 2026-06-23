@@ -5,8 +5,8 @@ import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.enums.DurationBucket;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.GeoPointParam;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
-import com.urbansidequest.backend.handler.route.linear.LinearScoreConstants;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -21,6 +21,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class RouteDistrictPlanner {
 
+    private final RouteScoringProperties routeScoringProperties;
+
+    public RouteDistrictPlanner(RouteScoringProperties routeScoringProperties) {
+        this.routeScoringProperties = routeScoringProperties;
+    }
+
     public RouteDistrictPlan plan(RouteGenerationContext context) {
         List<PoiCandidateDTO> candidates = context.getPoiCandidates();
         if (candidates.isEmpty()) {
@@ -33,7 +39,7 @@ public class RouteDistrictPlanner {
                 GeoPointDTO left = candidates.get(i).location();
                 GeoPointDTO right = candidates.get(j).location();
                 if (left != null && right != null
-                        && GeoMath.distanceMeters(left, right) <= LinearScoreConstants.SHORT_WALK_SEGMENT_METERS) {
+                        && GeoMath.distanceMeters(left, right) <= this.routeScoringProperties.linearConstantInt("short-walk-segment-meters")) {
                     unionFind.union(i, j);
                 }
             }
@@ -76,31 +82,8 @@ public class RouteDistrictPlanner {
 
     private int baseDistrictBudget(RouteGenerationContext context) {
         TransportProfile profile = context.getGenerateParam().getTransportProfile();
-        DurationBucket bucket = DurationBucket.fromMinutes(context.getGenerateParam().getDurationMinutes());
-        if (profile == null) {
-            return 1;
-        }
-        return switch (profile) {
-            case WALK_ONLY -> 1;
-            case WALK_BUS -> switch (bucket) {
-                case SHORT -> 1;
-                case HALF_DAY -> 2;
-                case FULL_DAY -> 3;
-            };
-            case WALK_SUBWAY -> switch (bucket) {
-                case SHORT, HALF_DAY -> 2;
-                case FULL_DAY -> 3;
-            };
-            case WALK_TRANSIT, BIKE_SUBWAY -> switch (bucket) {
-                case SHORT -> 2;
-                case HALF_DAY, FULL_DAY -> 3;
-            };
-            case WALK_TAXI -> switch (bucket) {
-                case SHORT -> 2;
-                case HALF_DAY -> 3;
-                case FULL_DAY -> 4;
-            };
-        };
+        DurationBucket bucket = this.routeScoringProperties.durationBucket(context.getGenerateParam().getDurationMinutes());
+        return this.routeScoringProperties.districtBudget(profile, bucket);
     }
 
     private List<String> districtOrder(List<RouteDistrict> districts, Set<String> requiredDistrictIds, GeoPointDTO anchor) {

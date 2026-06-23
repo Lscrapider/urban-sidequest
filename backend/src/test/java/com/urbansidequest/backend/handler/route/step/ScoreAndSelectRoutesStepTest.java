@@ -15,6 +15,8 @@ import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
+import com.urbansidequest.backend.handler.route.config.RouteScoringTestSupport;
 import com.urbansidequest.backend.handler.route.constraint.DistrictBudgetConstraint;
 import com.urbansidequest.backend.handler.route.constraint.DurationConstraint;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
@@ -27,6 +29,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class ScoreAndSelectRoutesStepTest {
+
+    private static final RouteScoringProperties ROUTE_SCORING_PROPERTIES = RouteScoringTestSupport.properties();
 
     @Test
     void returnsEmptyRoutesWhenAllRoutesFailDurationConstraint() {
@@ -58,7 +62,7 @@ class ScoreAndSelectRoutesStepTest {
         context.setCandidateRoutes(List.of(scatteredRoute, compactRoute));
 
         ScoreAndSelectRoutesStep step = new ScoreAndSelectRoutesStep(
-                List.of(new DistrictBudgetConstraint(new RouteDistrictPlanner())),
+                List.of(new DistrictBudgetConstraint(new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES))),
                 List.of(alwaysZeroScoringStrategy())
         );
 
@@ -78,7 +82,7 @@ class ScoreAndSelectRoutesStepTest {
         context.setCandidateRoutes(List.of(threeDistrictRoute, twoDistrictRoute));
 
         ScoreAndSelectRoutesStep step = new ScoreAndSelectRoutesStep(
-                List.of(new DistrictBudgetConstraint(new RouteDistrictPlanner())),
+                List.of(new DistrictBudgetConstraint(new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES))),
                 List.of(alwaysZeroScoringStrategy())
         );
 

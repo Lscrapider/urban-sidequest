@@ -12,6 +12,7 @@ import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.RouteTimeStructure;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
+import com.urbansidequest.backend.handler.route.config.RouteScoringTestSupport;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -20,40 +21,40 @@ class PoiLinearScorerTest {
 
     @Test
     void softensDistanceCostByTransportProfileDeltaTable() {
-        PoiLinearScorer scorer = new PoiLinearScorer();
+        PoiLinearScorer scorer = new PoiLinearScorer(RouteScoringTestSupport.properties());
         PoiLinearFeatures distanceOnly = distanceOnlyFeatures();
 
         PoiLinearScoreDTO taxiScore = scorer.score(poi(), distanceOnly, context(TransportProfile.WALK_TAXI));
         PoiLinearScoreDTO busScore = scorer.score(poi(), distanceOnly, context(TransportProfile.WALK_BUS));
         PoiLinearScoreDTO walkOnlyScore = scorer.score(poi(), distanceOnly, context(TransportProfile.WALK_ONLY));
 
-        assertThat(taxiScore.distanceCost()).isCloseTo(-0.15d, within(0.000001d));
-        assertThat(busScore.distanceCost()).isCloseTo(-0.30d, within(0.000001d));
-        assertThat(walkOnlyScore.distanceCost()).isCloseTo(-0.46d, within(0.000001d));
+        assertThat(taxiScore.distanceCost()).isCloseTo(-0.76d, within(0.000001d));
+        assertThat(busScore.distanceCost()).isCloseTo(-1.03d, within(0.000001d));
+        assertThat(walkOnlyScore.distanceCost()).isCloseTo(-1.33d, within(0.000001d));
     }
 
     @Test
     void keepsTransitScoreIndependentFromTransportProfileDelta() {
-        PoiLinearScorer scorer = new PoiLinearScorer();
+        PoiLinearScorer scorer = new PoiLinearScorer(RouteScoringTestSupport.properties());
         PoiLinearFeatures transitOnly = transitOnlyFeatures();
 
         PoiLinearScoreDTO taxiScore = scorer.score(poi(), transitOnly, context(TransportProfile.WALK_TAXI));
         PoiLinearScoreDTO walkOnlyScore = scorer.score(poi(), transitOnly, context(TransportProfile.WALK_ONLY));
 
-        assertThat(taxiScore.transportScore()).isCloseTo(0.08d, within(0.000001d));
-        assertThat(walkOnlyScore.transportScore()).isCloseTo(0.08d, within(0.000001d));
+        assertThat(taxiScore.transportScore()).isCloseTo(-0.01d, within(0.000001d));
+        assertThat(walkOnlyScore.transportScore()).isCloseTo(-0.01d, within(0.000001d));
     }
 
     @Test
     void keepsClusterConnectivityIndependentFromTransportProfileDelta() {
-        PoiLinearScorer scorer = new PoiLinearScorer();
+        PoiLinearScorer scorer = new PoiLinearScorer(RouteScoringTestSupport.properties());
         PoiLinearFeatures clusterOnly = clusterOnlyFeatures();
 
         PoiLinearScoreDTO taxiScore = scorer.score(poi(), clusterOnly, context(TransportProfile.WALK_TAXI));
         PoiLinearScoreDTO walkOnlyScore = scorer.score(poi(), clusterOnly, context(TransportProfile.WALK_ONLY));
 
-        assertThat(taxiScore.distanceCost()).isCloseTo(0.03d, within(0.000001d));
-        assertThat(walkOnlyScore.distanceCost()).isCloseTo(0.03d, within(0.000001d));
+        assertThat(taxiScore.distanceCost()).isCloseTo(0.43d, within(0.000001d));
+        assertThat(walkOnlyScore.distanceCost()).isCloseTo(0.43d, within(0.000001d));
     }
 
     private static PoiLinearFeatures distanceOnlyFeatures() {

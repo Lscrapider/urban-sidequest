@@ -11,6 +11,7 @@ import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
+import com.urbansidequest.backend.handler.route.config.RouteScoringTestSupport;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -41,7 +42,7 @@ class RouteDistrictPlannerTest {
                 poi("optional-far", "121.0800", "31.0000", false)
         ));
 
-        RouteDistrictPlan plan = new RouteDistrictPlanner().plan(context);
+        RouteDistrictPlan plan = new RouteDistrictPlanner(RouteScoringTestSupport.properties()).plan(context);
 
         assertThat(plan.baseDistrictBudget()).isEqualTo(1);
         assertThat(plan.effectiveDistrictBudget()).isEqualTo(2);

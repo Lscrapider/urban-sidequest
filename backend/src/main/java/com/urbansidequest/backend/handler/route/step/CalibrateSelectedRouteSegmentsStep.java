@@ -14,9 +14,10 @@ import com.urbansidequest.backend.domain.enums.RouteSegmentSource;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.handler.route.SegmentModeResolver;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
-import com.urbansidequest.backend.handler.route.linear.LinearScoreConstants;
 import com.urbansidequest.backend.handler.route.support.GeoMath;
+import com.urbansidequest.backend.handler.route.support.RouteSegmentDurationEstimator;
 import com.urbansidequest.backend.manage.RouteSegmentCostCacheManage;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -42,14 +43,22 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
 
     private final SegmentModeResolver segmentModeResolver;
 
+    private final RouteSegmentDurationEstimator routeSegmentDurationEstimator;
+
+    private final RouteScoringProperties routeScoringProperties;
+
     public CalibrateSelectedRouteSegmentsStep(
             AmapApi amapApi,
             RouteSegmentCostCacheManage routeSegmentCostCacheManage,
-            SegmentModeResolver segmentModeResolver
+            SegmentModeResolver segmentModeResolver,
+            RouteSegmentDurationEstimator routeSegmentDurationEstimator,
+            RouteScoringProperties routeScoringProperties
     ) {
         this.amapApi = amapApi;
         this.routeSegmentCostCacheManage = routeSegmentCostCacheManage;
         this.segmentModeResolver = segmentModeResolver;
+        this.routeSegmentDurationEstimator = routeSegmentDurationEstimator;
+        this.routeScoringProperties = routeScoringProperties;
     }
 
     @Override
@@ -298,10 +307,10 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
             return Optional.empty();
         }
         int distanceMeters = GeoMath.distanceMeters(origin.location(), destination.location());
-        if (distanceMeters > LinearScoreConstants.MAX_WALK_FALLBACK_METERS) {
+        if (distanceMeters > this.routeScoringProperties.linearConstantInt("max-walk-fallback-meters")) {
             return Optional.empty();
         }
-        int durationMinutes = this.estimateDurationMinutes(distanceMeters, SegmentTransportMode.WALK);
+        int durationMinutes = this.routeSegmentDurationEstimator.estimateDurationMinutes(distanceMeters, SegmentTransportMode.WALK);
         String summary = this.modeLabel(SegmentTransportMode.WALK) + "约 " + Math.max(1, durationMinutes) + " 分钟";
         List<GeoPointDTO> polyline = List.of(origin.location(), destination.location());
         return Optional.of(new RouteSegmentDTO(
@@ -316,15 +325,6 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
                 summary,
                 RouteSegmentSource.FALLBACK_STRAIGHT_LINE
         ));
-    }
-
-    private int estimateDurationMinutes(int distanceMeters, SegmentTransportMode mode) {
-        return switch (mode) {
-            case BIKE -> (int) Math.ceil(distanceMeters / 180d) + 3;
-            case BUS, SUBWAY, TRANSIT -> (int) Math.ceil(distanceMeters / 260d) + 12;
-            case TAXI, DRIVE -> (int) Math.ceil(distanceMeters / 300d) + 8;
-            case WALK -> (int) Math.ceil(distanceMeters / 70d);
-        };
     }
 
     private RouteStopDTO withSegmentCost(RouteStopDTO stop, RouteSegmentDTO segment) {

@@ -53,6 +53,7 @@ android-app/**/build/
 
 # Local confidential notes
 docs/private/
+backend/config/private/
 
 # Temporary files
 tmp/

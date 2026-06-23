@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class WalkingCostStrategy extends AbstractHeuristicSegmentCostStrategy {
 
+    // 已废弃：仅旧 Beam Search 路径使用，主 LLM 链路改走机密配置 estimate-duration（此处速度与其重复）。
     private static final int WALK_METERS_PER_MINUTE = 70;
 
     @Override

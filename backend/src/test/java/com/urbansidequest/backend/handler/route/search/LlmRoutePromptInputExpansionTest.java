@@ -13,6 +13,8 @@ import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
+import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
+import com.urbansidequest.backend.handler.route.config.RouteScoringTestSupport;
 import com.urbansidequest.backend.handler.route.district.RouteDistrictPlanner;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import com.urbansidequest.backend.handler.route.pool.PoiDiversitySampler;
@@ -26,10 +28,12 @@ import org.junit.jupiter.api.Test;
 
 class LlmRoutePromptInputExpansionTest {
 
-    private final PoiDiversitySampler sampler = new PoiDiversitySampler();
+    private static final RouteScoringProperties ROUTE_SCORING_PROPERTIES = RouteScoringTestSupport.properties();
+
+    private final PoiDiversitySampler sampler = new PoiDiversitySampler(ROUTE_SCORING_PROPERTIES);
 
     private final LlmRoutePromptPayloadFactory payloadFactory =
-            new LlmRoutePromptPayloadFactory(new RouteDistrictPlanner(), new PoiSemanticResolver());
+            new LlmRoutePromptPayloadFactory(new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES), new PoiSemanticResolver());
 
     @Test
     void taxiFullDayPromptInputContainsReservedMidFarDistrictsWhenLinearCandidatesHaveCleanQuality() {
@@ -39,7 +43,7 @@ class LlmRoutePromptInputExpansionTest {
         rankedCandidates.add(ranked("far-clean", "121.1600", 14000d, 0.75d, -10d, "SCENIC", PoiCandidateRole.LOCAL));
         rankedCandidates.add(ranked("far-low-quality", "121.1800", 14500d, 0.05d, -10d, "REST", PoiCandidateRole.LOCAL));
 
-        applySampledCandidates(context, rankedCandidates, 12);
+        applySampledCandidates(context, rankedCandidates, 11);
         Map<String, Object> payload = this.payloadFactory.toPromptPayload(context);
 
         assertThat(payload.get("districtBudget")).isEqualTo(4);
@@ -56,7 +60,7 @@ class LlmRoutePromptInputExpansionTest {
         rankedCandidates.add(ranked("mid-clean", "121.0800", 7000d, 0.80d, -10d, "LOCAL", PoiCandidateRole.LOCAL));
         rankedCandidates.add(ranked("far-clean", "121.1600", 14000d, 0.75d, -10d, "SCENIC", PoiCandidateRole.LOCAL));
 
-        applySampledCandidates(context, rankedCandidates, 10);
+        applySampledCandidates(context, rankedCandidates, 9);
         Map<String, Object> payload = this.payloadFactory.toPromptPayload(context);
 
         assertThat(payload.get("districtBudget")).isEqualTo(1);
@@ -82,8 +86,8 @@ class LlmRoutePromptInputExpansionTest {
         RouteGenerationContext context = context(TransportProfile.WALK_TAXI, 420);
         context.setPoiCandidates(List.of(
                 poi("chain-a", "121.0000", PoiCandidateRole.LOCAL),
-                poi("chain-b", "121.0080", PoiCandidateRole.LOCAL),
-                poi("chain-c", "121.0160", PoiCandidateRole.LOCAL),
+                poi("chain-b", "121.0060", PoiCandidateRole.LOCAL),
+                poi("chain-c", "121.0120", PoiCandidateRole.LOCAL),
                 poi("gap-d", "121.0400", PoiCandidateRole.LOCAL)
         ));
 
