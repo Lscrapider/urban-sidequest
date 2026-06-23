@@ -13,6 +13,7 @@ backend/src/main/resources/application.yml
 !.env.example
 ai-python/src/urban_sidequest_ai/route_preference_judge/config.json
 ai-python/src/urban_sidequest_ai/route_preference_judge/requests.json
+ai-python/src/urban_sidequest_ai/models/route_preference/training/config.json
 
 # Dependencies
 node_modules/
@@ -61,3 +62,4 @@ temp/
 .cache/
 /CLAUDE.md
 *.xlsx
+/ai-python/src/urban_sidequest_ai/models/route_preference/training/schema.py

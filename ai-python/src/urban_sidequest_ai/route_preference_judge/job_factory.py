@@ -128,7 +128,7 @@ def build_request_probe_jobs(
 
 
 def build_persona(index: int, rng: random.Random) -> dict:
-    archetype = rng.choice(PERSONA_ARCHETYPES)
+    archetype = PERSONA_ARCHETYPES[index % len(PERSONA_ARCHETYPES)]
     tag_affinities = select_persona_tag_affinities(archetype["tagAffinities"], rng)
     persona = {
         "distanceSensitivity": jitter(archetype["distanceSensitivity"], rng),
@@ -147,7 +147,7 @@ def build_request(index: int, rng: random.Random, city_keys: list[str], base_dat
     city_key = rng.choice(city_keys)
     city = CITY_PRESETS[city_key]
     area = deepcopy(rng.choice(city["areas"]))
-    template = deepcopy(rng.choice(REQUEST_TEMPLATES))
+    template = deepcopy(REQUEST_TEMPLATES[index % len(REQUEST_TEMPLATES)])
     departure = base_date + timedelta(days=rng.randrange(28), hours=template.pop("hour"))
     duration_minutes = template["durationMinutes"]
     interest_tags = select_request_interest_tags(template["interestTags"], rng)

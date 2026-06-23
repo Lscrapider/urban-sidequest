@@ -20,7 +20,7 @@ else:
 
 CONFIG_FILE = BASE_DIR / "config.json"
 REQUESTS_FILE = BASE_DIR / "requests.json"
-CONCURRENCY = 2
+CONCURRENCY = 3
 
 
 def ensure_requests_file() -> None:

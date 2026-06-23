@@ -1,3 +1,5 @@
-# 当前 ai-python 模块只依赖 Python 标准库。
-# 后续新增训练、推理或数据处理依赖时写在这里。
-
+torch>=2.2
+psycopg[binary]>=3.1
+matplotlib>=3.8
+onnx>=1.15
+onnxscript>=0.1
