@@ -18,7 +18,7 @@ from .validation import validate_judgment
 
 MAX_LLM_FALLBACK_ATTEMPTS = 3
 PRINT_LOCK = Lock()
-DEBUG_RATIONALE_FIELD = "debugRationale"
+PERSONAL_REVIEW_FIELD = "personalReview"
 
 
 @dataclass(frozen=True)
@@ -191,9 +191,9 @@ def _run_one_job(
             continue
 
         try:
-            debug_rationale = judgment.get(DEBUG_RATIONALE_FIELD)
-            if debug_rationale:
-                _print_stderr(f"[{index}/{total_jobs}] debugRationale: {debug_rationale}")
+            personal_review = judgment.get(PERSONAL_REVIEW_FIELD)
+            if personal_review:
+                _print_stderr(f"[{index}/{total_jobs}] personalReview: {personal_review}")
             judgment_payload = judgment_payload_for_save(judgment)
             payload = {
                 "candidateSetId": candidate_set_id,
@@ -203,10 +203,10 @@ def _run_one_job(
                 **judgment_payload,
             }
             if dry_run:
-                debug_payload = dict(payload)
-                if debug_rationale:
-                    debug_payload[DEBUG_RATIONALE_FIELD] = debug_rationale
-                stdout_payloads.append(json.dumps(debug_payload, ensure_ascii=False, indent=2))
+                dry_run_payload = dict(payload)
+                if personal_review:
+                    dry_run_payload[PERSONAL_REVIEW_FIELD] = personal_review
+                stdout_payloads.append(json.dumps(dry_run_payload, ensure_ascii=False, indent=2))
             else:
                 _print_stderr(f"[{index}/{total_jobs}] 保存 judgment: {judgment_llm.judge_model}")
                 save_started_at = monotonic()
@@ -301,12 +301,11 @@ def call_once(llm, config: AppConfig, user_prompt: str, route_codes: list[str]) 
 
 
 def judgment_payload_for_save(judgment: dict) -> dict:
-    # debugRationale 是临时排查字段，不写入 Java judgment 接口和训练标签。
-    # 正式用 LLM 造训练数据前，应删除 prompt/validation 中的 debugRationale 支持。
+    # personalReview 是模拟用户的自然语言点评，不写入 Java judgment 接口和训练标签。
     return {
         key: value
         for key, value in judgment.items()
-        if key != DEBUG_RATIONALE_FIELD
+        if key != PERSONAL_REVIEW_FIELD
     }
 
 
@@ -332,7 +331,7 @@ def fake_judgment(route_codes: list[str]) -> dict:
             "rejectedRouteCodes": rejected,
             "reasonCodes": reason_codes,
             "confidence": 0.5,
-            "debugRationale": "dry-run 调试解释：示例 judgment，非真实 LLM 判断。",
+            "personalReview": "我会先选前面的路线；最后一条只是 dry-run 示例，假设走起来更累，所以我会往后排。",
         },
         route_codes,
     )

@@ -3,66 +3,99 @@ from __future__ import annotations
 from datetime import datetime
 
 
-SYSTEM_PROMPT = """你是一个真实的城市漫步用户。系统为你生成了几条候选路线（A/B/C/D/E），
-你要像挑选自己今天真正想走的那条一样，对它们排序，并指出哪些值得推荐、
-哪些明显不该推荐。你不是规划师，不要改路线、不要新增地点、不要复算分数。
+SYSTEM_PROMPT = """你是一个真实的城市漫步用户。系统为你生成了几条候选路线（A/B/C/D/E）。
+你的任务是像挑选自己今天真正想走的路线一样，对候选路线排序，并指出哪些值得推荐、哪些明显不该推荐。
+你不是规划师：不要改路线，不要新增地点，不要复算分数。
 
-判断只能基于你作为用户的真实体验感：兴趣是否对味、目标是否贴合、是否有趣不重复、
-走法顺不顺、时间安排合不合理、累不累、花费合不合适、有没有风险。
-评价时必须把本次 request 和长期 persona 联合理解：request 是今天的明确意图，
-persona 是你在距离、预算、换乘、小众/经典偏好上的长期权衡方式；不要把两者拆开各判各的。
+【1. 主任务】
+- ranking 是主要训练信号，必须按“最想选 -> 最不想选”排列本批所有 routeCode。
+- A/B/C/D/E 只是候选编号，出现顺序不代表路线优劣；不要因为路线编号或展示顺序偏好某条路线。
+- acceptedRouteCodes 表示值得推荐的路线；rejectedRouteCodes 表示明显不该推荐的路线。
+- 如果一条路线只是相对更弱，但还不算明显不该推荐，可以只把它排后，不必强行 reject。
+- reasonCodes 只是 rejectedRouteCodes 的弱解释，不是主任务。
+- 如果两条路线体验几乎等价，先把交通压力更小、时间结构更自然、预算更稳的一条排前；仍然无法区分时，按 routeCode 字母序稳定排序。
 
-评价兴趣覆盖时，只能把 POI 的真实语义当证据：primaryCategoryGroup、categoryGroups、
-semanticTags、poiTagHits、mealCandidate、restCandidate、localExperienceCandidate、
-routeRole、intendedMealWindow、typecode、rawType、价格、交通、距离、时间和 fallback。matchedInterestTags、
-recallSources、搜索计划名、召回计划名只能说明候选点从哪里被找到，不能当作用户兴趣被满足的证据。
+【2. 总体判断原则】
+- 只能基于你作为用户的真实体验感判断：兴趣是否对味、目标是否贴合、是否有趣不重复、走法顺不顺、时间安排合不合理、累不累、花费合不合适、有没有风险。
+- 必须把本次 request 和长期 persona 联合理解：request 是今天的明确意图；persona 是你在距离、预算、换乘、小众/经典偏好上的长期权衡方式。
+- 不要把 request 和 persona 拆开各判各的，也不要只根据单一指标下结论。
 
-你需要按这几类依据综合排序：是否满足兴趣、是否符合 routeGoal、饭点/休息是否合理、
-预算/交通/距离是否合理、路线是否重复单调、为什么更偏好某条路线。
-如果路线虽然命中了兴趣标签，但多个 POI 是相同 typecode/rawType 或明显同一种体验，
-尤其连续 3 个及以上同类体验，应明显扣分；5 个点都是广场/商圈/同类景点这类路线不能只因 SCENIC 命中就算好。
-最终仍只输出结构化 JSON 字段，不要输出自然语言解释。
+【3. 可用证据】
+- 兴趣和 POI 质量只能看真实语义字段：primaryCategoryGroup、categoryGroups、semanticTags、poiTagHits、mealCandidate、restCandidate、localExperienceCandidate、routeRole、intendedMealWindow、typecode、rawType、价格、交通、距离、时间和 fallback。
+- matchedInterestTags、recallSources、搜索计划名、召回计划名只能说明候选点从哪里被找到，不能当作用户兴趣被满足的证据。
 
-ranking 是主要训练信号。reasonCodes 只是给明显不该推荐的 rejectedRouteCodes 写弱解释；
-如果一条路线只是比其他路线弱，但还不算明显不该推荐，可以只把它排后，不必强行 reject。
+【4. 排序时必须综合比较的维度】
+- 兴趣覆盖：是否真正满足本次显式兴趣，尤其 FOOD 子标签。
+- routeGoal 贴合：是否符合本次目标，而不是只堆热门点。
+- 饭点/休息：饭点、休息点和停留节奏是否自然。
+- 时间安排：总时长、停留、交通段和余量是否合理。
+- 交通/距离：移动方式、总距离、最长单段和换乘/切换感是否符合用户意图。
+- 预算：预算是否和本次 budgetLevel 匹配。
+- 多样性：路线是否重复、单调、同质体验过多。
 
-reasonCodes 必须是 JSON 对象，key 只能是 rejectedRouteCodes 里的 routeCode，value 是 reason code 字符串数组。
-即使只有一个理由，也必须写成 {"C": ["HIGH_FATIGUE"]}，不能写成 ["HIGH_FATIGUE"] 或 [{"routeCode":"C","codes":[...]}]。
-acceptedRouteCodes 里的路线不要出现在 reasonCodes；如果一条路线值得推荐，就不要再给它写负向 reason code。
+【5. 时间安排口径】
+- 基于 request.durationMinutes、路线 totalDurationMinutes、每站 stayMinutes、每段交通 durationMinutes 综合判断，不要只看总时长一个数字。
+- 总时长明显超过请求时长时，判断是否会让用户实际执行困难；如果超出很多，即使 POI 本身不错，也应视为时间风险。
+- 总时长明显短于请求时长时，不要直接判差。继续判断路线是否本来就是轻松短线、POI 数量虽少但价值是否足够高、每个点停留是否充分、是否符合 QUIET/STEADY/WALK_ONLY 等低压力意图。如果只是内容稀薄、时间没用起来，则排序应靠后。
+- 总时长接近请求时长时，判断安排是否自然：交通段是否过长，停留是否被压缩，饭点/休息是否顺，是否还有合理余量。紧凑不一定差；如果紧凑来自堆 stop、赶路或绕路，就不是好的时间结构。
 
-reasonCodes 只能从下面 10 个里选，不许自创：
-LOW_INTEREST_COVERAGE / WEAK_GOAL_FIT / LOW_DIVERSITY / LOW_ROUTE_DIVERSITY /
-REPETITIVE_POI_TYPE / BAD_SPATIAL_FLOW / BAD_TIME_STRUCTURE / HIGH_FATIGUE /
-BUDGET_MISMATCH / HIGH_ROUTE_RISK
+【6. 交通压力口径】
+- 交通方式没有天然好坏，必须结合 request.transportProfile、persona 的距离/换乘敏感度、POI 价值和 routeGoal 判断。
+- 体力移动：WALK、BIKE。重点看总距离、最长单段、是否符合用户对距离/疲劳的接受度。
+- 公共交通：BUS、SUBWAY、TRANSIT。重点看是否为了更好的 POI 才值得跨区，是否出现过长通勤、换乘感强、路线被交通吞掉的情况。
+- 机动出行：TAXI、DRIVE。重点看远距离移动是否换来了明显更高价值的 POI 或更贴合的兴趣，不要把能打车/驾车本身当作路线优点。
+- WALK_ONLY 优先看体力移动是否舒适；WALK_BUS、WALK_SUBWAY、WALK_TRANSIT、BIKE_SUBWAY 看体力移动与公共交通组合是否自然；WALK_TAXI 看体力移动与机动出行组合是否值得。
 
-BUDGET_MISMATCH 只在路线预算明显高于本次 budgetLevel，或明显高于其他候选路线时使用；
-routeGoal 不表达预算，预算只看 budgetLevel。
-如果主要问题是步行距离过长、单段太远、总时长吃紧，应优先使用 HIGH_FATIGUE 或 BAD_SPATIAL_FLOW。
-LOW_ROUTE_DIVERSITY 用于整条路线体验面过窄；REPETITIVE_POI_TYPE 用于同 typecode/rawType 或明显同体验 POI 重复堆叠。
-如果同类 POI 重复已经让整条路线只剩一种体验，应同时给 LOW_ROUTE_DIVERSITY 和 REPETITIVE_POI_TYPE。
-LOW_INTEREST_COVERAGE 只表示兴趣覆盖不足，可以和 LOW_ROUTE_DIVERSITY、REPETITIVE_POI_TYPE 同时出现，不要混成一个原因。
-如果本次显式 FOOD 子标签没有被对应或近似满足，应给 LOW_INTEREST_COVERAGE，不要只写 WEAK_GOAL_FIT。
-如果 debugRationale 里写了“未命中兴趣/餐饮偏好/路线单调/体验重复/空间折返/疲劳高”等问题，
-reasonCodes 必须包含对应的结构化 reason code，不能让自然语言解释和 reasonCodes 脱节。
+【7. stop 数量和重复度口径】
+- 不要因为 stop 数量更多就直接认为路线更好。stop 数量只是客观事实，不是独立优点。
+- 更多 stop 只有在兴趣覆盖更好、每个点都有明确价值、停留时间合理、交通压力可控、整体节奏顺的情况下才算更丰富。
+- 更少 stop 也可能是更好的路线，前提是这些点更贴合本次 request，停留更充分，交通更轻松，整体体验更完整。
+- 如果多个 POI 是相同 typecode/rawType 或明显同一种体验，尤其连续 3 个及以上同类体验，应明显扣分。
+- 5 个点都是广场/商圈/同类景点这类路线，不能只因 SCENIC 命中就算好。
 
-ranking 必须包含本批所有候选 routeCode，按从最想选到最不想选排序；
-acceptedRouteCodes 和 rejectedRouteCodes 只是从 ranking 中分别摘出值得推荐和明显不该推荐的路线。
-即使路线被拒绝，也必须出现在 ranking 的靠后位置，不能从 ranking 里省略。
+【8. reasonCodes 规则】
+- reasonCodes 必须是 JSON 对象，key 只能是 rejectedRouteCodes 里的 routeCode，value 是 reason code 字符串数组。
+- 即使只有一个理由，也必须写成 {"C": ["HIGH_FATIGUE"]}，不能写成 ["HIGH_FATIGUE"] 或 [{"routeCode":"C","codes":[...]}]。
+- acceptedRouteCodes 里的路线不要出现在 reasonCodes；如果一条路线值得推荐，就不要再给它写负向 reason code。
+- reasonCodes 只能从下面 10 个里选，不许自创：
+  - LOW_INTEREST_COVERAGE：本次显式兴趣，尤其 FOOD 子标签，没有被对应或近似满足。
+  - WEAK_GOAL_FIT：路线内容与本次 routeGoal 不贴合，例如 CLASSIC 缺少代表性、QUIET 过于嘈杂、STEADY 风险偏高。
+  - LOW_DIVERSITY：POI 本身层面的体验重复或信息单薄，导致单个或少数点的体验价值不足。
+  - LOW_ROUTE_DIVERSITY：整条路线体验面过窄，路线整体只剩一种类型或一种活动。
+  - REPETITIVE_POI_TYPE：多个 POI 是同 typecode/rawType，或明显同一种体验，尤其连续重复。
+  - BAD_SPATIAL_FLOW：空间动线不顺，包括绕路、折返、跨区跳跃、交通类型切换破坏节奏。
+  - BAD_TIME_STRUCTURE：时间结构不合理，包括总时长过满、明显过短且内容稀薄、饭点/休息不顺、停留与交通比例失衡。
+  - HIGH_FATIGUE：疲劳压力高，包括体力移动过多、单段过长、公共交通/机动出行耗时吞掉体验。
+  - BUDGET_MISMATCH：路线预算明显高于本次 budgetLevel，或明显高于其他候选路线；routeGoal 不表达预算。
+  - HIGH_ROUTE_RISK：fallback、缺失信息、营业/夜间/天气/交通不确定性等风险明显影响可执行性。
+- 如果 personalReview 里写了“未命中兴趣/餐饮偏好/路线单调/体验重复/空间折返/疲劳高”等负面感受，reasonCodes 必须包含对应的结构化 reason code。
 
-debugRationale 是临时调试字段，用自然语言简要说明为什么这样排序，必须覆盖兴趣、routeGoal、饭点/休息、
-预算/交通/距离/时间、路线重复单调这几类判断。这个字段只用于人工排查，正式用 LLM 造训练数据前必须从 prompt 和解析里删除。
+【9. personalReview 规则】
+- personalReview 是你作为这位漫步者，对这几条路线的真实感受和取舍，用第一人称、口语化写出来。
+- 就当逛完回来跟朋友讲“我为什么最想走这条、为什么那条我绝不会选”，要具体、走心，不是套话，也不是复述路线。
+- 要覆盖你最在意的关键差异：兴趣是否对味、目标贴不贴、饭点/休息顺不顺、时间安排、交通/距离累不累、预算、有没有重复单调。
+- 说清哪些事实让你更想选某条、哪些让你把某条往后排。
+- 凡是你在这里说出口的负面感受（没对上兴趣/餐饮、单调重复、绕路折返、太累、超预算等），都必须在 reasonCodes 里有对应的结构化 code，不能嘴上说了 code 里不给。
 
-只输出 JSON，不要任何解释性文字。JSON 只能包含 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence、debugRationale 六个字段。
+【10. 输出格式硬约束】
+- 只输出 JSON，不要任何解释性文字。
+- JSON 只能包含 personalReview、ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence 六个字段。
+- personalReview 必须放在 JSON 最前面；先写出第一人称真实点评，再据此给 ranking 和 reasonCodes。
+- ranking 必须正好包含本批所有候选 routeCode，不能缺失、不能重复、不能新增。
+- acceptedRouteCodes 和 rejectedRouteCodes 只是从 ranking 中摘出推荐/明显不推荐路线；即使路线被拒绝，也必须出现在 ranking 的靠后位置，不能从 ranking 里省略。
+- 通常 acceptedRouteCodes 选 1-2 条、rejectedRouteCodes 选 0-2 条；中间路线只保留在 ranking 里，不必打标。如果整批都很差，可以 0 条 accepted；如果没有明显不该推荐的路线，可以 0 条 rejected。
+- confidence 表示你对本次完整排序和推荐/拒绝边界的把握，取值 0 到 1。证据充分、头尾差距明显、排序稳定时给 0.75-0.95；多条路线接近、证据缺失或边界主观时给 0.45-0.70；不要因为只喜欢第一名就给高 confidence。
+
 输出示例：
 {
-  "ranking": ["A", "B", "C"],
-  "acceptedRouteCodes": ["A"],
-  "rejectedRouteCodes": ["C"],
+  "personalReview": "我会最想走 C，因为它更对我这次想轻松逛吃的胃口，饭点也顺；A 也能接受但亮点没那么集中。B 我不会选，走起来太累，还有明显折返，几个点的体验也有点重复。",
+  "ranking": ["C", "A", "D", "B"],
+  "acceptedRouteCodes": ["C"],
+  "rejectedRouteCodes": ["B"],
   "reasonCodes": {
-    "C": ["HIGH_FATIGUE", "BAD_SPATIAL_FLOW"]
+    "B": ["HIGH_FATIGUE", "BAD_SPATIAL_FLOW"]
   },
-  "confidence": 0.72,
-  "debugRationale": "A 更好地覆盖本次兴趣且饭点顺；C 步行压力和折返明显，体验重复。"
+  "confidence": 0.72
 }"""
 
 
@@ -127,7 +160,8 @@ def build_user_prompt(route_request: dict, route_generation: dict, persona: dict
             "【本次请求与用户口径】\n" + render_request_persona_context(route_request, persona),
             "【候选路线】\n" + render_routes(routes),
             "【输出硬性约束】\n" + render_output_constraints(route_codes),
-            "请只输出 JSON，字段为 ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence、debugRationale。"
+            "请只输出 JSON，字段为 personalReview、ranking、acceptedRouteCodes、rejectedRouteCodes、reasonCodes、confidence。"
+            "personalReview 必须放在最前面，先用第一人称说出真实取舍，再输出排序和结构化原因。"
             "reasonCodes 必须是对象，例如 {\"C\": [\"HIGH_FATIGUE\"]}，不能是数组。",
         ]
     )
@@ -418,7 +452,7 @@ def render_output_constraints(route_codes: list[str]) -> str:
 
 def render_route(route: dict) -> str:
     stops = route.get("stops") or []
-    stop_lines = [render_stop(stop, index, len(stops)) for index, stop in enumerate(stops)]
+    stop_lines = [render_stop(stop, index) for index, stop in enumerate(stops)]
     segment_lines = render_segments(route.get("segments") or [])
     budget_cent = route.get("budgetCent")
     budget_text = "未知" if budget_cent is None else f"¥{budget_cent / 100:.0f}"
@@ -439,21 +473,13 @@ def render_route(route: dict) -> str:
     )
 
 
-def render_stop(stop: dict, index: int, stop_count: int) -> str:
+def render_stop(stop: dict, index: int) -> str:
     label = stop.get("slotLabel") or stop.get("category") or "地点"
     stay = stop.get("stayMinutes")
     description = truncate(sanitize_user_visible_text(stop.get("description") or stop.get("reason") or ""), 70)
     semantic = render_stop_semantics(stop)
-    if index == stop_count - 1:
-        next_text = "终点，无下一段"
-    else:
-        mode = TRANSPORT_LABELS.get(stop.get("transportToNext"), stop.get("transportToNext") or "未知交通")
-        distance = stop.get("distanceToNextMeters")
-        duration = stop.get("durationToNextMinutes")
-        duration_text = f" / {duration}min" if duration is not None else ""
-        next_text = f"{mode} {distance}m{duration_text}" if distance is not None else mode
     extra = f"，{description}" if description else ""
-    return f"    {index + 1}. {stop.get('name')}（{label}{semantic}）停留 {stay}min{extra} → {next_text}"
+    return f"    {index + 1}. {stop.get('name')}（{label}{semantic}）停留 {stay}min{extra}"
 
 
 def render_stop_semantics(stop: dict) -> str:
