@@ -25,7 +25,7 @@ SYSTEM_PROMPT = """你是一个真实的城市漫步用户。系统为你生成�
 - matchedInterestTags、recallSources、搜索计划名、召回计划名只能说明候选点从哪里被找到，不能当作用户兴趣被满足的证据。
 
 【4. 排序时必须综合比较的维度】
-- 兴趣覆盖：是否真正满足本次显式兴趣，尤其 FOOD 子标签。
+- 兴趣覆盖：不要求每个兴趣都完整体验，但主要兴趣或大部分兴趣要被对应或近似满足；表面标签命中不等于真正满足。
 - routeGoal 贴合：是否符合本次目标，而不是只堆热门点。
 - 饭点/休息：饭点、休息点和停留节奏是否自然。
 - 时间安排：总时长、停留、交通段和余量是否合理。
@@ -57,15 +57,14 @@ SYSTEM_PROMPT = """你是一个真实的城市漫步用户。系统为你生成�
 - reasonCodes 必须是 JSON 对象，key 只能是 rejectedRouteCodes 里的 routeCode，value 是 reason code 字符串数组。
 - 即使只有一个理由，也必须写成 {"C": ["HIGH_FATIGUE"]}，不能写成 ["HIGH_FATIGUE"] 或 [{"routeCode":"C","codes":[...]}]。
 - acceptedRouteCodes 里的路线不要出现在 reasonCodes；如果一条路线值得推荐，就不要再给它写负向 reason code。
-- reasonCodes 只能从下面 10 个里选，不许自创：
-  - LOW_INTEREST_COVERAGE：本次显式兴趣，尤其 FOOD 子标签，没有被对应或近似满足。
+- reasonCodes 只能从下面 9 个里选，不许自创：
+  - LOW_INTEREST_COVERAGE：本次兴趣没有被对应或近似满足；不要求所有兴趣都完整体验，但主要兴趣或大部分兴趣应有明确承接，只有少量弱命中或表面命中时才算兴趣覆盖不足。
   - WEAK_GOAL_FIT：路线内容与本次 routeGoal 不贴合，例如 CLASSIC 缺少代表性、QUIET 过于嘈杂、STEADY 风险偏高。
-  - LOW_DIVERSITY：POI 本身层面的体验重复或信息单薄，导致单个或少数点的体验价值不足。
-  - LOW_ROUTE_DIVERSITY：整条路线体验面过窄，路线整体只剩一种类型或一种活动。
-  - REPETITIVE_POI_TYPE：多个 POI 是同 typecode/rawType，或明显同一种体验，尤其连续重复。
-  - BAD_SPATIAL_FLOW：空间动线不顺，包括绕路、折返、跨区跳跃、交通类型切换破坏节奏。
   - BAD_TIME_STRUCTURE：时间结构不合理，包括总时长过满、明显过短且内容稀薄、饭点/休息不顺、停留与交通比例失衡。
   - HIGH_FATIGUE：疲劳压力高，包括体力移动过多、单段过长、公共交通/机动出行耗时吞掉体验。
+  - BAD_SPATIAL_FLOW：空间动线不顺，包括绕路、折返、跨区跳跃、交通类型切换破坏节奏。
+  - LOW_ROUTE_DIVERSITY：整条路线体验面过窄，路线整体只剩一种类型或一种活动。
+  - REPETITIVE_POI_TYPE：多个 POI 是同 typecode/rawType，或明显同一种体验，尤其连续重复。
   - BUDGET_MISMATCH：路线预算明显高于本次 budgetLevel，或明显高于其他候选路线；routeGoal 不表达预算。
   - HIGH_ROUTE_RISK：fallback、缺失信息、营业/夜间/天气/交通不确定性等风险明显影响可执行性。
 - 如果 personalReview 里写了“未命中兴趣/餐饮偏好/路线单调/体验重复/空间折返/疲劳高”等负面感受，reasonCodes 必须包含对应的结构化 reason code。
@@ -279,7 +278,7 @@ def render_interest_motivation(interest_tags: list[str], meal_windows: list[str]
     if food_tags:
         food_labels = "、".join(TAG_LABELS.get(tag, tag) for tag in food_tags)
         if meal_windows:
-            parts.append(f"你选择 {food_labels} 是希望正餐真的有对应口味或近似风味，而不是随便塞一个普通餐厅。")
+            parts.append(f"你选择 {food_labels} 是希望正餐大体对味，可以接受近似风味或合理替代，但不是随便塞一个普通餐厅。")
         else:
             parts.append(f"你虽然选择了 {food_labels}，但没有正餐饭点时它更像轻偏好，不能强行要求安排大餐。")
     if non_food_tags:
@@ -378,10 +377,10 @@ def render_interest_intent(interest_tags: list[str]) -> str:
     if food_tags:
         food_labels = "、".join(TAG_LABELS.get(tag, tag) for tag in food_tags)
         parts.append(
-            f"本次餐饮偏好是 {food_labels}；评价时优先看 poiTagHits 是否命中这些 FOOD 子标签，"
-            "不能只因为 primaryCategoryGroup=FOOD 就算完全满足。"
+            f"本次餐饮偏好是 {food_labels}；评价时看餐饮是否整体对味，poiTagHits、语义标签、饭点安排和路线节奏都可以作为证据，"
+            "不能只因为 primaryCategoryGroup=FOOD 或表面标签命中就算完全满足。"
         )
-        parts.append("同一 FOOD 父类或其他餐饮只能算弱替代，除非路线在饭点、价格和整体体验上明显更好。")
+        parts.append("近似风味、同父类餐饮或其他餐饮可以算合理替代，但要看饭点、价格和整体体验是否支撑。")
     if non_food_tags:
         parts.append("其他显式兴趣是 " + "、".join(TAG_LABELS.get(tag, tag) for tag in non_food_tags) + "。")
     return "".join(parts)
@@ -423,7 +422,7 @@ def render_persona_request_context(persona: dict, route_request: dict) -> str:
     food_request_tags = [tag for tag in request_tags if is_food_tag(tag)]
     if food_request_tags:
         parts.append(
-            "如果候选路线没有命中本次 FOOD 子标签，应降低兴趣匹配判断；只有当它用同父类餐饮、饭点安排和整体路线质量形成合理替代时，才不要直接判死。"
+            "如果候选路线没有直接对上本次餐饮偏好，不要机械判死；看它是否用近似风味、同父类餐饮、饭点安排和整体路线质量形成合理替代。"
         )
     return "".join(parts)
 
