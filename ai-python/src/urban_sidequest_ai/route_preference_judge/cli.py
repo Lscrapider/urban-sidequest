@@ -10,19 +10,23 @@ from .job_factory import build_jobs
 from .presets import DEFAULT_CITY_KEYS
 from .runner import load_route_jobs, run
 
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_FILE = BASE_DIR / "config.json"
+DEFAULT_REQUESTS_FILE = BASE_DIR / "requests.json"
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="批量生成路线并调用 LLM 模拟用户保存路线偏好 judgment。")
     subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser("run", help="执行路线生成 + LLM 模拟用户评价。")
-    run_parser.add_argument("--config", required=True, help="配置 JSON，参考 config.example.json。")
-    run_parser.add_argument("--requests", required=True, help="路线请求 JSON 数组，参考 requests.example.json。")
+    run_parser.add_argument("--config", default=str(DEFAULT_CONFIG_FILE), help="配置 JSON，默认读取模块目录下的 config.json。")
+    run_parser.add_argument("--requests", default=str(DEFAULT_REQUESTS_FILE), help="路线请求 JSON 数组，默认读取模块目录下的 requests.json。")
     run_parser.add_argument("--dry-run", action="store_true", help="不调用 Java 后端，使用内置假路线并打印 judgment payload。")
     run_parser.add_argument("--concurrency", type=int, default=1, help="并发执行 job 数，默认 1；本地小批量可设为 2。")
 
     generate_parser = subparsers.add_parser("generate-jobs", help="生成可直接用于 run 的画像 + request 输入文件。")
-    generate_parser.add_argument("--output", required=True, help="输出 requests JSON 路径。")
+    generate_parser.add_argument("--output", default=str(DEFAULT_REQUESTS_FILE), help="输出 requests JSON 路径，默认写入模块目录下的 requests.json。")
     generate_parser.add_argument("--persona-count", type=int, default=100, help="画像数量，默认 100。")
     generate_parser.add_argument("--requests-per-persona", type=int, default=20, help="每个画像生成 request 数，默认 20。")
     generate_parser.add_argument("--request-count", type=int, help="按 request 主轴生成的基础 request 数；设置后启用 90/10 探针策略。")

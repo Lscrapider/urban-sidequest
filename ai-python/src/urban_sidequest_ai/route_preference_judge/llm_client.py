@@ -37,6 +37,7 @@ class LlmClient:
 
 def parse_json_content(content: str) -> dict:
     cleaned = content.strip()
+    cleaned = strip_markdown_blockquote(cleaned)
     if cleaned.startswith("```"):
         first_line_break = cleaned.find("\n")
         last_fence = cleaned.rfind("```")
@@ -49,3 +50,18 @@ def parse_json_content(content: str) -> dict:
         if len(cleaned) > 3000:
             preview += f"\n... truncated {len(cleaned) - 3000} chars"
         raise ValueError(f"LLM 返回不是合法 JSON：{exception}; rawContent={preview}") from exception
+
+
+def strip_markdown_blockquote(content: str) -> str:
+    if not content.startswith(">"):
+        return content
+    unquoted_lines = []
+    for line in content.splitlines():
+        if line.startswith(">"):
+            unquoted_lines.append(line[1:].lstrip())
+        else:
+            unquoted_lines.append(line)
+    unquoted = "\n".join(unquoted_lines).strip()
+    if unquoted.startswith(("```", "{", "[")):
+        return unquoted
+    return content

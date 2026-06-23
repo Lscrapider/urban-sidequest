@@ -11,8 +11,8 @@ backend/src/main/resources/application.yml
 .env
 .env.*
 !.env.example
-scripts/route_preference_simulator/config.json
-scripts/route_preference_simulator/requests.json
+ai-python/src/urban_sidequest_ai/route_preference_judge/config.json
+ai-python/src/urban_sidequest_ai/route_preference_judge/requests.json
 
 # Dependencies
 node_modules/
@@ -50,6 +50,9 @@ android-app/**/build/
 .superpowers/
 .impeccable/live/
 .codegraph/
+
+# Local confidential notes
+docs/private/
 
 # Temporary files
 tmp/

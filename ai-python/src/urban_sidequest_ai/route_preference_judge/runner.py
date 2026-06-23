@@ -51,11 +51,14 @@ def run(config: AppConfig, jobs: list[dict], dry_run: bool = False, concurrency:
     if not dry_run:
         backend.ensure_token()
 
+    llm_order = list(config.llm_pool)
+    rng.shuffle(llm_order)
+    llm_cursor = 0
     job_inputs = []
     for index, job in enumerate(jobs, start=1):
         persona = job.get("persona")
         route_request = build_route_request(job, persona)
-        selected_llms = select_llms(config, rng)
+        selected_llms, llm_cursor = select_llms(config, rng, llm_order, llm_cursor)
         llm_attempt_groups = [llm_attempt_candidates(config, llm, rng) for llm in selected_llms]
         job_inputs.append((index, persona, route_request, llm_attempt_groups))
 
@@ -269,11 +272,12 @@ def _unwrap_route_generation(response: dict) -> dict:
     return response
 
 
-def select_llms(config: AppConfig, rng: random.Random):
+def select_llms(config: AppConfig, rng: random.Random, llm_order: list, llm_cursor: int):
     if rng.random() < config.judge.full_judge_ratio:
-        return list(config.llm_pool)
+        return list(config.llm_pool), llm_cursor
     count = min(config.judge.judges_per_candidate_set, len(config.llm_pool))
-    return rng.sample(config.llm_pool, count)
+    selected = [llm_order[(llm_cursor + offset) % len(llm_order)] for offset in range(count)]
+    return selected, llm_cursor + count
 
 
 def llm_attempt_candidates(config: AppConfig, primary_llm, rng: random.Random):

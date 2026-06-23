@@ -4,8 +4,15 @@ import json
 import urllib.error
 import urllib.request
 
+DEFAULT_TIMEOUT_SECONDS = 300
 
-def post_json(url: str, payload: dict, headers: dict[str, str] | None = None, timeout: int = 180) -> dict:
+
+def post_json(
+    url: str,
+    payload: dict,
+    headers: dict[str, str] | None = None,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+) -> dict:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request_headers = {
         "Content-Type": "application/json",

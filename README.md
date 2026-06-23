@@ -73,7 +73,7 @@ POI 层的训练 / 校准重点不是一开始就上黑盒模型，而是先把�
 - `android-app/`：Android 前端，使用 Kotlin + Jetpack Compose，后续接入高德 Android SDK。
 - `backend/`：Java + Spring Boot 后端主服务，包含认证、路线生成、POI 候选、偏好训练样本、judgment 保存接口。
 - `database/`：PostgreSQL/PostGIS 初始化、迁移脚本和单独数据库调试环境。
-- `scripts/route_preference_simulator/`：路线偏好模拟用户批量工具，调用后端生成路线、调用 LLM judge、回写 judgment。
+- `ai-python/`：Python AI 模块，包含路线偏好模拟用户批量工具和后续模型算法目录。
 - `docker-compose.yml`：项目资源初始化服务，连接通用数据库栈。
 
 本地依赖默认配置：

@@ -5,6 +5,8 @@ from pathlib import Path
 import json
 import os
 
+DEFAULT_TIMEOUT_SECONDS = 300
+
 
 @dataclass(frozen=True)
 class BackendConfig:
@@ -57,7 +59,7 @@ def load_config(path: Path, require_api_key: bool = True) -> AppConfig:
         auth_token=backend_raw.get("authToken"),
         login_phone=login_raw.get("phone"),
         login_code=login_raw.get("code"),
-        timeout_seconds=int(backend_raw.get("timeoutSeconds") or 180),
+        timeout_seconds=int(backend_raw.get("timeoutSeconds") or DEFAULT_TIMEOUT_SECONDS),
     )
 
     llm_pool = [_parse_llm(item, require_api_key) for item in raw.get("llmPool") or []]
@@ -70,7 +72,7 @@ def load_config(path: Path, require_api_key: bool = True) -> AppConfig:
         judges_per_candidate_set=int(judge_raw.get("judgesPerCandidateSet") or 2),
         full_judge_ratio=float(judge_raw.get("fullJudgeRatio") or 0.0),
         max_retries=int(judge_raw.get("maxRetries") or 1),
-        timeout_seconds=int(judge_raw.get("timeoutSeconds") or 180),
+        timeout_seconds=int(judge_raw.get("timeoutSeconds") or DEFAULT_TIMEOUT_SECONDS),
         temperature=float(judge_raw.get("temperature") or 0.2),
         seed=judge_raw.get("seed"),
     )

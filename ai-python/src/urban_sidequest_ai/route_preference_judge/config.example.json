@@ -6,31 +6,32 @@
       "phone": "13800000000",
       "code": "246810"
     },
-    "timeoutSeconds": 180
+    "timeoutSeconds": 300
   },
   "llmPool": [
     {
-      "provider": "deepseek",
-      "baseUrl": "https://api.deepseek.com",
-      "apiKeyEnv": "DEEPSEEK_API_KEY",
-      "model": "deepseek-v4-pro",
-      "completionsPath": "/chat/completions"
+      "provider": "GLM",
+      "baseUrl": "https://open.bigmodel.cn",
+      "apiKeyEnv": "BIGMODEL_API_KEY",
+      "model": "glm-4.7",
+      "completionsPath": "/api/paas/v4/chat/completions"
     },
     {
-      "provider": "qwen",
+      "provider": "qwen3.6",
       "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "apiKeyEnv": "QWEN_API_KEY",
-      "model": "qwen-max",
+      "model": "qwen3.6-35b-a3b",
       "completionsPath": "/chat/completions"
     }
   ],
   "judge": {
     "promptVersion": "llm-sim-user-v4-debug",
-    "judgesPerCandidateSet": 2,
-    "fullJudgeRatio": 0.1,
+    "judgesPerCandidateSet": 1,
+    "fullJudgeRatio": 0.0,
     "maxRetries": 1,
-    "timeoutSeconds": 180,
+    "timeoutSeconds": 300,
     "temperature": 0.2,
     "seed": 20260619
   }
 }
+

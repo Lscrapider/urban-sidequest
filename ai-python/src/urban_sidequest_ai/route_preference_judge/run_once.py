@@ -9,9 +9,14 @@ PROJECT_ROOT = BASE_DIR.parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.route_preference_simulator.config import load_config
-from scripts.route_preference_simulator.job_factory import build_jobs
-from scripts.route_preference_simulator.runner import load_route_jobs, run
+if __package__:
+    from .config import load_config
+    from .job_factory import build_jobs
+    from .runner import load_route_jobs, run
+else:
+    from urban_sidequest_ai.route_preference_judge.config import load_config
+    from urban_sidequest_ai.route_preference_judge.job_factory import build_jobs
+    from urban_sidequest_ai.route_preference_judge.runner import load_route_jobs, run
 
 CONFIG_FILE = BASE_DIR / "config.json"
 REQUESTS_FILE = BASE_DIR / "requests.json"

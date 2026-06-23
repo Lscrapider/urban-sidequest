@@ -1,0 +1,52 @@
+[
+  {
+    "request": {
+      "areaMode": "AUTO_RADIUS",
+      "areaLabel": "烟台所城里附近",
+      "center": {
+        "longitudeGcj02": 121.3861,
+        "latitudeGcj02": 37.5358
+      },
+      "areaPolygonGcj02": [],
+      "routeCityName": "烟台",
+      "routeCityAdcode": "370600",
+      "departureTime": "2026-07-09T10:00:00",
+      "durationMinutes": 420,
+      "transportProfile": "WALK_BUS",
+      "routeGoal": "STEADY",
+      "budgetLevel": "FLEXIBLE",
+      "interestTags": [
+        "COFFEE",
+        "CULTURE",
+        "EVENT"
+      ],
+      "mealWindows": [
+        "LUNCH"
+      ],
+      "mustVisitPoints": []
+    },
+    "persona": {
+      "distanceSensitivity": 0.47,
+      "budgetSensitivity": 0.4,
+      "transferSensitivity": 0.34,
+      "hiddenGemAffinity": 0.76,
+      "profileConfidence": 0.75,
+      "tagAffinities": {
+        "FOOD_SICHUAN": 0.95,
+        "FOOD_CANTONESE": 0.79,
+        "LOCAL": 0.75
+      },
+      "newUser": false,
+      "questionnaireVersion": "sim-persona-v1:foodie_heavy"
+    },
+    "meta": {
+      "baseRequestIndex": 0,
+      "personaIndex": 0,
+      "personaRepeatIndex": 0,
+      "personaRepeatCount": 1,
+      "probeRequest": false,
+      "personaArchetype": "foodie_heavy"
+    }
+  }
+]
+

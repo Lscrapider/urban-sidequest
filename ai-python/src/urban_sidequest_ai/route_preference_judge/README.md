@@ -5,7 +5,7 @@
 ```text
 路线请求 JSON
   -> 调 Java /api/routes/requests 生成路线
-  -> 从 LLM 池随机抽 2 个 judge（可按比例全评）
+  -> 从 LLM 池轮询选择 judge primary，失败后按 fallback 补位（可按比例全评）
   -> 构造模拟用户路线选择 prompt
   -> 校验 LLM 输出 JSON
   -> 调 Java /api/route-preferences/judgments 保存 judgment
@@ -13,11 +13,13 @@
 
 ## 配置
 
-复制配置样例：
+首次使用时，把样例复制为模块本地配置。`config.json` 和 `requests.json` 都是默认运行路径：
 
 ```bash
-cp scripts/route_preference_simulator/config.example.json /tmp/route-sim-config.json
-cp scripts/route_preference_simulator/requests.example.json /tmp/route-sim-requests.json
+cp ai-python/src/urban_sidequest_ai/route_preference_judge/config.example.json \
+  ai-python/src/urban_sidequest_ai/route_preference_judge/config.json
+cp ai-python/src/urban_sidequest_ai/route_preference_judge/requests.example.json \
+  ai-python/src/urban_sidequest_ai/route_preference_judge/requests.json
 ```
 
 `config.json` 中的 LLM key 可以直接写在本地配置里，也可以用环境变量。本地
@@ -62,39 +64,34 @@ cp scripts/route_preference_simulator/requests.example.json /tmp/route-sim-reque
 命令：
 
 ```bash
-python3 -m scripts.route_preference_simulator generate-jobs \
-  --output /tmp/route-sim-requests.json
+PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge generate-jobs \
+  --request-count 10 \
+  --probe-ratio 0
 ```
 
 可调整规模：
 
 ```bash
-python3 -m scripts.route_preference_simulator generate-jobs \
+PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge generate-jobs \
   --persona-count 100 \
   --requests-per-persona 20 \
-  --cities shanghai,beijing,hangzhou,chengdu,guangzhou \
-  --output /tmp/route-sim-requests.json
+  --cities shanghai,beijing,hangzhou,chengdu,guangzhou
 ```
 
-生成结果就是 `run --requests` 的输入。
+生成结果默认写入模块目录下的 `requests.json`，也可以用 `--output` 覆盖。
 
 ## 运行评价
 
 先启动 Java 后端，再运行：
 
 ```bash
-python3 -m scripts.route_preference_simulator run \
-  --config /tmp/route-sim-config.json \
-  --requests /tmp/route-sim-requests.json
+PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge run
 ```
 
 结构校验，不调用 Java/LLM：
 
 ```bash
-python3 -m scripts.route_preference_simulator run \
-  --config scripts/route_preference_simulator/config.example.json \
-  --requests scripts/route_preference_simulator/requests.example.json \
-  --dry-run
+PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge run --dry-run
 ```
 
 ## 输入请求
