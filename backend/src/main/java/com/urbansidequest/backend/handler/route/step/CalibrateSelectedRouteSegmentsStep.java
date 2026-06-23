@@ -188,6 +188,7 @@ public class CalibrateSelectedRouteSegmentsStep implements RouteGenerationStep {
         if (source == RouteSegmentSource.AMAP_FALLBACK
                 && initialMode == SegmentTransportMode.BIKE
                 && planMode == SegmentTransportMode.WALK) {
+            // 骑行无路线时用步行规划模拟手推车场景，后续仍按骑行特征处理。
             return SegmentTransportMode.BIKE;
         }
         return planMode;

@@ -51,8 +51,12 @@ public class RouteGenerationContext {
     private final List<String> warnings = new ArrayList<>();
 
     public RouteGenerationContext(UUID requestId, UUID userId, RouteGenerateParam generateParam) {
+        this(requestId, UUID.randomUUID(), userId, generateParam);
+    }
+
+    public RouteGenerationContext(UUID requestId, UUID candidateSetId, UUID userId, RouteGenerateParam generateParam) {
         this.requestId = requestId;
-        this.candidateSetId = UUID.randomUUID();
+        this.candidateSetId = candidateSetId;
         this.userId = userId;
         this.generateParam = generateParam;
     }
