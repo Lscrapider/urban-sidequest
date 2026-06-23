@@ -8,9 +8,14 @@ import com.urbansidequest.backend.handler.route.district.RouteDistrictPlanner;
 import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import org.springframework.stereotype.Component;
 
-@Component
+/**
+ * 旧版片区预算硬约束。
+ *
+ * <p>主链路已退回“只挡不可展示路线”，跨片区压力不再作为硬过滤；
+ * 后续如需片区相关 Route X 特征，可复用本类的片区统计方法。</p>
+ */
+@Deprecated
 public class DistrictBudgetConstraint implements RouteConstraint {
 
     private final RouteDistrictPlanner routeDistrictPlanner;

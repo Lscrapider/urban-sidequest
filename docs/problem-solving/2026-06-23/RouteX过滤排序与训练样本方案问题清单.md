@@ -121,6 +121,13 @@ route:
 
 如果校准后所有候选都被硬超限过滤，已确认返回空路线列表，并在 response warning 中明确说明：`所有候选路线均因校准后硬超限被过滤`。不回退展示硬违规路线。
 
+实现要求：
+
+- `route-constraints.duration-hard-overrun-minutes`
+- `route-constraints.duration-hard-overrun-ratio`
+
+必须加入 `RouteScoringProperties.validate()` 的启动校验清单，并提供对应 accessor，保持配置缺失时 fail-fast。
+
 ### 2. DistrictBudgetConstraint 应从硬过滤退役
 
 `DistrictBudgetConstraint` 本质是空间动线/跨片区体验启发式，不是路线合法性。按“后端只挡非法，体验交给 Route X / judge”的原则，它不应该继续作为硬过滤。
@@ -440,6 +447,13 @@ route:
         max-comfort-usage-ratio: 0.9
 ```
 
+实现要求：
+
+- `route-x.time-budget.target-usage-ratio`
+- `route-x.time-budget.max-comfort-usage-ratio`
+
+必须加入 `RouteScoringProperties.validate()` 的启动校验清单，并提供对应 accessor，保持配置缺失时 fail-fast。
+
 ### 交通 bucket 构成与压力
 
 新增：
@@ -488,6 +502,19 @@ route:
         bucket-switch-ref-count: 3
         norm-clamp-max: 3
 ```
+
+实现要求：
+
+- `route-x.travel-pressure.physical-distance-ref-meters`
+- `route-x.travel-pressure.physical-segment-comfort-minutes`
+- `route-x.travel-pressure.scheduled-distance-ref-meters`
+- `route-x.travel-pressure.scheduled-segment-comfort-minutes`
+- `route-x.travel-pressure.private-motor-distance-ref-meters`
+- `route-x.travel-pressure.private-motor-segment-comfort-minutes`
+- `route-x.travel-pressure.bucket-switch-ref-count`
+- `route-x.travel-pressure.norm-clamp-max`
+
+必须加入 `RouteScoringProperties.validate()` 的启动校验清单，并提供对应 accessor，保持配置缺失时 fail-fast。
 
 公式：
 

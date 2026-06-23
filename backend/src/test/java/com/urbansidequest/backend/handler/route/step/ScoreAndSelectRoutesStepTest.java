@@ -15,13 +15,7 @@ import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
-import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
-import com.urbansidequest.backend.handler.route.config.RouteScoringTestSupport;
-import com.urbansidequest.backend.handler.route.constraint.DistrictBudgetConstraint;
-import com.urbansidequest.backend.handler.route.constraint.DurationConstraint;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
-import com.urbansidequest.backend.handler.route.district.RouteDistrictPlanner;
-import com.urbansidequest.backend.handler.route.scoring.RouteGoalScoringStrategy;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,10 +24,8 @@ import org.junit.jupiter.api.Test;
 
 class ScoreAndSelectRoutesStepTest {
 
-    private static final RouteScoringProperties ROUTE_SCORING_PROPERTIES = RouteScoringTestSupport.properties();
-
     @Test
-    void returnsEmptyRoutesWhenAllRoutesFailDurationConstraint() {
+    void keepsLlmOrderAndDoesNotFilterOrdinaryOvertimeBeforeCalibration() {
         RouteGenerationContext context = new RouteGenerationContext(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -43,55 +35,56 @@ class ScoreAndSelectRoutesStepTest {
         CandidateRouteDTO shorterOvertimeRoute = route("B", 150, 10);
         context.setCandidateRoutes(List.of(longRoute, shorterOvertimeRoute));
 
-        ScoreAndSelectRoutesStep step = new ScoreAndSelectRoutesStep(
-                List.of(new DurationConstraint()),
-                List.of(alwaysZeroScoringStrategy())
-        );
+        ScoreAndSelectRoutesStep step = new ScoreAndSelectRoutesStep(List.of());
 
         step.execute(context);
 
-        assertThat(context.getSelectedRoutes()).isEmpty();
-        assertThat(context.getWarnings()).anyMatch(warning -> warning.contains("没有候选路线通过后端约束"));
+        assertThat(context.getSelectedRoutes())
+                .extracting(CandidateRouteDTO::routeCode)
+                .containsExactly("A", "B");
+        assertThat(context.getWarnings()).isEmpty();
     }
 
     @Test
-    void rejectsOverBudgetRouteWhenAnotherRouteFitsDistrictBudget() {
+    void doesNotApplyDistrictBudgetAsHardFilter() {
         RouteGenerationContext context = routeContextForDistrictBudget();
         CandidateRouteDTO compactRoute = route("A", List.of(stop("p1-A", "p1"), stop("p2-A", "p2")), 20);
         CandidateRouteDTO scatteredRoute = route("B", List.of(stop("p1-B", "p1"), stop("p3-B", "p3")), 90);
         context.setCandidateRoutes(List.of(scatteredRoute, compactRoute));
 
-        ScoreAndSelectRoutesStep step = new ScoreAndSelectRoutesStep(
-                List.of(new DistrictBudgetConstraint(new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES))),
-                List.of(alwaysZeroScoringStrategy())
-        );
+        ScoreAndSelectRoutesStep step = new ScoreAndSelectRoutesStep(List.of());
 
         step.execute(context);
 
         assertThat(context.getSelectedRoutes())
                 .extracting(CandidateRouteDTO::routeCode)
-                .containsExactly("A");
-        assertThat(context.getWarnings()).anyMatch(warning -> warning.contains("B 未通过约束"));
+                .containsExactly("B", "A");
+        assertThat(context.getWarnings()).isEmpty();
     }
 
     @Test
-    void returnsEmptyRoutesWhenAllRoutesExceedDistrictBudget() {
-        RouteGenerationContext context = routeContextForDistrictBudget();
-        CandidateRouteDTO twoDistrictRoute = route("A", List.of(stop("p1-A", "p1"), stop("p3-A", "p3")), 20);
-        CandidateRouteDTO threeDistrictRoute = route("B", List.of(stop("p1-B", "p1"), stop("p3-B", "p3"), stop("p4-B", "p4")), 90);
-        context.setCandidateRoutes(List.of(threeDistrictRoute, twoDistrictRoute));
-
-        ScoreAndSelectRoutesStep step = new ScoreAndSelectRoutesStep(
-                List.of(new DistrictBudgetConstraint(new RouteDistrictPlanner(ROUTE_SCORING_PROPERTIES))),
-                List.of(alwaysZeroScoringStrategy())
+    void limitsToFirstFiveRoutesWithoutGoalScoringReorder() {
+        RouteGenerationContext context = new RouteGenerationContext(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                baseParam(180)
         );
+        context.setCandidateRoutes(List.of(
+                route("A", 90, 10),
+                route("B", 90, 90),
+                route("C", 90, 80),
+                route("D", 90, 70),
+                route("E", 90, 60),
+                route("F", 90, 50)
+        ));
+
+        ScoreAndSelectRoutesStep step = new ScoreAndSelectRoutesStep(List.of());
 
         step.execute(context);
 
         assertThat(context.getSelectedRoutes())
                 .extracting(CandidateRouteDTO::routeCode)
-                .isEmpty();
-        assertThat(context.getWarnings()).anyMatch(warning -> warning.contains("没有候选路线通过后端约束"));
+                .containsExactly("A", "B", "C", "D", "E");
     }
 
     private static RouteGenerateParam baseParam(int durationMinutes) {
@@ -211,17 +204,4 @@ class ScoreAndSelectRoutesStepTest {
         return center;
     }
 
-    private static RouteGoalScoringStrategy alwaysZeroScoringStrategy() {
-        return new RouteGoalScoringStrategy() {
-            @Override
-            public boolean supports(RouteGoal routeGoal) {
-                return true;
-            }
-
-            @Override
-            public int score(CandidateRouteDTO route, RouteGenerationContext context) {
-                return 0;
-            }
-        };
-    }
 }

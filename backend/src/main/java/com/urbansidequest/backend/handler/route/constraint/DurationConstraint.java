@@ -2,9 +2,14 @@ package com.urbansidequest.backend.handler.route.constraint;
 
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
-import org.springframework.stereotype.Component;
 
-@Component
+/**
+ * 旧版校准前时长硬约束。
+ *
+ * <p>主链路不再使用 LLM 自报总时长做硬过滤；时间硬超限已迁移到
+ * 校准后的 {@code FilterCalibratedRoutesStep}，避免误杀真实可用路线。</p>
+ */
+@Deprecated
 public class DurationConstraint implements RouteConstraint {
 
     @Override

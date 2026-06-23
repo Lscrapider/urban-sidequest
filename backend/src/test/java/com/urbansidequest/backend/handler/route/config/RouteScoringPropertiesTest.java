@@ -29,6 +29,9 @@ class RouteScoringPropertiesTest {
                 .isEqualTo(1000);
         assertThat(properties.midFarQuota(TransportProfile.WALK_TAXI)).isEqualTo(6);
         assertThat(properties.routeXBudgetCap(BudgetLevel.FLEXIBLE)).isEqualTo(40000d);
+        assertThat(properties.routeConstraintDouble("duration-hard-overrun-ratio")).isEqualTo(0.15d);
+        assertThat(properties.routeXDouble("time-budget.target-usage-ratio")).isEqualTo(0.75d);
+        assertThat(properties.routeXInt("travel-pressure.bucket-switch-ref-count")).isEqualTo(3);
     }
 
     @Test
@@ -62,6 +65,19 @@ class RouteScoringPropertiesTest {
         assertThatThrownBy(() -> new RouteScoringProperties(configPath))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("goal-delta.LOW_BUDGET");
+    }
+
+    @Test
+    void failsWhenNewRouteXTravelPressureFieldIsMissing(@TempDir Path tempDir) throws IOException {
+        Path configPath = writeConfig(
+                tempDir,
+                Files.readString(Path.of("src/test/resources/route-scoring-test.yml"))
+                        .replace("        bucket-switch-ref-count: 3\n", "")
+        );
+
+        assertThatThrownBy(() -> new RouteScoringProperties(configPath))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("route-x.travel-pressure.bucket-switch-ref-count");
     }
 
     private static Path writeConfig(Path tempDir, String yaml) throws IOException {

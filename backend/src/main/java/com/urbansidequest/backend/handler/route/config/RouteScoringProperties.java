@@ -132,6 +132,14 @@ public class RouteScoringProperties {
         return this.requiredDouble("route-x." + path);
     }
 
+    public double routeConstraintDouble(String path) {
+        return this.requiredDouble("route-constraints." + path);
+    }
+
+    public int routeConstraintInt(String path) {
+        return this.requiredInt("route-constraints." + path);
+    }
+
     public double routeXBudgetCap(BudgetLevel budgetLevel) {
         return this.requiredDouble("route-x.budget-cap." + budgetLevel.name());
     }
@@ -290,6 +298,16 @@ public class RouteScoringProperties {
                 "route-x.expensive-risk-offset",
                 "route-x.rating-missing-default",
                 "route-x.avg-price-missing-default",
+                "route-x.time-budget.target-usage-ratio",
+                "route-x.time-budget.max-comfort-usage-ratio",
+                "route-x.travel-pressure.physical-distance-ref-meters",
+                "route-x.travel-pressure.physical-segment-comfort-minutes",
+                "route-x.travel-pressure.scheduled-distance-ref-meters",
+                "route-x.travel-pressure.scheduled-segment-comfort-minutes",
+                "route-x.travel-pressure.private-motor-distance-ref-meters",
+                "route-x.travel-pressure.private-motor-segment-comfort-minutes",
+                "route-x.travel-pressure.bucket-switch-ref-count",
+                "route-x.travel-pressure.norm-clamp-max",
                 "route-x.transit.no-facility.medium",
                 "route-x.transit.no-facility.distance-norm",
                 "route-x.transit.has-facility-no-distance.low",
@@ -313,7 +331,9 @@ public class RouteScoringProperties {
                 "route-goal-scoring.low-budget-missing-bonus",
                 "route-goal-scoring.low-budget-divisor",
                 "route-goal-scoring.night-hit-bonus",
-                "route-goal-scoring.photo-hit-bonus"
+                "route-goal-scoring.photo-hit-bonus",
+                "route-constraints.duration-hard-overrun-minutes",
+                "route-constraints.duration-hard-overrun-ratio"
         );
         this.validateGoalDelta(properties, missing);
         this.validateTransportDelta(properties, missing);

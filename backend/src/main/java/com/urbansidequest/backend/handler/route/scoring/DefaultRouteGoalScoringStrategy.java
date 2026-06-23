@@ -5,9 +5,14 @@ import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
 import com.urbansidequest.backend.handler.route.config.RouteScoringProperties;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
-import org.springframework.stereotype.Component;
 
-@Component
+/**
+ * 旧版后端质量打分规则。
+ *
+ * <p>主链路已退回“只挡不可展示路线”，不再使用该规则做线上排序；
+ * 体验质量由 Route X / judge 学习。</p>
+ */
+@Deprecated
 public class DefaultRouteGoalScoringStrategy implements RouteGoalScoringStrategy {
 
     private final RouteScoringProperties routeScoringProperties;

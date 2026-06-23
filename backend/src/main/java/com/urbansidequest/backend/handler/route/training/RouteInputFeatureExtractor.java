@@ -235,7 +235,9 @@ public class RouteInputFeatureExtractor {
             row.put("transportMode_BIKE", bit(feature.mode() == SegmentTransportMode.BIKE));
             row.put("transportMode_BUS", bit(feature.mode() == SegmentTransportMode.BUS));
             row.put("transportMode_SUBWAY", bit(feature.mode() == SegmentTransportMode.SUBWAY));
+            row.put("transportMode_TRANSIT", bit(feature.mode() == SegmentTransportMode.TRANSIT));
             row.put("transportMode_TAXI", bit(feature.mode() == SegmentTransportMode.TAXI));
+            row.put("transportMode_DRIVE", bit(feature.mode() == SegmentTransportMode.DRIVE));
             row.put("isBacktracking", bit(!feature.missing() && this.isBacktracking(stops, feature.index())));
             row.put("distancePressure", distancePressure);
             row.put("segmentCalibrated", bit(feature.calibrated()));
@@ -263,12 +265,17 @@ public class RouteInputFeatureExtractor {
         double estimatedTravelMinutes = segmentMatrix.stream()
                 .mapToDouble(row -> doubleValue(row.get("estimatedDurationNorm")) * this.routeX("segment-comfort-duration-minutes"))
                 .sum();
+        double timeBudgetUsageRatio = route.totalDurationMinutes() > 0
+                ? route.totalDurationMinutes() / (double) durationMinutes
+                : (estimatedStayMinutes + estimatedTravelMinutes) / durationMinutes;
 
         Map<String, Object> vector = new LinkedHashMap<>();
         vector.put("stopCountNorm", stopCount / (double) this.routeXInt("max-stop-count"));
         vector.put("stayBudgetUsageRatio", estimatedStayMinutes / (durationMinutes * this.routeX("stay-budget-ratio")));
         vector.put("estimatedTravelMinutesNorm", estimatedTravelMinutes / durationMinutes);
-        vector.put("timeBudgetUsageRatio", (estimatedStayMinutes + estimatedTravelMinutes) / durationMinutes);
+        vector.put("timeBudgetUsageRatio", timeBudgetUsageRatio);
+        vector.put("timeBudgetUnderuse", Math.max(0d, this.routeX("time-budget.target-usage-ratio") - timeBudgetUsageRatio));
+        vector.put("timeBudgetOveruse", Math.max(0d, timeBudgetUsageRatio - this.routeX("time-budget.max-comfort-usage-ratio")));
 
         boolean requiresLunch = MealWindowSupport.requiresLunch(context.getGenerateParam());
         boolean requiresDinner = MealWindowSupport.requiresDinner(context.getGenerateParam());
@@ -318,12 +325,31 @@ public class RouteInputFeatureExtractor {
                 .filter(row -> doubleValue(row.get("segmentEstimateMissing")) > 0d)
                 .count() / (double) segmentCount);
 
-        ModeDistanceStats modeDistanceStats = this.modeDistanceStats(segmentFeatures);
-        vector.put("walkDistanceRatio", modeDistanceStats.walkRatio());
-        vector.put("bikeDistanceRatio", modeDistanceStats.bikeRatio());
-        vector.put("busDistanceRatio", modeDistanceStats.busRatio());
-        vector.put("subwayDistanceRatio", modeDistanceStats.subwayRatio());
-        vector.put("taxiDistanceRatio", modeDistanceStats.taxiRatio());
+        TravelBucketStats travelBucketStats = this.travelBucketStats(segmentFeatures);
+        vector.put("physicalTravelDistanceRatio", travelBucketStats.physicalDistanceRatio());
+        vector.put("scheduledTravelDistanceRatio", travelBucketStats.scheduledDistanceRatio());
+        vector.put("privateMotorTravelDistanceRatio", travelBucketStats.privateMotorDistanceRatio());
+        vector.put("physicalTravelDistanceNorm", this.clampTravelNorm(
+                travelBucketStats.physicalDistanceMeters() / this.routeX("travel-pressure.physical-distance-ref-meters")
+        ));
+        vector.put("physicalTravelMaxSegmentDurationNorm", this.clampTravelNorm(
+                travelBucketStats.physicalMaxSegmentMinutes() / this.routeX("travel-pressure.physical-segment-comfort-minutes")
+        ));
+        vector.put("scheduledTravelDistanceNorm", this.clampTravelNorm(
+                travelBucketStats.scheduledDistanceMeters() / this.routeX("travel-pressure.scheduled-distance-ref-meters")
+        ));
+        vector.put("scheduledTravelMaxSegmentDurationNorm", this.clampTravelNorm(
+                travelBucketStats.scheduledMaxSegmentMinutes() / this.routeX("travel-pressure.scheduled-segment-comfort-minutes")
+        ));
+        vector.put("privateMotorTravelDistanceNorm", this.clampTravelNorm(
+                travelBucketStats.privateMotorDistanceMeters() / this.routeX("travel-pressure.private-motor-distance-ref-meters")
+        ));
+        vector.put("privateMotorTravelMaxSegmentDurationNorm", this.clampTravelNorm(
+                travelBucketStats.privateMotorMaxSegmentMinutes() / this.routeX("travel-pressure.private-motor-segment-comfort-minutes")
+        ));
+        vector.put("travelBucketSwitchCountNorm", this.clampTravelNorm(
+                travelBucketStats.bucketSwitchCount() / (double) this.routeXInt("travel-pressure.bucket-switch-ref-count")
+        ));
 
         vector.put("interestCoverageRatio", this.interestCoverageRatio(context, route, source));
         vector.put("localStopRatio", this.avg(stopMatrix, "isLocal"));
@@ -409,11 +435,9 @@ public class RouteInputFeatureExtractor {
         double requiresDinnerFlag = doubleValue(routeDerivedVector.get("requiresDinnerFlag"));
         double lunchCoveredFlag = doubleValue(routeDerivedVector.get("lunchCoveredFlag"));
         double dinnerCoveredFlag = doubleValue(routeDerivedVector.get("dinnerCoveredFlag"));
-        double walkDistanceRatio = doubleValue(routeDerivedVector.get("walkDistanceRatio"));
-        double bikeDistanceRatio = doubleValue(routeDerivedVector.get("bikeDistanceRatio"));
-        double busDistanceRatio = doubleValue(routeDerivedVector.get("busDistanceRatio"));
-        double subwayDistanceRatio = doubleValue(routeDerivedVector.get("subwayDistanceRatio"));
-        double taxiDistanceRatio = doubleValue(routeDerivedVector.get("taxiDistanceRatio"));
+        double physicalTravelDistanceRatio = doubleValue(routeDerivedVector.get("physicalTravelDistanceRatio"));
+        double scheduledTravelDistanceRatio = doubleValue(routeDerivedVector.get("scheduledTravelDistanceRatio"));
+        double privateMotorTravelDistanceRatio = doubleValue(routeDerivedVector.get("privateMotorTravelDistanceRatio"));
 
         vector.put("profileDistanceTotalPressure", profileConfidence * distanceSensitivity * totalDistanceNorm);
         vector.put("profileDistanceMaxSegmentPressure", profileConfidence * distanceSensitivity * maxSegmentDistanceNorm);
@@ -447,11 +471,9 @@ public class RouteInputFeatureExtractor {
                 "profileActualModeFitRatio",
                 this.profileActualModeFitRatio(
                         transportProfile,
-                        walkDistanceRatio,
-                        bikeDistanceRatio,
-                        busDistanceRatio,
-                        subwayDistanceRatio,
-                        taxiDistanceRatio
+                        physicalTravelDistanceRatio,
+                        scheduledTravelDistanceRatio,
+                        privateMotorTravelDistanceRatio
                 )
         );
 
@@ -515,56 +537,73 @@ public class RouteInputFeatureExtractor {
         );
     }
 
-    private ModeDistanceStats modeDistanceStats(List<SegmentFeature> segmentFeatures) {
-        double walkMeters = 0d;
-        double bikeMeters = 0d;
-        double busMeters = 0d;
-        double subwayMeters = 0d;
-        double taxiMeters = 0d;
+    private TravelBucketStats travelBucketStats(List<SegmentFeature> segmentFeatures) {
+        double physicalMeters = 0d;
+        double scheduledMeters = 0d;
+        double privateMotorMeters = 0d;
+        int physicalMaxMinutes = 0;
+        int scheduledMaxMinutes = 0;
+        int privateMotorMaxMinutes = 0;
+        int bucketSwitchCount = 0;
+        TravelBucket previousBucket = null;
         double totalMeters = 0d;
         for (SegmentFeature feature : segmentFeatures) {
-            if (feature.missing() || feature.distanceMeters() <= 0) {
+            if (feature.missing()) {
                 continue;
             }
-            totalMeters += feature.distanceMeters();
-            switch (feature.mode()) {
-                case WALK -> walkMeters += feature.distanceMeters();
-                case BIKE -> bikeMeters += feature.distanceMeters();
-                case BUS, TRANSIT -> busMeters += feature.distanceMeters();
-                case SUBWAY -> subwayMeters += feature.distanceMeters();
-                case TAXI, DRIVE -> taxiMeters += feature.distanceMeters();
+            TravelBucket bucket = this.travelBucket(feature.mode());
+            if (previousBucket != null && previousBucket != bucket) {
+                bucketSwitchCount++;
+            }
+            previousBucket = bucket;
+            if (feature.distanceMeters() > 0) {
+                totalMeters += feature.distanceMeters();
+            }
+            switch (bucket) {
+                case PHYSICAL -> {
+                    physicalMeters += Math.max(0, feature.distanceMeters());
+                    physicalMaxMinutes = Math.max(physicalMaxMinutes, feature.durationMinutes());
+                }
+                case SCHEDULED -> {
+                    scheduledMeters += Math.max(0, feature.distanceMeters());
+                    scheduledMaxMinutes = Math.max(scheduledMaxMinutes, feature.durationMinutes());
+                }
+                case PRIVATE_MOTOR -> {
+                    privateMotorMeters += Math.max(0, feature.distanceMeters());
+                    privateMotorMaxMinutes = Math.max(privateMotorMaxMinutes, feature.durationMinutes());
+                }
             }
         }
-        if (totalMeters <= 0d) {
-            return ModeDistanceStats.zero();
-        }
-        return new ModeDistanceStats(
-                walkMeters / totalMeters,
-                bikeMeters / totalMeters,
-                busMeters / totalMeters,
-                subwayMeters / totalMeters,
-                taxiMeters / totalMeters
+        double physicalRatio = totalMeters <= 0d ? 0d : physicalMeters / totalMeters;
+        double scheduledRatio = totalMeters <= 0d ? 0d : scheduledMeters / totalMeters;
+        double privateMotorRatio = totalMeters <= 0d ? 0d : privateMotorMeters / totalMeters;
+        return new TravelBucketStats(
+                physicalMeters,
+                scheduledMeters,
+                privateMotorMeters,
+                physicalRatio,
+                scheduledRatio,
+                privateMotorRatio,
+                physicalMaxMinutes,
+                scheduledMaxMinutes,
+                privateMotorMaxMinutes,
+                bucketSwitchCount
         );
     }
 
     private double profileActualModeFitRatio(
             TransportProfile profile,
-            double walkDistanceRatio,
-            double bikeDistanceRatio,
-            double busDistanceRatio,
-            double subwayDistanceRatio,
-            double taxiDistanceRatio
+            double physicalTravelDistanceRatio,
+            double scheduledTravelDistanceRatio,
+            double privateMotorTravelDistanceRatio
     ) {
         if (profile == null) {
             return 0d;
         }
         return switch (profile) {
-            case WALK_ONLY -> walkDistanceRatio;
-            case WALK_BUS -> walkDistanceRatio + busDistanceRatio;
-            case WALK_SUBWAY -> walkDistanceRatio + subwayDistanceRatio;
-            case WALK_TRANSIT -> walkDistanceRatio + busDistanceRatio + subwayDistanceRatio;
-            case BIKE_SUBWAY -> walkDistanceRatio + bikeDistanceRatio + subwayDistanceRatio;
-            case WALK_TAXI -> walkDistanceRatio + taxiDistanceRatio;
+            case WALK_ONLY -> physicalTravelDistanceRatio;
+            case WALK_BUS, WALK_SUBWAY, WALK_TRANSIT, BIKE_SUBWAY -> physicalTravelDistanceRatio + scheduledTravelDistanceRatio;
+            case WALK_TAXI -> physicalTravelDistanceRatio + privateMotorTravelDistanceRatio;
         };
     }
 
@@ -850,7 +889,9 @@ public class RouteInputFeatureExtractor {
     }
 
     private boolean isTransferSegment(Map<String, Object> row) {
-        return doubleValue(row.get("transportMode_BUS")) > 0d || doubleValue(row.get("transportMode_SUBWAY")) > 0d;
+        return doubleValue(row.get("transportMode_BUS")) > 0d
+                || doubleValue(row.get("transportMode_SUBWAY")) > 0d
+                || doubleValue(row.get("transportMode_TRANSIT")) > 0d;
     }
 
     private RouteSegmentDTO routeSegmentAt(CandidateRouteDTO route, int index) {
@@ -896,6 +937,18 @@ public class RouteInputFeatureExtractor {
         return this.routeScoringProperties.routeXInt(path);
     }
 
+    private double clampTravelNorm(double value) {
+        return clamp(value, 0d, this.routeX("travel-pressure.norm-clamp-max"));
+    }
+
+    private TravelBucket travelBucket(SegmentTransportMode mode) {
+        return switch (mode) {
+            case WALK, BIKE -> TravelBucket.PHYSICAL;
+            case BUS, SUBWAY, TRANSIT -> TravelBucket.SCHEDULED;
+            case TAXI, DRIVE -> TravelBucket.PRIVATE_MOTOR;
+        };
+    }
+
     private String writeJson(Object value) {
         try {
             return this.objectMapper.writeValueAsString(value);
@@ -930,17 +983,24 @@ public class RouteInputFeatureExtractor {
         }
     }
 
-    private record ModeDistanceStats(
-            double walkRatio,
-            double bikeRatio,
-            double busRatio,
-            double subwayRatio,
-            double taxiRatio
-    ) {
+    private enum TravelBucket {
+        PHYSICAL,
+        SCHEDULED,
+        PRIVATE_MOTOR
+    }
 
-        private static ModeDistanceStats zero() {
-            return new ModeDistanceStats(0d, 0d, 0d, 0d, 0d);
-        }
+    private record TravelBucketStats(
+            double physicalDistanceMeters,
+            double scheduledDistanceMeters,
+            double privateMotorDistanceMeters,
+            double physicalDistanceRatio,
+            double scheduledDistanceRatio,
+            double privateMotorDistanceRatio,
+            int physicalMaxSegmentMinutes,
+            int scheduledMaxSegmentMinutes,
+            int privateMotorMaxSegmentMinutes,
+            int bucketSwitchCount
+    ) {
     }
 
     private record TransitFeature(double high, double medium, double low, double distanceNorm) {

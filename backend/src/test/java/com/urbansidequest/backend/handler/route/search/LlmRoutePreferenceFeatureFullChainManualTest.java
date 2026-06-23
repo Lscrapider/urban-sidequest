@@ -537,7 +537,16 @@ class LlmRoutePreferenceFeatureFullChainManualTest {
             item.put("totalDistanceNorm", routeDerivedVector.get("totalDistanceNorm"));
             item.put("maxSegmentDistanceNorm", routeDerivedVector.get("maxSegmentDistanceNorm"));
             item.put("transferSegmentRatio", routeDerivedVector.get("transferSegmentRatio"));
-            item.put("taxiDistanceRatio", routeDerivedVector.get("taxiDistanceRatio"));
+            item.put("timeBudgetUsageRatio", routeDerivedVector.get("timeBudgetUsageRatio"));
+            item.put("timeBudgetUnderuse", routeDerivedVector.get("timeBudgetUnderuse"));
+            item.put("timeBudgetOveruse", routeDerivedVector.get("timeBudgetOveruse"));
+            item.put("physicalTravelDistanceRatio", routeDerivedVector.get("physicalTravelDistanceRatio"));
+            item.put("scheduledTravelDistanceRatio", routeDerivedVector.get("scheduledTravelDistanceRatio"));
+            item.put("privateMotorTravelDistanceRatio", routeDerivedVector.get("privateMotorTravelDistanceRatio"));
+            item.put("physicalTravelDistanceNorm", routeDerivedVector.get("physicalTravelDistanceNorm"));
+            item.put("scheduledTravelDistanceNorm", routeDerivedVector.get("scheduledTravelDistanceNorm"));
+            item.put("privateMotorTravelDistanceNorm", routeDerivedVector.get("privateMotorTravelDistanceNorm"));
+            item.put("travelBucketSwitchCountNorm", routeDerivedVector.get("travelBucketSwitchCountNorm"));
             item.put("fallbackAmapRatio", routeDerivedVector.get("fallbackAmapRatio"));
             item.put("straightLineFallbackRatio", routeDerivedVector.get("straightLineFallbackRatio"));
             item.put("goalLocalMatch", contextCrossVector.get("goalLocalMatch"));

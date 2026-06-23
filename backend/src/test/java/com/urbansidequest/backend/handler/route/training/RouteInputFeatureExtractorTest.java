@@ -1,18 +1,21 @@
 package com.urbansidequest.backend.handler.route.training;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.offset;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
+import com.urbansidequest.backend.domain.dto.RouteSegmentDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
 import com.urbansidequest.backend.domain.enums.AreaMode;
 import com.urbansidequest.backend.domain.enums.MealWindow;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RiskLevel;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
+import com.urbansidequest.backend.domain.enums.RouteSegmentSource;
 import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
 import com.urbansidequest.backend.domain.param.RouteGenerateParam;
@@ -185,6 +188,54 @@ class RouteInputFeatureExtractorTest {
                 .containsEntry("missingAmapTypecodeRatio", 0.4);
     }
 
+    @Test
+    void extractsRouteXv4BucketTravelFeaturesFromCalibratedSegments() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        RouteInputFeatureExtractor extractor = extractor(objectMapper);
+        RouteGenerationContext context = new RouteGenerationContext(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                baseParam()
+        );
+        context.getGenerateParam().setDurationMinutes(100);
+        context.getGenerateParam().setTransportProfile(TransportProfile.WALK_TAXI);
+
+        RouteInputFeatureSnapshot snapshot = extractor.extract(routeWithAllTransportBuckets(), context);
+        Map<String, Object> routeDerivedVector = objectMapper.readValue(
+                snapshot.routeDerivedVectorJson(),
+                new TypeReference<>() {
+                }
+        );
+        Map<String, Object> contextCrossVector = objectMapper.readValue(
+                snapshot.contextCrossVectorJson(),
+                new TypeReference<>() {
+                }
+        );
+
+        assertThat(snapshot.featureSchemaVersion()).isEqualTo("route_pref_v4");
+        assertThat(routeDerivedVector).doesNotContainKeys(
+                "walkDistanceRatio",
+                "bikeDistanceRatio",
+                "busDistanceRatio",
+                "subwayDistanceRatio",
+                "taxiDistanceRatio"
+        );
+        assertThat(doubleValue(routeDerivedVector, "timeBudgetUsageRatio")).isCloseTo(1.2, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "timeBudgetUnderuse")).isEqualTo(0.0);
+        assertThat(doubleValue(routeDerivedVector, "timeBudgetOveruse")).isCloseTo(0.3, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "physicalTravelDistanceRatio")).isCloseTo(1500d / 13500d, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "scheduledTravelDistanceRatio")).isCloseTo(6000d / 13500d, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "privateMotorTravelDistanceRatio")).isCloseTo(6000d / 13500d, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "physicalTravelDistanceNorm")).isCloseTo(0.375, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "physicalTravelMaxSegmentDurationNorm")).isCloseTo(0.4, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "scheduledTravelDistanceNorm")).isCloseTo(0.6, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "scheduledTravelMaxSegmentDurationNorm")).isCloseTo(20d / 35d, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "privateMotorTravelDistanceNorm")).isCloseTo(0.5, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "privateMotorTravelMaxSegmentDurationNorm")).isCloseTo(0.6, offset(0.0001));
+        assertThat(doubleValue(routeDerivedVector, "travelBucketSwitchCountNorm")).isCloseTo(2d / 3d, offset(0.0001));
+        assertThat(doubleValue(contextCrossVector, "profileActualModeFitRatio")).isCloseTo(7500d / 13500d, offset(0.0001));
+    }
+
     private static RouteGenerateParam baseParam() {
         RouteGenerateParam param = new RouteGenerateParam();
         param.setAreaMode(AreaMode.AUTO_RADIUS);
@@ -265,6 +316,62 @@ class RouteInputFeatureExtractorTest {
         );
     }
 
+    private static CandidateRouteDTO routeWithAllTransportBuckets() {
+        List<RouteStopDTO> stops = List.of(
+                stop("p1-A", 0, "点 1", "景点"),
+                stop("p2-A", 1, "点 2", "景点"),
+                stop("p3-A", 2, "点 3", "景点"),
+                stop("p4-A", 3, "点 4", "景点"),
+                stop("p5-A", 4, "点 5", "景点"),
+                stop("p6-A", 5, "点 6", "景点"),
+                stop("p7-A", 6, "点 7", "景点"),
+                stop("p8-A", 7, "点 8", "景点")
+        );
+        return new CandidateRouteDTO(
+                "A",
+                "路线 A",
+                "summary",
+                120,
+                13500,
+                null,
+                RiskLevel.LOW,
+                "explanation",
+                stops,
+                List.of(
+                        segment(1, "p1-A", "p2-A", SegmentTransportMode.WALK, 1000, 10),
+                        segment(2, "p2-A", "p3-A", SegmentTransportMode.BIKE, 500, 8),
+                        segment(3, "p3-A", "p4-A", SegmentTransportMode.BUS, 2000, 15),
+                        segment(4, "p4-A", "p5-A", SegmentTransportMode.SUBWAY, 3000, 20),
+                        segment(5, "p5-A", "p6-A", SegmentTransportMode.TRANSIT, 1000, 12),
+                        segment(6, "p6-A", "p7-A", SegmentTransportMode.TAXI, 4000, 18),
+                        segment(7, "p7-A", "p8-A", SegmentTransportMode.DRIVE, 2000, 10)
+                ),
+                0
+        );
+    }
+
+    private static RouteSegmentDTO segment(
+            int order,
+            String originStopId,
+            String destinationStopId,
+            SegmentTransportMode mode,
+            int distanceMeters,
+            int durationMinutes
+    ) {
+        return new RouteSegmentDTO(
+                order,
+                originStopId,
+                destinationStopId,
+                mode,
+                distanceMeters,
+                durationMinutes,
+                List.of(),
+                List.of(),
+                mode.name(),
+                RouteSegmentSource.AMAP_DIRECT
+        );
+    }
+
     private static PoiCandidateDTO candidate(String poiId, String typecode) {
         return new PoiCandidateDTO(
                 poiId,
@@ -326,5 +433,10 @@ class RouteInputFeatureExtractorTest {
                 "reason",
                 null
         );
+    }
+
+    private static double doubleValue(Map<String, Object> values, String key) {
+        Object value = values.get(key);
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
     }
 }

@@ -288,18 +288,27 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
         for (LlmComposedStopDTO stop : route.stops()) {
             PoiCandidateDTO candidate = candidatesByPoiId.get(stop.poiId());
             if (candidate == null) {
-                context.addWarning(routeCode + " 线引用了不存在的 POI：" + stop.poiId());
-                continue;
+                context.addWarning(routeCode + " 线引用了不存在的 POI：" + stop.poiId() + "，已丢弃该候选路线");
+                return null;
             }
             if (!usedPoiIds.add(candidate.poiId())) {
                 context.addWarning(routeCode + " 线重复引用 POI：" + candidate.name());
                 continue;
             }
+            LlmComposedStopDTO normalizedStop = stop;
             if (!this.validRouteRole(stop.routeRole())) {
-                context.addWarning(routeCode + " 线 POI " + candidate.name() + " 的 routeRole 不合法：" + stop.routeRole());
-                continue;
+                context.addWarning(routeCode + " 线 POI " + candidate.name() + " 的 routeRole 不合法：" + stop.routeRole() + "，已降级为 BACKUP");
+                normalizedStop = new LlmComposedStopDTO(
+                        stop.order(),
+                        stop.poiId(),
+                        "BACKUP",
+                        stop.intendedMealWindow(),
+                        stop.stayMinutes(),
+                        stop.description(),
+                        stop.reason()
+                );
             }
-            stops.add(this.toRouteStop(routeCode, stops.size() + 1, candidate, stop));
+            stops.add(this.toRouteStop(routeCode, stops.size() + 1, candidate, normalizedStop));
         }
         if (stops.size() < MIN_STOP_COUNT) {
             context.addWarning(routeCode + " 线有效 stop 数量不足，已跳过");
@@ -380,13 +389,16 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
         if ("REST".equals(routeRole) || PoiCandidateRole.REST == candidate.role()) {
             return "休息";
         }
+        if ("BACKUP".equals(routeRole)) {
+            return "备选";
+        }
         if ("LOCAL".equals(routeRole) || PoiCandidateRole.LOCAL == candidate.role()) {
             return "本地体验";
         }
         if ("PHOTO".equals(routeRole)) {
             return "拍照点";
         }
-        if ("BACKUP".equals(routeRole) || PoiCandidateRole.BACKUP == candidate.role()) {
+        if (PoiCandidateRole.BACKUP == candidate.role()) {
             return "备选";
         }
         return this.categoryLabel(candidate.category());

@@ -176,6 +176,21 @@ route:
         has-facility-no-distance: { low: 0.7, distance-norm: 1.7 }
         high-meters: 200
         medium-meters: 600
+      time-budget:
+        target-usage-ratio: 0.75
+        max-comfort-usage-ratio: 0.9
+      travel-pressure:
+        physical-distance-ref-meters: 4000
+        physical-segment-comfort-minutes: 25
+        scheduled-distance-ref-meters: 10000
+        scheduled-segment-comfort-minutes: 35
+        private-motor-distance-ref-meters: 12000
+        private-motor-segment-comfort-minutes: 30
+        bucket-switch-ref-count: 3
+        norm-clamp-max: 3
+    route-constraints:
+      duration-hard-overrun-minutes: 30
+      duration-hard-overrun-ratio: 0.15
     estimate-duration:
       bike: { speed: 100, base: 2 }
       transit: { speed: 200, base: 10 }
