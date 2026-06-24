@@ -216,7 +216,7 @@ def _run_judgment_task(
     for llm_candidates in task.llm_attempt_groups:
         primary_llm = llm_candidates[0]
         judgment = None
-        judgment_llm = primary_llm
+        judgment_model_id = primary_llm.judge_model
         if dry_run:
             judgment = fake_judgment(task.route_codes)
             _print_stderr(f"[{index}/{total_jobs}] dry-run judgment 已生成")
@@ -228,10 +228,11 @@ def _run_judgment_task(
                         f"[{index}/{total_jobs}] 调用 LLM 获取评价: {llm.judge_model} "
                         f"apiAttempt={attempt_index}/{len(llm_candidates)}"
                     )
-                    judgment = call_once(llm, config, task.user_prompt, task.route_codes)
-                    judgment_llm = llm
+                    judgment, response_model = call_once(llm, config, task.user_prompt, task.route_codes)
+                    judgment_model_id = response_model or llm.judge_model
                     _print_stderr(
                         f"[{index}/{total_jobs}] LLM 评价返回且校验通过: {llm.judge_model} "
+                        f"responseModel={judgment_model_id} "
                         f"用时={monotonic() - llm_started_at:.1f}s"
                     )
                     if attempt_index > 1:
@@ -262,7 +263,7 @@ def _run_judgment_task(
             payload = {
                 "candidateSetId": task.candidate_set_id,
                 "judgeType": "LLM_SIM_USER",
-                "judgeModel": judgment_llm.judge_model,
+                "judgeModel": judgment_model_id,
                 "judgePromptVersion": config.judge.prompt_version,
                 **judgment_payload,
             }
@@ -272,18 +273,18 @@ def _run_judgment_task(
                     dry_run_payload[PERSONAL_REVIEW_FIELD] = personal_review
                 stdout_payloads.append(json.dumps(dry_run_payload, ensure_ascii=False, indent=2))
             else:
-                _print_stderr(f"[{index}/{total_jobs}] 保存 judgment: {judgment_llm.judge_model}")
+                _print_stderr(f"[{index}/{total_jobs}] 保存 judgment: {judgment_model_id}")
                 save_started_at = monotonic()
                 backend.save_judgment(payload)
                 _print_stderr(
-                    f"[{index}/{total_jobs}] judgment 保存接口返回: {judgment_llm.judge_model} "
+                    f"[{index}/{total_jobs}] judgment 保存接口返回: {judgment_model_id} "
                     f"用时={monotonic() - save_started_at:.1f}s"
                 )
             saved += 1
-            _print_stderr(f"[{index}/{total_jobs}] saved judgment: {judgment_llm.judge_model}")
+            _print_stderr(f"[{index}/{total_jobs}] saved judgment: {judgment_model_id}")
         except Exception as exception:
             failed += 1
-            _print_stderr(f"[{index}/{total_jobs}] failed judgment: {judgment_llm.judge_model}: {exception}")
+            _print_stderr(f"[{index}/{total_jobs}] failed judgment: {judgment_model_id}: {exception}")
 
     return JobResult(
         RunStats(
@@ -353,14 +354,14 @@ def llm_attempt_candidates(config: AppConfig, primary_llm, rng: random.Random):
     return candidates
 
 
-def call_once(llm, config: AppConfig, user_prompt: str, route_codes: list[str]) -> dict:
+def call_once(llm, config: AppConfig, user_prompt: str, route_codes: list[str]) -> tuple[dict, str | None]:
     client = LlmClient(llm, config.judge)
-    raw = client.judge(user_prompt)
+    result = client.judge(user_prompt)
     try:
-        return validate_judgment(raw, route_codes)
+        return validate_judgment(result.judgment, route_codes), result.response_model
     except Exception as validation_exception:
         raise ValueError(
-            f"raw judgment invalid: {validation_exception}\n{_debug_json(raw)}"
+            f"raw judgment invalid: {validation_exception}\n{_debug_json(result.judgment)}"
         ) from validation_exception
 
 

@@ -6,6 +6,10 @@ import json
 import os
 
 DEFAULT_TIMEOUT_SECONDS = 300
+DEFAULT_NEW_API_BASE_URL = "http://localhost:3000/v1"
+DEFAULT_NEW_API_MODEL = "urban-mock-user"
+DEFAULT_NEW_API_PROVIDER = "new-api"
+DEFAULT_NEW_API_KEY_ENV = "NEW_API_KEY"
 
 
 @dataclass(frozen=True)
@@ -62,9 +66,7 @@ def load_config(path: Path, require_api_key: bool = True) -> AppConfig:
         timeout_seconds=int(backend_raw.get("timeoutSeconds") or DEFAULT_TIMEOUT_SECONDS),
     )
 
-    llm_pool = [_parse_llm(item, require_api_key) for item in raw.get("llmPool") or []]
-    if not llm_pool:
-        raise ValueError("llmPool 不能为空")
+    llm_pool = _parse_llm_pool(raw, require_api_key)
 
     judge_raw = raw.get("judge") or {}
     judge = JudgeConfig(
@@ -83,6 +85,33 @@ def load_config(path: Path, require_api_key: bool = True) -> AppConfig:
     return AppConfig(backend=backend, llm_pool=llm_pool, judge=judge)
 
 
+def _parse_llm_pool(raw: dict, require_api_key: bool) -> list[LlmConfig]:
+    llm_pool_raw = raw.get("llmPool")
+    if llm_pool_raw:
+        if isinstance(llm_pool_raw, dict):
+            llm_pool_raw = [llm_pool_raw]
+        return [_parse_llm(item, require_api_key) for item in llm_pool_raw]
+
+    new_api_raw = _first_present(raw, "newApi", "new_api", "newAPI")
+    if new_api_raw is not None:
+        if new_api_raw is True:
+            new_api_raw = {}
+        if not isinstance(new_api_raw, dict):
+            raise ValueError("newApi/new_api 必须是对象")
+        return [_parse_llm(_with_new_api_defaults(new_api_raw), require_api_key)]
+
+    llm_raw = raw.get("llm")
+    if llm_raw is not None:
+        if not isinstance(llm_raw, dict):
+            raise ValueError("llm 必须是对象")
+        return [_parse_llm(llm_raw, require_api_key)]
+
+    if _looks_like_llm(raw):
+        return [_parse_llm(raw, require_api_key)]
+
+    return [_parse_llm(_with_new_api_defaults({}), require_api_key)]
+
+
 def _parse_llm(raw: dict, require_api_key: bool) -> LlmConfig:
     api_key = _first_present(raw, "apiKey", "apikey", "api_key", "api-key")
     api_key_env = _first_present(raw, "apiKeyEnv", "apikeyEnv", "api_key_env", "api-key-env")
@@ -92,7 +121,7 @@ def _parse_llm(raw: dict, require_api_key: bool) -> LlmConfig:
         provider = _first_present(raw, "provider", "vendor", "name", "llm", "model") or "unknown"
         raise ValueError(f"LLM {provider} 缺少 apiKey/apikey/api_key 或 apiKeyEnv")
 
-    model = _first_present(raw, "model", "modelName", "model_name")
+    model = _first_present(raw, "model", "modelId", "model_id", "modelName", "model_name")
     if not model:
         provider = _first_present(raw, "provider", "vendor", "name", "llm") or "unknown"
         raise ValueError(f"LLM {provider} 缺少 model")
@@ -123,3 +152,23 @@ def _first_present(raw: dict, *keys: str):
         if value is not None and value != "":
             return value
     return None
+
+
+def _with_new_api_defaults(raw: dict) -> dict:
+    merged = dict(raw)
+    if not _first_present(merged, "provider", "vendor", "name", "llm"):
+        merged["provider"] = DEFAULT_NEW_API_PROVIDER
+    if not _first_present(merged, "model", "modelId", "model_id", "modelName", "model_name"):
+        merged["model"] = DEFAULT_NEW_API_MODEL
+    if not _first_present(merged, "baseUrl", "base_url", "url", "apiUrl", "api_url", "endpoint"):
+        merged["baseUrl"] = DEFAULT_NEW_API_BASE_URL
+    if not _first_present(merged, "apiKey", "apikey", "api_key", "api-key", "apiKeyEnv", "apikeyEnv", "api_key_env", "api-key-env"):
+        merged["apiKeyEnv"] = DEFAULT_NEW_API_KEY_ENV
+    return merged
+
+
+def _looks_like_llm(raw: dict) -> bool:
+    return bool(
+        _first_present(raw, "model", "modelId", "model_id", "modelName", "model_name")
+        or _first_present(raw, "baseUrl", "base_url", "url", "apiUrl", "api_url", "endpoint")
+    )

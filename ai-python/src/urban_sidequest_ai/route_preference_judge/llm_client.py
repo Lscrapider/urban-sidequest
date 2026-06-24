@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 
 from .config import JudgeConfig, LlmConfig
@@ -7,12 +8,18 @@ from .http_json import post_json
 from .prompt import SYSTEM_PROMPT
 
 
+@dataclass(frozen=True)
+class LlmJudgeResult:
+    judgment: dict
+    response_model: str | None
+
+
 class LlmClient:
     def __init__(self, llm: LlmConfig, judge: JudgeConfig):
         self._llm = llm
         self._judge = judge
 
-    def judge(self, user_prompt: str) -> dict:
+    def judge(self, user_prompt: str) -> LlmJudgeResult:
         if not self._llm.api_key:
             raise ValueError(f"LLM {self._llm.judge_model} 缺少 apiKey")
         payload = {
@@ -32,7 +39,11 @@ class LlmClient:
             timeout=self._judge.timeout_seconds,
         )
         content = response["choices"][0]["message"]["content"]
-        return parse_json_content(content)
+        response_model = response.get("model") or response.get("modelId") or response.get("model_id")
+        return LlmJudgeResult(
+            judgment=parse_json_content(content),
+            response_model=str(response_model) if response_model else None,
+        )
 
 
 def parse_json_content(content: str) -> dict:
