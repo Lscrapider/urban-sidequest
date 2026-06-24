@@ -102,6 +102,21 @@ judgments             : 模拟或真实的偏好判断，是后续训练的监�
 - `route_preference_candidate_sets`：表设计已定义，但当前 Java 主链路尚未看到批次行插入、`current_judgment_count` 递增和 status 状态推进服务；下文涉及 candidate_sets 状态机的内容属于目标流程。
 - `RoutePreferenceTrainingServiceImpl.saveJudgment` 当前仍会整批回填 `training_samples.label_json/sample_weight`，与方案 B 的“judgments 作为唯一 Y 真源”目标口径不完全一致，后续需要停用或改为融合标签逻辑。
 
+## 2.1 LLM 调用主路径（New API）
+
+当前 Python LLM judge 客户端使用 OpenAI-compatible chat completions 请求。主路径配置为 New API 单入口：
+
+```text
+endpoint = http://localhost:3000/v1/chat/completions
+request.model = urban-mock-user   # New API 路由模型名，可按环境调整
+```
+
+`request.model` 是 New API 的路由标识，不等同于数据库里的 `judge_model`。保存 judgment 时应优先使用 New API 响应 JSON 顶层的 `model` / `modelId` / `model_id`，例如 `kimi-k2.6`、`qwen3.6-flash`；只有响应缺少模型字段时，才 fallback 到配置标识（例如 `new-api:urban-mock-user`）。
+
+API key 可以直接写在本地 `config.json` 的 `apiKey` / `apikey` / `api_key` 中，也可以使用 `apiKeyEnv` 从环境变量读取。本地真实配置不提交，示例配置只放占位 key。
+
+`llmPool` 仍被当前代码支持，并且当前解析优先级仍是 `llmPool` > `newApi` > `llm` > 裸 LLM 配置 > 默认 New API。文档主路径按 New API 写；`llmPool` 只作为 legacy / advanced / optional fallback，用于多供应商轮询、全量评价和 fallback 实验，不再作为推荐的默认配置形态。
+
 ## 3. 输入来源（流程内，全部来自内存）
 
 LLM 模拟用户不读库、不重新生成路线，只读流程内已有的对象。
@@ -148,12 +163,12 @@ stops：每个 stop 的 name / slotLabel / stayMinutes / 段间交通 / descript
 
 `stopMatrix / segmentMatrix / routeDerivedVector` 是给模型训练的数值特征，**默认不喂给 LLM**：喂了会诱导它复算底层特征、把训练 schema 泄露给标注端、并显著增加 token 与不稳定性。
 
-v1 让 LLM 像"读行程的用户"一样判断。若后续发现 LLM 对折返 / 超时 / 预算不敏感，再作为 prompt v2 旋钮，**少量**补几个锚点指标（它们与 8 个 reason code 大致一一对应）：
+v1 让 LLM 像"读行程的用户"一样判断。若后续发现 LLM 对折返 / 超时 / 预算不敏感，再作为 prompt v2 旋钮，**少量**补几个锚点指标（它们与固定 9 个 reason code 大致对应）：
 
 ```text
 interestCoverageRatio     <-> LOW_INTEREST_COVERAGE
 avgGoalScore              <-> WEAK_GOAL_FIT
-categoryDiversityRatio    <-> LOW_DIVERSITY
+categoryDiversityRatio    <-> LOW_ROUTE_DIVERSITY / REPETITIVE_POI_TYPE
 backtrackingSegmentRatio  <-> BAD_SPATIAL_FLOW
 timeBudgetUsageRatio / missingRequiredMealFlag <-> BAD_TIME_STRUCTURE / HIGH_FATIGUE
 budgetPressure            <-> BUDGET_MISMATCH
@@ -209,6 +224,8 @@ created_at / updated_at
 唯一键 (candidate_set_id, route_code)
 ```
 
+`context_json` 是原始上下文快照，用于审计、诊断和后续重建 route X；它不是模型 X。当前训练/预测代码只把 `stop_matrix_json`、`segment_matrix_json`、`route_derived_vector_json`、`context_cross_vector_json` 四块送入模型。
+
 label 三列的用法（v1 已定，方案 B）：
 
 ```text
@@ -228,7 +245,7 @@ v1 不做离线融合、不回填 label。训练时 Python 直接读 judgments �
 id
 candidate_set_id
 judge_type               -- LLM_SIM_USER / REAL_USER / HUMAN_ANNOTATOR / HEURISTIC_JUDGE
-judge_model              -- 模型名，如 gpt-4o / claude-... / gemini-...
+judge_model              -- 实际 judge 模型名；New API 下优先取响应顶层 model，如 kimi-k2.6 / qwen3.6-flash
 judge_prompt_version     -- prompt 版本，如 llm-sim-user-v1
 judge_run_key            -- 建议新增：幂等键，重试 / 区分重复运行
 ranking_json             -- ["C","A","B","E","D"]
@@ -254,7 +271,7 @@ LLM 实际返回：
 {
   "ranking": ["C", "A", "B", "E", "D"],
   "acceptedRouteCodes": ["C", "A"],
-  "rejectedRouteCodes": ["D"],
+  "rejectedRouteCodes": ["E", "D"],
   "reasonCodes": { "D": ["BAD_SPATIAL_FLOW", "HIGH_FATIGUE"], "E": ["LOW_INTEREST_COVERAGE"] },
   "confidence": 0.65
 }
@@ -262,24 +279,26 @@ LLM 实际返回：
 
 约束：
 
-- 只输出这 5 个字段，不要附带任何自然语言理由（不要 freeText / explanation 之类）。
+- 落库和训练只使用这 5 个字段，不要附带 freeText / explanation 之类非结构化训练标签。
+- 当前 `llm-sim-user-v5-personal-review` prompt 会额外要求 `personalReview` 供人工抽查和 dry-run 查看；编排层会在保存 Java judgment 前丢弃该字段，它不进入 `route_preference_judgments`，也不进入模型 X/Y。
 - `ranking` 必须是本批 `routeCode`（A/B/C/D/E）的**全排列**。
 - `acceptedRouteCodes` / `rejectedRouteCodes` 必须是本批 `routeCode` 子集。
 - 同一条路线不能同时出现在 accepted 和 rejected。
-- `reasonCodes` 的 key 必须是本批 `routeCode`；value 只能用固定 8 个 reason code。
+- `reasonCodes` 的 key 必须是本批 `routeCode`，且只能是 `rejectedRouteCodes` 中的路线；value 只能用固定 9 个 reason code。
 - `confidence` 取 `[0,1]`，训练时不直接等同真实置信度。
 
-编排层拿到上面 5 个字段后，注入 `candidateSetId`、`judgeType=LLM_SIM_USER`、`judgeModel`、`judgePromptVersion`，组成完整 `RoutePreferenceJudgmentParam` 落库（字段名严格对齐接口：`acceptedRouteCodes / rejectedRouteCodes / reasonCodes`）。
+编排层拿到上面 5 个训练字段后，注入 `candidateSetId`、`judgeType=LLM_SIM_USER`、`judgeModel`、`judgePromptVersion`，组成完整 `RoutePreferenceJudgmentParam` 落库（字段名严格对齐接口：`acceptedRouteCodes / rejectedRouteCodes / reasonCodes`）。其中 `judgeModel` 使用 §2.1 的实际响应模型名口径。
 
-固定 reason codes（仅此 8 个，建议落成 Java enum 复用）：
+固定 reason codes（仅此 9 个，顺序与训练 `reason_codes.json` 保持一致）：
 
 ```text
 LOW_INTEREST_COVERAGE   兴趣覆盖不足
 WEAK_GOAL_FIT           与本次目标不贴合
-LOW_DIVERSITY           类型太单一 / 重复
-BAD_SPATIAL_FLOW        走法绕路 / 折返
 BAD_TIME_STRUCTURE      时段安排不合理（缺正餐 / 节奏乱）
 HIGH_FATIGUE            太累 / 距离体力压力大
+BAD_SPATIAL_FLOW        走法绕路 / 折返
+LOW_ROUTE_DIVERSITY     整体体验面过窄
+REPETITIVE_POI_TYPE     点位类型重复
 BUDGET_MISMATCH         花费与预算不匹配
 HIGH_ROUTE_RISK         风险偏高（闭店 / 夜间 / 远）
 ```
@@ -296,9 +315,10 @@ HIGH_ROUTE_RISK         风险偏高（闭店 / 夜间 / 远）
 判断只能基于你作为用户的真实体验感：兴趣是否对味、目标是否贴合、是否有趣不重复、
 走法顺不顺、时间安排合不合理、累不累、花费合不合适、有没有风险。
 
-reasonCodes 只能从下面 8 个里选，不许自创：
-LOW_INTEREST_COVERAGE / WEAK_GOAL_FIT / LOW_DIVERSITY / BAD_SPATIAL_FLOW /
-BAD_TIME_STRUCTURE / HIGH_FATIGUE / BUDGET_MISMATCH / HIGH_ROUTE_RISK
+reasonCodes 只能从下面 9 个里选，不许自创：
+LOW_INTEREST_COVERAGE / WEAK_GOAL_FIT / BAD_TIME_STRUCTURE / HIGH_FATIGUE /
+BAD_SPATIAL_FLOW / LOW_ROUTE_DIVERSITY / REPETITIVE_POI_TYPE /
+BUDGET_MISMATCH / HIGH_ROUTE_RISK
 
 只输出 JSON，不要任何解释性文字。
 ```
@@ -371,7 +391,7 @@ tagAffinities       affinity>=0.6 的 tag 列为 "尤其喜欢：<tag 中文名�
 
 ```text
 messages = [ system(6.1) , user(6.2: 请求 + 你的偏好(6.3) + 候选路线(6.4)) ]
-要求模型只回 §5 的 5 字段 JSON。
+要求模型至少返回 §5 的 5 个训练字段；当前 `llm-sim-user-v5-personal-review` 会额外返回 `personalReview` 供人工抽查，保存前丢弃。
 ```
 
 - `judgePromptVersion`：标识**模板**版本，如 `llm-sim-user-v1`；prompt 文案（6.1/6.3/6.4 任一）改动即升版，落进 judgments，便于 Python 按版本切片。
@@ -417,11 +437,11 @@ ranking = [C, A, B, E, D]
 => C>A, C>B, C>E, C>D, A>B, A>E, A>D, B>E, B>D, E>D
 ```
 
-为了和《路线偏好排序模型训练设计》对齐，v1 训练可以先展开全量候选 pair，再按 `rankGap >= 2` 过滤或降权。相邻排名 pair 不必强行进入主训练集，避免把轻微排序抖动当成强偏好。
+为了和《路线偏好排序模型训练设计》对齐，当前训练使用同一 `candidate_set_id` 内的粗对、头部精对和 accepted/rejected 强对构造 pair，并对重复 pair 保留更高权重版本。pair 不能跨 candidate set 构造。
 
 ### 8.3 后续 Pointwise / Listwise
 
-`acceptedRouteCodes` -> label.accept=1，`rejectedRouteCodes` -> label.accept=0，中间路线不强行打硬标签（弱标签或仅参与 pairwise）。完整 `ranking` 用于 listwise。v1 主目标是 pairwise，pointwise accept 留后续 P(accept) 校准。
+`acceptedRouteCodes` -> `routeGoodnessLogit` 的 label=1，`rejectedRouteCodes` -> label=0，中间路线不参与 goodness loss。完整 `ranking` 用于 pairwise 排序监督；listwise 仍属于后续扩展。
 
 ## 9. Synthetic persona（冷启动用户画像规范）
 
@@ -440,8 +460,8 @@ ranking = [C, A, B, E, D]
                           route 侧 profileTagAffinityCoverage / profileTagAffinityPrecision /
                           profileTagAffinityJaccard / profileTopTagHitRatio
    旧 persona 的 classicAffinity/photoAffinity/pacePreference/riskTolerance 等一个都不读，是死字段。
-2. 模型训练时"用户是谁"来自 context_json.userPreferenceProfile，就是这套结构。
-   打标签的 persona 必须就是模型条件的那个用户，X 与 Y 才同一个人。
+2. 生成 route X 时的原始用户画像会冻结在 `context_json.userPreferenceProfile`，并派生进 `context_cross_vector_json`。
+   模型实际读取的是四块 routeInput，`context_json` 只作审计/重建；打标签的 persona 必须与生成路线时的画像一致，X 与 Y 才同一个人。
 ```
 
 persona 字段（= `UserPreferenceProfileDTO`）：
@@ -480,6 +500,7 @@ questionnaireVersion  标记 persona 来源版本，如 "sim-persona-v1"
 ```text
 persona P 的画像 -> 喂 POI Linear 选点、生成路线
                  -> 写入 candidate set 的 context_json.userPreferenceProfile = P
+                 -> 派生为 context_cross_vector_json 中的固定交叉特征
                  -> 同一个 P 作为 LLM 模拟用户评价这批路线
 ```
 
@@ -505,7 +526,7 @@ LLM 输出必须经规则校验后才能 append judgment：
 ```text
 ranking 是本批 routeCode 全排列（无缺 / 无重 / 无外来码）。
 acceptedRouteCodes / rejectedRouteCodes 是本批子集，且互斥。
-reasonCodes 的 key ∈ 本批 routeCode；value ∈ 固定 8 码（越界即剔除或判失败）。
+reasonCodes 的 key ∈ 本批 rejected routeCode；value ∈ 固定 9 码（越界即判失败）。
 被硬拒绝路线不得进入 acceptedRouteCodes。
 confidence ∈ [0,1]。
 ```
@@ -513,9 +534,10 @@ confidence ∈ [0,1]。
 失败处理：
 
 ```text
-不写 judgment，记 sim_judge_error。
-按 maxRetry 重试一次（重新 prompt）。
-仍失败 -> 跳过该 judge，不阻塞其他 judge、不阻塞整批。
+不写 judgment，记录失败原因。
+当前 runner 会尝试 primary LLM；失败后按配置池选择最多 3 个 fallback LLM 继续尝试。
+所有 fallback 仍失败 -> 跳过该 judge，不阻塞其他 judge、不阻塞整批。
+训练侧遇到未知 reason code 默认报错；如果显式开启 `--skip-invalid-judgments`，则跳过该 judgment 并记录原因。
 ```
 
 ## 12. 流程内调用 / 保存链路
@@ -527,7 +549,7 @@ confidence ∈ [0,1]。
      generation_source=OFFLINE_BATCH, route_count=N,
      target_judgment_count=配置(模型×persona)数, status=JUDGING
 2. training_samples 落 N 行（X） —— 已实现
-3. for each judge in 配置列表 (judgeModel × persona):
+3. for each judge in 配置列表 (responseModel × persona):
      构 prompt -> 调 LLM -> 解析 JSON -> 校验
      成功 -> append 1 行 judgments
             (judge_type=LLM_SIM_USER, judge_model, judge_prompt_version,
@@ -547,6 +569,9 @@ confidence ∈ [0,1]。
 要点：
 
 - 线上用户请求（`generation_source=ONLINE_USER`）**不走** LLM 评价，只生成并返回；评价交给离线 / 异步批处理，不阻塞用户拿路线。
+- 路线生成和 LLM judge 可以分离线程池执行。当前 runner 使用路线生成线程池和 judge 线程池；主流程会等待所有 judgment 保存成功或失败后再返回统计，不会在 LLM 还没返回时退出。
+- LLM timeout 默认 300 秒，不应随意降低；请求已经产生 token 成本，过早超时只会放大浪费。
+- 候选路线少于 2 条时跳过 LLM judge 并记录原因，不生成 judgment。
 - 多家可并行调用提速；每个 judgment 各自独立事务 + 原子自增计数，避免覆盖 / 漂移。
 - `judge_prompt_version` 改动即升版本，便于 Python 按版本切片 / 隔离。
 
@@ -555,7 +580,7 @@ confidence ∈ [0,1]。
 - 每个 candidate set 用 1~3 个 persona / 模型评价，避免单一模拟偏好。
 - 定期与真实用户排序对齐评估。
 - synthetic 样本权重低于真实用户样本；真实数据足够后逐步降低 synthetic 占比。
-- 不让 LLM 输出自由文本理由（只要结构化的 5 字段）；不让 LLM 新造 reason code。
+- 不让自由文本进入训练标签；当前 `personalReview` 只用于人工检查和 dry-run，不写库、不入训。LLM 不得新造 reason code。
 
 重点防止：
 
@@ -582,9 +607,9 @@ Route Judge（路线级裁判 MLP，见《路线裁判与软拒绝设计》）�
 1. 三张表分工确定：candidate_sets（批次） / training_samples（X） / judgments（Y，append）。
 2. LLM 评价在生成流程内完成，读内存路线，不读库、不重新规划。
 3. 一次生成 = 一次评价批，之后不追评；候选路线可读正文不落库。
-4. LLM 只输出 5 字段（ranking/accepted/rejected/reasonCodes/confidence），
-   其余由编排层注入；字段名对齐接口。
-5. reasonCodes 固定为 8 个，落库前白名单校验。
+4. 落库和训练只使用 5 个字段（ranking/accepted/rejected/reasonCodes/confidence），
+   `personalReview` 仅用于人工检查和 dry-run；candidateSetId/judgeType/judgeModel/judgePromptVersion 由编排层注入。
+5. reasonCodes 固定为 9 个，落库前白名单校验；未知 code 判失败或由训练脚本显式跳过该 judgment 并记录原因。
 6. 每条评价的权重按 judge_type 决定；judgments 一次评价一行 append，互不覆盖。
 7. 三张表（candidate_sets / training_samples / judgments）是目标数据分工；当前代码已落地 training_samples 写入和 judgments 保存，candidate_sets 状态机仍待补齐。
 8. 方案 B：training_samples 的 label/weight 列 v1 目标口径是留空，Python 训练时直接读

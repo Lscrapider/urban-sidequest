@@ -5,7 +5,7 @@
 ```text
 路线请求 JSON
   -> 调 Java /api/routes/requests 生成路线
-  -> 从 LLM 池轮询选择 judge primary，失败后按 fallback 补位（可按比例全评）
+  -> 通过 New API /v1/chat/completions 调用模拟用户 judge
   -> 构造模拟用户路线选择 prompt
   -> 校验 LLM 输出 JSON
   -> 调 Java /api/route-preferences/judgments 保存 judgment
@@ -22,29 +22,37 @@ cp ai-python/src/urban_sidequest_ai/route_preference_judge/requests.example.json
   ai-python/src/urban_sidequest_ai/route_preference_judge/requests.json
 ```
 
-`config.json` 中的 LLM key 可以直接写在本地配置里，也可以用环境变量。本地
-`config.json` 已加入 `.gitignore`，不要把真实 key 写进 example 文件。
+`config.json` 中的 LLM key 可以直接写在本地配置里，也可以用环境变量。本地 `config.json` 已加入 `.gitignore`，不要把真实 key 写进 example 文件。
 
-直接写 key 时可以用完整接口 `url`：
+主路径使用 New API 单入口：
 
 ```json
 {
-  "provider": "GLM",
-  "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-  "apikey": "填你的真实 key",
-  "model": "glm-4-plus"
+  "newApi": {
+    "provider": "new-api",
+    "baseUrl": "http://localhost:3000/v1",
+    "completionsPath": "/chat/completions",
+    "apiKey": "填你的 New API key",
+    "model": "urban-mock-user"
+  }
 }
 ```
 
-也可以用 `baseUrl + completionsPath`：
+实际请求地址是 `http://localhost:3000/v1/chat/completions`。`model=urban-mock-user` 是 New API 路由模型名，不建议直接作为数据库里的真实 `judge_model` 解释。脚本保存 judgment 时会优先使用响应 JSON 顶层的 `model` / `modelId` / `model_id`，例如 `kimi-k2.6`、`qwen3.6-flash`；响应缺少模型字段时才 fallback 到配置标识。
+
+`llmPool` 仍可作为 legacy / advanced / optional fallback，用于多供应商轮询、全量评价或 fallback 实验。当前代码解析优先级仍是 `llmPool` > `newApi` > `llm` > 裸 LLM 配置 > 默认 New API，因此同时配置时会优先使用 `llmPool`：
 
 ```json
 {
-  "provider": "deepseek",
-  "baseUrl": "https://api.deepseek.com",
-  "apiKeyEnv": "DEEPSEEK_API_KEY",
-  "model": "deepseek-v4-pro",
-  "completionsPath": "/chat/completions"
+  "llmPool": [
+    {
+      "provider": "qwen",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "apiKeyEnv": "QWEN_API_KEY",
+      "model": "qwen3.6-flash",
+      "completionsPath": "/chat/completions"
+    }
+  ]
 }
 ```
 
@@ -94,6 +102,22 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge run --dry-run
 ```
 
+并发参数：
+
+```bash
+PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge run \
+  --concurrency 2 \
+  --judge-concurrency 4
+```
+
+执行口径：
+
+- 路线生成和 LLM judge 使用分离线程池；不传 `--judge-concurrency` 时与 `--concurrency` 相同。
+- 主流程会等待所有 judgment 保存成功或失败后再退出。
+- 候选路线少于 2 条时跳过 LLM judge 并记录原因。
+- LLM timeout 使用 `judge.timeoutSeconds`，默认 300 秒。请求已经产生 token 成本，不建议随意调低。
+- `judge.maxRetries` 当前仅被解析；真实 fallback 行为是 primary LLM 失败后，最多尝试 3 个其他 LLM。
+
 ## 输入请求
 
 `requests.json` 是数组。每项可以是：
@@ -134,6 +158,22 @@ LOW / NORMAL / FLEXIBLE
 
 当前 `llm-sim-user-v5-personal-review` 会要求 LLM 先输出 `personalReview`，用第一人称写出作为漫步者的真实取舍，再输出 ranking 和 reasonCodes。该字段只用于人工查看和 dry-run 输出，不写入 Java judgment 接口，也不进入训练标签。
 
+reason code 固定为 9 个：
+
+```text
+LOW_INTEREST_COVERAGE
+WEAK_GOAL_FIT
+BAD_TIME_STRUCTURE
+HIGH_FATIGUE
+BAD_SPATIAL_FLOW
+LOW_ROUTE_DIVERSITY
+REPETITIVE_POI_TYPE
+BUDGET_MISMATCH
+HIGH_ROUTE_RISK
+```
+
+未知 reason code 会导致本次 LLM 输出校验失败，并触发 fallback；所有 fallback 都失败时，该 judgment 不保存。
+
 ## 输出保存
 
 保存到 Java 接口：
@@ -148,7 +188,7 @@ POST /api/route-preferences/judgments
 {
   "candidateSetId": "...",
   "judgeType": "LLM_SIM_USER",
-  "judgeModel": "provider:model",
+  "judgeModel": "kimi-k2.6",
   "judgePromptVersion": "llm-sim-user-v5-personal-review",
   "ranking": ["A", "B", "C"],
   "acceptedRouteCodes": ["A"],

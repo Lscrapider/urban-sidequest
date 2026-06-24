@@ -796,7 +796,7 @@ training feature**,不在"进入 X 的字段规约"范围内,这里不给取值/
 
 ### 3.5 X 特征向量契约与示例
 
-后续训练、离线评估、LLM 模拟用户样本生成都应复用同一套 X 规约逻辑。
+后续 POI 预筛训练、离线评估和样本回放都应复用同一套 X 规约逻辑。这里的 X 专指 POI Linear Ranker 的单 POI 特征向量，不是路线偏好模型的四块 `routeInput`；路线偏好模型只读取 `stop_matrix_json`、`segment_matrix_json`、`route_derived_vector_json`、`context_cross_vector_json`。
 线上代码当前用 `PoiLinearFeatures` record 表达 X,而不是直接暴露 `double[]`。
 如果导出训练样本,应显式写出 `featureSchemaVersion + featureNames + featureValues`,
 并保证 `featureNames` 顺序与线上 `PoiLinearFeatures` 字段顺序一致。
@@ -1498,7 +1498,7 @@ linearScore
 3. LinearScoreConstants 规约化常量。
 4. PoiLinearFeatureExtractor / PoiLinearScorer / PoiLinearRanker。
 5. budgetLevel、routeTimeStructure、天气环境和用户画像的输入口径。
-6. LinearPoiPoolSelector 写入 PoiLinearTraceDTO，供路线级训练特征复用。
+6. LinearPoiPoolSelector 写入 PoiLinearTraceDTO，供路线级特征提取追溯和派生使用；它不直接替代路线偏好模型的四块 `routeInput`。
 ```
 
 后续主要是校准，不是重定义 schema：

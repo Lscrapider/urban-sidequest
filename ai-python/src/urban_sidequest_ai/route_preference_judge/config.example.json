@@ -8,27 +8,17 @@
     },
     "timeoutSeconds": 300
   },
-  "llmPool": [
-    {
-      "provider": "GLM",
-      "baseUrl": "https://open.bigmodel.cn",
-      "apiKeyEnv": "BIGMODEL_API_KEY",
-      "model": "glm-4.7",
-      "completionsPath": "/api/paas/v4/chat/completions"
-    },
-    {
-      "provider": "qwen3.6",
-      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "apiKeyEnv": "QWEN_API_KEY",
-      "model": "qwen3.6-35b-a3b",
-      "completionsPath": "/chat/completions"
-    }
-  ],
+  "newApi": {
+    "provider": "new-api",
+    "baseUrl": "http://localhost:3000/v1",
+    "completionsPath": "/chat/completions",
+    "apiKey": "填你的 New API key",
+    "model": "urban-mock-user"
+  },
   "judge": {
     "promptVersion": "llm-sim-user-v5-personal-review",
     "judgesPerCandidateSet": 1,
     "fullJudgeRatio": 0.0,
-    "maxRetries": 1,
     "timeoutSeconds": 300,
     "temperature": 0.2,
     "seed": 20260619

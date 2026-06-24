@@ -4,7 +4,7 @@
 
 **Goal:** 保存 route X 的完整冻结输入，并支持从冻结表重建 samples 表特征。
 
-**Architecture:** 新增 raw snapshot 表和 PO/Mapper/Manage 负责冻结数据持久化；新增 payload/builder/restorer/service 负责在线冻结、恢复上下文和内部重建；`SaveRoutePreferenceTrainingSamplesStep` 受配置开关控制是否写 raw snapshot，但 samples 原有写入不受影响。
+**Architecture:** 新增 raw snapshot 表和 PO/Mapper/Manage 负责冻结数据持久化；新增 payload/builder/restorer/service 负责在线冻结、恢复上下文和内部重建；`SaveRoutePreferenceTrainingSamplesStep` 受配置开关控制是否写 raw snapshot，但 samples 原有写入不受影响。raw snapshot / `context_json` 只用于审计、诊断和重建四块 routeInput，不直接进入模型 X；当前训练 Y 以 `route_preference_judgments` 为真源。
 
 **Tech Stack:** Spring Boot 3.4, Java 17, MyBatis Plus, PostgreSQL JSONB, JUnit 5, Mockito, AssertJ.
 
@@ -61,7 +61,7 @@
   - `rebuildByCandidateSetId(UUID candidateSetId)` 从 raw snapshot 恢复 context，逐条 route 重新抽特征并 upsert samples。
   - `rebuildOutdatedSamples()` 查询过期 candidate set 后逐个修复。
 - [ ] 修改 `RoutePreferenceTrainingSampleMapper` 和 manage，增加 `findOutdatedCandidateSetIds(String currentFeatureSchemaVersion)`。
-- [ ] 重建时保留 label 相关字段，依赖现有 upsert SQL 不覆盖 label。
+- [ ] 重建时保留历史兼容的 label 相关字段，依赖现有 upsert SQL 不覆盖 label；当前 Python 训练仍直接读取 completed judgments 作为 Y。
 
 ## Task 5: 在线冻结开关接入
 

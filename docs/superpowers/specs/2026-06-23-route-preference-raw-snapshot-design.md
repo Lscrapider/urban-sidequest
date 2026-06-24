@@ -8,7 +8,9 @@
 
 1. 当次路线生成可用于 route X 的输入材料。
 2. 当前 `feature_schema_version` 下的 route X 派生结果。
-3. judgment 写入后的 label、weight 和训练可用状态。
+3. judgment 写入后的历史兼容 label、weight 和训练可用状态。
+
+当前训练口径下，模型 X 只包含 `stop_matrix_json`、`segment_matrix_json`、`route_derived_vector_json`、`context_cross_vector_json` 四块；`context_json` 和 raw snapshot 都是原始上下文快照/审计/诊断/重建材料，不直接进入模型。训练 Y 以 `route_preference_judgments` 为真源，`ranking_json`、`accepted_route_codes_json`、`rejected_route_codes_json`、`reason_codes_json`、`confidence`、`judge_type`、`judge_model`、`judge_prompt_version` 都不写入 X。
 
 由于 route X 的维度、特征和规则会持续变化，历史样本一旦只保存派生后的 X，就会因为 schema 更新而作废。用户明确要求：所有会影响 route X 的数据都必须冻结，后续只改通用转换方法和版本号，即可从同一份原始数据重新生成最新 route X。
 
@@ -131,7 +133,7 @@ raw snapshot 必须保存所有会影响 `RouteInputFeatureExtractor.extract(rou
 ### Judgment 保存流程
 
 1. `RoutePreferenceTrainingServiceImpl.saveJudgment(...)` 保存 judgment。
-2. 继续用当前逻辑把同一 `candidate_set_id` 下 samples 标记为 `TRAIN_READY`。
+2. 继续用当前逻辑把同一 `candidate_set_id` 下 samples 标记为 `TRAIN_READY`；当前 Java 仍会回填 `label_json/sample_weight`，但 Python 训练直接读取 completed judgments 作为 Y。
 3. 不修改 judgment API，不把 label 写入 raw snapshot。
 
 ### 过期样本重建流程
@@ -143,7 +145,7 @@ raw snapshot 必须保存所有会影响 `RouteInputFeatureExtractor.extract(rou
    - 构造一个只用于 route X 的冻结上下文。
    - 对 `selected_routes_json` 中每条 route 重新调用 `RouteInputFeatureExtractor`。
    - upsert samples，版本写入当前 `RoutePreferenceFeatureSchema.VERSION`。
-   - 保留同 candidate set 已有 label、sample weight 和 train-ready 状态。
+   - 保留同 candidate set 已有 label、sample weight 和 train-ready 状态；这些字段不作为当前 Python 训练真源。
 4. 如果 raw snapshot 缺失：
    - 不从当前数据库猜测补数据。
    - 记录日志并跳过该 candidate set。
