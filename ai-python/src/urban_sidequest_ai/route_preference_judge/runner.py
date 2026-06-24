@@ -35,6 +35,22 @@ class JobResult:
     stdout_payloads: list[str]
 
 
+@dataclass(frozen=True)
+class JudgmentTask:
+    index: int
+    total_jobs: int
+    candidate_set_id: str
+    route_codes: list[str]
+    user_prompt: str
+    llm_attempt_groups: list
+
+
+@dataclass(frozen=True)
+class RouteJobResult:
+    stats: RunStats
+    judgment_tasks: list[JudgmentTask]
+
+
 def load_route_jobs(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as file:
         raw = json.load(file)
@@ -43,9 +59,18 @@ def load_route_jobs(path: Path) -> list[dict]:
     return raw
 
 
-def run(config: AppConfig, jobs: list[dict], dry_run: bool = False, concurrency: int = 1) -> RunStats:
+def run(
+    config: AppConfig,
+    jobs: list[dict],
+    dry_run: bool = False,
+    concurrency: int = 1,
+    judge_concurrency: int | None = None,
+) -> RunStats:
     if concurrency < 1:
         raise ValueError("concurrency 必须 >= 1")
+    judge_concurrency = judge_concurrency or concurrency
+    if judge_concurrency < 1:
+        raise ValueError("judge_concurrency 必须 >= 1")
     rng = random.Random(config.judge.seed)
     backend = BackendClient(config.backend)
     if not dry_run:
@@ -62,32 +87,39 @@ def run(config: AppConfig, jobs: list[dict], dry_run: bool = False, concurrency:
         llm_attempt_groups = [llm_attempt_candidates(config, llm, rng) for llm in selected_llms]
         job_inputs.append((index, persona, route_request, llm_attempt_groups))
 
-    results: list[JobResult] = []
-    if concurrency == 1:
-        for job_input in job_inputs:
-            result = _run_one_job(config, backend, len(jobs), dry_run, *job_input)
-            _print_job_result(result)
-            results.append(result)
-    else:
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = [
-                executor.submit(_run_one_job, config, backend, len(jobs), dry_run, *job_input)
+    route_results: list[RouteJobResult] = []
+    judgment_results: list[JobResult] = []
+    with ThreadPoolExecutor(max_workers=concurrency) as route_executor:
+        with ThreadPoolExecutor(max_workers=judge_concurrency) as judge_executor:
+            route_futures = [
+                route_executor.submit(_run_route_job, config, backend, len(jobs), dry_run, *job_input)
                 for job_input in job_inputs
             ]
-            for future in as_completed(futures):
+            judgment_futures = []
+            for future in as_completed(route_futures):
+                result = future.result()
+                route_results.append(result)
+                for task in result.judgment_tasks:
+                    judgment_futures.append(
+                        judge_executor.submit(_run_judgment_task, config, backend, dry_run, task)
+                    )
+            for future in as_completed(judgment_futures):
                 result = future.result()
                 _print_job_result(result)
-                results.append(result)
+                judgment_results.append(result)
 
     return RunStats(
         route_requests=len(jobs),
-        candidate_sets=sum(result.stats.candidate_sets for result in results),
-        judgments_saved=sum(result.stats.judgments_saved for result in results),
-        judgments_failed=sum(result.stats.judgments_failed for result in results),
+        candidate_sets=sum(result.stats.candidate_sets for result in route_results),
+        judgments_saved=sum(result.stats.judgments_saved for result in judgment_results),
+        judgments_failed=(
+            sum(result.stats.judgments_failed for result in route_results)
+            + sum(result.stats.judgments_failed for result in judgment_results)
+        ),
     )
 
 
-def _run_one_job(
+def _run_route_job(
     config: AppConfig,
     backend: BackendClient,
     total_jobs: int,
@@ -96,10 +128,8 @@ def _run_one_job(
     persona: dict | None,
     route_request: dict,
     llm_attempt_groups,
-) -> JobResult:
+) -> RouteJobResult:
     _print_stderr(f"[{index}/{total_jobs}] 生成路线...")
-    stdout_payloads = []
-    saved = 0
     failed = 0
     candidate_sets = 0
 
@@ -115,14 +145,14 @@ def _run_one_job(
             f"[{index}/{total_jobs}] 路线生成失败，用时={monotonic() - route_started_at:.1f}s，"
             f"跳过本 job: {exception}"
         )
-        return JobResult(
+        return RouteJobResult(
             RunStats(
                 route_requests=1,
                 candidate_sets=0,
                 judgments_saved=0,
                 judgments_failed=failed,
             ),
-            stdout_payloads,
+            [],
         )
     _print_stderr(f"[{index}/{total_jobs}] 路线生成完毕，用时={monotonic() - route_started_at:.1f}s，开始解析响应...")
 
@@ -139,22 +169,56 @@ def _run_one_job(
         )
         for line in _route_warning_lines(route_generation):
             _print_stderr(line)
-        return JobResult(RunStats(route_requests=1), stdout_payloads)
+        return RouteJobResult(RunStats(route_requests=1), [])
 
     candidate_sets += 1
+    if len(route_codes) < 2:
+        _print_stderr(
+            f"[{index}/{total_jobs}] 跳过 LLM：候选路线少于 2 条，"
+            f"candidateSetId={candidate_set_id} routeCodes={route_codes}"
+        )
+        return RouteJobResult(RunStats(route_requests=1, candidate_sets=candidate_sets), [])
+
     user_prompt = build_user_prompt(route_request, route_generation, persona)
     _print_stderr(
         f"[{index}/{total_jobs}] candidateSetId={candidate_set_id} "
         f"routes={route_codes} judges={len(llm_attempt_groups)}"
     )
-    _print_stderr(f"[{index}/{total_jobs}] LLM prompt 构建完毕，准备获取模拟用户评价...")
+    _print_stderr(f"[{index}/{total_jobs}] LLM prompt 构建完毕，提交异步模拟用户评价任务...")
+    return RouteJobResult(
+        RunStats(route_requests=1, candidate_sets=candidate_sets),
+        [
+            JudgmentTask(
+                index=index,
+                total_jobs=total_jobs,
+                candidate_set_id=candidate_set_id,
+                route_codes=route_codes,
+                user_prompt=user_prompt,
+                llm_attempt_groups=llm_attempt_groups,
+            )
+        ],
+    )
 
-    for llm_candidates in llm_attempt_groups:
+
+def _run_judgment_task(
+    config: AppConfig,
+    backend: BackendClient,
+    dry_run: bool,
+    task: JudgmentTask,
+) -> JobResult:
+    stdout_payloads = []
+    saved = 0
+    failed = 0
+    index = task.index
+    total_jobs = task.total_jobs
+    _print_stderr(f"[{index}/{total_jobs}] 异步 LLM 评价开始，judges={len(task.llm_attempt_groups)}")
+
+    for llm_candidates in task.llm_attempt_groups:
         primary_llm = llm_candidates[0]
         judgment = None
         judgment_llm = primary_llm
         if dry_run:
-            judgment = fake_judgment(route_codes)
+            judgment = fake_judgment(task.route_codes)
             _print_stderr(f"[{index}/{total_jobs}] dry-run judgment 已生成")
         else:
             for attempt_index, llm in enumerate(llm_candidates, start=1):
@@ -164,7 +228,7 @@ def _run_one_job(
                         f"[{index}/{total_jobs}] 调用 LLM 获取评价: {llm.judge_model} "
                         f"apiAttempt={attempt_index}/{len(llm_candidates)}"
                     )
-                    judgment = call_once(llm, config, user_prompt, route_codes)
+                    judgment = call_once(llm, config, task.user_prompt, task.route_codes)
                     judgment_llm = llm
                     _print_stderr(
                         f"[{index}/{total_jobs}] LLM 评价返回且校验通过: {llm.judge_model} "
@@ -196,7 +260,7 @@ def _run_one_job(
                 _print_stderr(f"[{index}/{total_jobs}] personalReview: {personal_review}")
             judgment_payload = judgment_payload_for_save(judgment)
             payload = {
-                "candidateSetId": candidate_set_id,
+                "candidateSetId": task.candidate_set_id,
                 "judgeType": "LLM_SIM_USER",
                 "judgeModel": judgment_llm.judge_model,
                 "judgePromptVersion": config.judge.prompt_version,
@@ -223,8 +287,8 @@ def _run_one_job(
 
     return JobResult(
         RunStats(
-            route_requests=1,
-            candidate_sets=candidate_sets,
+            route_requests=0,
+            candidate_sets=0,
             judgments_saved=saved,
             judgments_failed=failed,
         ),

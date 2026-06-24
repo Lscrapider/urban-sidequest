@@ -23,7 +23,12 @@ def parse_args():
     run_parser.add_argument("--config", default=str(DEFAULT_CONFIG_FILE), help="配置 JSON，默认读取模块目录下的 config.json。")
     run_parser.add_argument("--requests", default=str(DEFAULT_REQUESTS_FILE), help="路线请求 JSON 数组，默认读取模块目录下的 requests.json。")
     run_parser.add_argument("--dry-run", action="store_true", help="不调用 Java 后端，使用内置假路线并打印 judgment payload。")
-    run_parser.add_argument("--concurrency", type=int, default=1, help="并发执行 job 数，默认 1；本地小批量可设为 2。")
+    run_parser.add_argument("--concurrency", type=int, default=1, help="路线生成并发数，默认 1；本地小批量可设为 2。")
+    run_parser.add_argument(
+        "--judge-concurrency",
+        type=int,
+        help="LLM judge 并发数；不传则与 --concurrency 相同。",
+    )
 
     generate_parser = subparsers.add_parser("generate-jobs", help="生成可直接用于 run 的画像 + request 输入文件。")
     generate_parser.add_argument("--output", default=str(DEFAULT_REQUESTS_FILE), help="输出 requests JSON 路径，默认写入模块目录下的 requests.json。")
@@ -67,7 +72,13 @@ def main() -> int:
 
     config = load_config(Path(args.config), require_api_key=not args.dry_run)
     jobs = load_route_jobs(Path(args.requests))
-    stats = run(config, jobs, dry_run=args.dry_run, concurrency=args.concurrency)
+    stats = run(
+        config,
+        jobs,
+        dry_run=args.dry_run,
+        concurrency=args.concurrency,
+        judge_concurrency=args.judge_concurrency,
+    )
     print(
         "完成："
         f"routeRequests={stats.route_requests}, "

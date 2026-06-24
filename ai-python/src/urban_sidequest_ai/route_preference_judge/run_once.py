@@ -20,7 +20,8 @@ else:
 
 CONFIG_FILE = BASE_DIR / "config.json"
 REQUESTS_FILE = BASE_DIR / "requests.json"
-CONCURRENCY = 3
+ROUTE_CONCURRENCY = 3
+JUDGE_CONCURRENCY = 2
 
 
 def ensure_requests_file() -> None:
@@ -41,7 +42,13 @@ def main() -> int:
     ensure_requests_file()
     config = load_config(CONFIG_FILE)
     jobs = load_route_jobs(REQUESTS_FILE)
-    stats = run(config, jobs, dry_run=False, concurrency=CONCURRENCY)
+    stats = run(
+        config,
+        jobs,
+        dry_run=False,
+        concurrency=ROUTE_CONCURRENCY,
+        judge_concurrency=JUDGE_CONCURRENCY,
+    )
     print(
         "完成："
         f"routeRequests={stats.route_requests}, "
