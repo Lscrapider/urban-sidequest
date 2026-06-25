@@ -37,8 +37,6 @@ def ensure_requests_file() -> None:
 
 
 def main() -> int:
-    if not CONFIG_FILE.exists():
-        raise FileNotFoundError(f"缺少配置文件：{CONFIG_FILE}")
     ensure_requests_file()
     config = load_config(CONFIG_FILE)
     jobs = load_route_jobs(REQUESTS_FILE)

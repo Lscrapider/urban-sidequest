@@ -15,7 +15,6 @@ from urban_sidequest_ai.route_preference_judge.judge_missing.runner import run_m
 
 
 JUDGE_CONFIG_FILE = BASE_DIR.parent / "config.json"
-DATABASE_CONFIG_FILE = BASE_DIR.parents[1] / "models" / "route_preference" / "training" / "config.json"
 
 # PyCharm 直接运行时改这里即可。
 LIMIT = 20
@@ -26,7 +25,7 @@ CANDIDATE_SET_IDS: list[str] = []
 
 def main() -> int:
     app_config = load_config(JUDGE_CONFIG_FILE, require_api_key=not DRY_RUN)
-    database_config = load_database_config(DATABASE_CONFIG_FILE)
+    database_config = load_database_config()
     stats = run_missing_judgments(
         app_config=app_config,
         database_config=database_config,

@@ -51,7 +51,6 @@ def build_arg_parser() -> ArgumentParser:
         help=f"routeInput JSON 文件；可为单条对象或数组。不传时默认读取 {DEFAULT_INPUT_PATH}。",
     )
     parser.add_argument("--candidate-set-id", help="从数据库读取该 candidate_set_id 下的路线样本预测。")
-    parser.add_argument("--config", type=Path, help="数据库配置 JSON；配合 --candidate-set-id 使用。")
     parser.add_argument("--feature-schema-version", help="读取数据库样本时限定 feature_schema_version。")
     parser.add_argument("--device", default="cpu", help="cpu/cuda/mps。")
     parser.add_argument("--limit", type=int, help="只预测前 N 条路线，方便本地预览。")
@@ -92,7 +91,7 @@ def load_route_inputs(args, feature_schema: dict[str, Any], model_config: RouteP
     if args.input and args.candidate_set_id:
         raise ValueError("--input 和 --candidate-set-id 只能二选一")
     if args.candidate_set_id:
-        db_config = load_database_config(args.config)
+        db_config = load_database_config()
         with connect(db_config) as connection:
             repository = RoutePreferenceTrainingRepository(connection)
             rows = repository.fetch_samples_for_candidate_set(args.candidate_set_id, args.feature_schema_version)

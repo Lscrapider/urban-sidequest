@@ -4,6 +4,9 @@
 
 ## 本地启动
 
+后端默认配置 `src/main/resources/application.yml` 只保留环境变量占位符，可提交到仓库。
+本地真实值放在 `src/main/resources/application-dev.yml`，该文件不提交。
+
 先启动本地依赖：
 
 ```bash
@@ -18,7 +21,7 @@ docker compose run --rm postgres-init
 
 ```bash
 cd backend
-mvn spring-boot:run
+SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
 ```
 
 健康检查：
@@ -47,14 +50,63 @@ Controller -> Service -> Manage / API / Mapper -> Domain
 
 ## 环境变量
 
+- `SPRING_PROFILES_ACTIVE`
+- `SERVER_PORT`
 - `SPRING_DATASOURCE_URL`
 - `SPRING_DATASOURCE_USERNAME`
 - `SPRING_DATASOURCE_PASSWORD`
 - `SPRING_REDIS_HOST`
 - `SPRING_REDIS_PORT`
+- `NEW_API_KEY`
+- `ROUTE_LLM_BASE_URL`
+- `ROUTE_LLM_COMPLETIONS_PATH`
+- `ROUTE_LLM_MODEL`
+- `ROUTE_LLM_TEMPERATURE`
+- `ROUTE_SCORING_CONFIG_PATH`
 - `AMAP_WEB_KEY`
+- `AMAP_WEB_KEYS`
 - `AMAP_WEB_BASE_URL`
-- `AMAP_WEB_CONNECT_TIMEOUT`，默认 `3s`
-- `AMAP_WEB_READ_TIMEOUT`，默认 `8s`
+- `AMAP_WEB_CONNECT_TIMEOUT`
+- `AMAP_WEB_READ_TIMEOUT`
+- `AMAP_WEB_KEY_QPS`
+- `BAIDU_MAP_AK`
+- `BAIDU_MAP_BASE_URL`
+- `BAIDU_MAP_CONNECT_TIMEOUT`
+- `BAIDU_MAP_READ_TIMEOUT`
+- `POI_SEARCH_PROVIDER`
+- `POI_SEARCH_MIX_AMAP_WEIGHT`
+- `POI_SEARCH_MIX_BAIDU_WEIGHT`
+- `ROUTE_PREFERENCE_TRAINING_RAW_SNAPSHOT_ENABLED`
+- `AUTH_JWT_ISSUER`
+- `AUTH_JWT_SECRET`
+- `AUTH_JWT_ACCESS_TOKEN_VALIDITY_SECONDS`
+- `AUTH_DEV_VERIFICATION_CODE`
 
-本地宿主机直接运行后端时，不需要导出 `.env.example` 里的容器网络地址；应用默认通过通用数据库栈映射端口访问 `localhost:5432` 和 `localhost:6379`，账号使用项目级 `urban_sidequest`。
+本地宿主机直接运行后端时，推荐把真实值写入被忽略的 `application-dev.yml`。
+Docker 或未来 CI 不使用 `application-dev.yml`，只注入同名环境变量。
+
+## 路线评分配置
+
+路线评分权重和阈值属于私有训练/策略资产，不提交到 GitHub，也不拆成 `.env` 里的零散变量。
+
+`application.yml` 只声明路径占位符：
+
+```yaml
+route:
+  scoring:
+    config-path: ${ROUTE_SCORING_CONFIG_PATH:}
+```
+
+本地 `application-dev.yml` 直接配置被忽略的私有文件路径：
+
+```text
+backend/config/private/route-scoring.yml
+```
+
+线上 Docker 或未来 CI/CD 通过环境变量指定容器内挂载路径：
+
+```bash
+ROUTE_SCORING_CONFIG_PATH=/app/config/route-scoring.yml
+```
+
+后端代码只读取 Spring 已绑定的 `route.scoring.config-path`，不直接读取 `.env`、系统属性或硬编码相对路径。

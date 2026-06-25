@@ -117,8 +117,9 @@ reason_metrics.png
 PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.models.route_preference.predict \
   --model-dir tmp/route-pref-training-output \
   --candidate-set-id <candidate-set-id> \
-  --config ai-python/src/urban_sidequest_ai/models/route_preference/training/config.json \
   --feature-schema-version route_pref_v4
 ```
+
+数据库连接只读取根目录 `.env` / `.env.dev` 中的 `ROUTE_PREF_DB_*` 或 `DATABASE_URL` 变量，不再支持 JSON fallback。可以使用 `ROUTE_PREF_DB_DSN` / `DATABASE_URL`，也可以使用 `ROUTE_PREF_DB_HOST`、`ROUTE_PREF_DB_PORT`、`ROUTE_PREF_DB_NAME`、`ROUTE_PREF_DB_USER`、`ROUTE_PREF_DB_PASSWORD` 和 `ROUTE_PREF_DB_CONNECT_TIMEOUT`。缺少数据库环境变量时直接报错。
 
 也可以通过 `--input` 传入单条 routeInput、routeInput 数组，或包含 `rows` / `data` / `route_preference_training_samples` 的 JSON 对象。

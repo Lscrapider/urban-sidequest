@@ -5,10 +5,8 @@ from pathlib import Path
 import json
 import os
 
-DEFAULT_TIMEOUT_SECONDS = 300
-DEFAULT_NEW_API_BASE_URL = "http://localhost:3000/v1"
-DEFAULT_NEW_API_MODEL = "urban-mock-user"
-DEFAULT_NEW_API_PROVIDER = "new-api"
+from urban_sidequest_ai.env_loader import load_runtime_env
+
 DEFAULT_NEW_API_KEY_ENV = "NEW_API_KEY"
 
 
@@ -52,31 +50,31 @@ class AppConfig:
     judge: JudgeConfig
 
 
-def load_config(path: Path, require_api_key: bool = True) -> AppConfig:
-    with path.open("r", encoding="utf-8") as file:
-        raw = json.load(file)
+def load_config(path: Path | None = None, require_api_key: bool = True) -> AppConfig:
+    load_runtime_env()
+    raw = _load_raw_config(path)
 
-    backend_raw = raw.get("backend") or {}
-    login_raw = backend_raw.get("login") or {}
     backend = BackendConfig(
-        base_url=str(backend_raw.get("baseUrl") or "http://localhost:8080").rstrip("/"),
-        auth_token=backend_raw.get("authToken"),
-        login_phone=login_raw.get("phone"),
-        login_code=login_raw.get("code"),
-        timeout_seconds=int(backend_raw.get("timeoutSeconds") or DEFAULT_TIMEOUT_SECONDS),
+        base_url=_required_env("BACKEND_BASE_URL").rstrip("/"),
+        auth_token=_env_first("BACKEND_AUTH_TOKEN"),
+        login_phone=_env_first("BACKEND_LOGIN_PHONE"),
+        login_code=_env_first("BACKEND_LOGIN_CODE"),
+        timeout_seconds=_required_int_env("BACKEND_TIMEOUT_SECONDS"),
     )
 
-    llm_pool = _parse_llm_pool(raw, require_api_key)
+    llm_pool = [_load_llm_config(require_api_key)]
 
-    judge_raw = raw.get("judge") or {}
+    judge_raw = raw.get("judge")
+    if not isinstance(judge_raw, dict):
+        raise ValueError("config.json 缺少 judge 配置对象")
     judge = JudgeConfig(
-        prompt_version=str(judge_raw.get("promptVersion") or "llm-sim-user-v5-personal-review"),
-        judges_per_candidate_set=int(judge_raw.get("judgesPerCandidateSet") or 2),
-        full_judge_ratio=float(judge_raw.get("fullJudgeRatio") or 0.0),
-        max_retries=int(judge_raw.get("maxRetries") or 1),
-        timeout_seconds=int(judge_raw.get("timeoutSeconds") or DEFAULT_TIMEOUT_SECONDS),
-        temperature=float(judge_raw.get("temperature") or 0.2),
-        seed=judge_raw.get("seed"),
+        prompt_version=str(_required_json(judge_raw, "promptVersion")),
+        judges_per_candidate_set=int(_required_json(judge_raw, "judgesPerCandidateSet")),
+        full_judge_ratio=float(_required_json(judge_raw, "fullJudgeRatio")),
+        max_retries=int(_required_json(judge_raw, "maxRetries")),
+        timeout_seconds=int(_required_json(judge_raw, "timeoutSeconds")),
+        temperature=float(_required_json(judge_raw, "temperature")),
+        seed=_optional_int(_required_json(judge_raw, "seed", allow_none=True)),
     )
     if judge.judges_per_candidate_set < 1:
         raise ValueError("judgesPerCandidateSet 必须 >= 1")
@@ -87,90 +85,60 @@ def load_config(path: Path, require_api_key: bool = True) -> AppConfig:
     return AppConfig(backend=backend, llm_pool=llm_pool, judge=judge)
 
 
-def _parse_llm_pool(raw: dict, require_api_key: bool) -> list[LlmConfig]:
-    llm_pool_raw = raw.get("llmPool")
-    if llm_pool_raw:
-        if isinstance(llm_pool_raw, dict):
-            llm_pool_raw = [llm_pool_raw]
-        return [_parse_llm(item, require_api_key) for item in llm_pool_raw]
-
-    new_api_raw = _first_present(raw, "newApi", "new_api", "newAPI")
-    if new_api_raw is not None:
-        if new_api_raw is True:
-            new_api_raw = {}
-        if not isinstance(new_api_raw, dict):
-            raise ValueError("newApi/new_api 必须是对象")
-        return [_parse_llm(_with_new_api_defaults(new_api_raw), require_api_key)]
-
-    llm_raw = raw.get("llm")
-    if llm_raw is not None:
-        if not isinstance(llm_raw, dict):
-            raise ValueError("llm 必须是对象")
-        return [_parse_llm(llm_raw, require_api_key)]
-
-    if _looks_like_llm(raw):
-        return [_parse_llm(raw, require_api_key)]
-
-    return [_parse_llm(_with_new_api_defaults({}), require_api_key)]
-
-
-def _parse_llm(raw: dict, require_api_key: bool) -> LlmConfig:
-    api_key = _first_present(raw, "apiKey", "apikey", "api_key", "api-key")
-    api_key_env = _first_present(raw, "apiKeyEnv", "apikeyEnv", "api_key_env", "api-key-env")
-    if not api_key and api_key_env:
-        api_key = os.environ.get(str(api_key_env))
+def _load_llm_config(require_api_key: bool) -> LlmConfig:
+    api_key = _env_first(DEFAULT_NEW_API_KEY_ENV)
     if not api_key and require_api_key:
-        provider = _first_present(raw, "provider", "vendor", "name", "llm", "model") or "unknown"
-        raise ValueError(f"LLM {provider} 缺少 apiKey/apikey/api_key 或 apiKeyEnv")
-
-    model = _first_present(raw, "model", "modelId", "model_id", "modelName", "model_name")
-    if not model:
-        provider = _first_present(raw, "provider", "vendor", "name", "llm") or "unknown"
-        raise ValueError(f"LLM {provider} 缺少 model")
-
-    base_url = _first_present(raw, "baseUrl", "base_url")
-    endpoint_url = _first_present(raw, "url", "apiUrl", "api_url", "endpoint")
-    if base_url:
-        completions_path = _first_present(raw, "completionsPath", "completions_path", "path") or "/chat/completions"
-    elif endpoint_url:
-        base_url = endpoint_url
-        completions_path = _first_present(raw, "completionsPath", "completions_path", "path") or ""
-    else:
-        provider = _first_present(raw, "provider", "vendor", "name", "llm", "model") or "unknown"
-        raise ValueError(f"LLM {provider} 缺少 baseUrl/base_url 或 url")
-
+        raise ValueError(f"环境变量 {DEFAULT_NEW_API_KEY_ENV} 未配置")
     return LlmConfig(
-        provider=str(_first_present(raw, "provider", "vendor", "name", "llm") or model),
-        base_url=str(base_url).rstrip("/"),
+        provider=_required_env("ROUTE_LLM_PROVIDER"),
+        base_url=_required_env("ROUTE_LLM_BASE_URL").rstrip("/"),
         api_key=str(api_key or ""),
-        model=str(model),
-        completions_path=str(completions_path),
+        model=_required_env("ROUTE_LLM_MODEL"),
+        completions_path=_required_env("ROUTE_LLM_COMPLETIONS_PATH"),
     )
 
 
-def _first_present(raw: dict, *keys: str):
+def _env_first(*keys: str) -> str | None:
     for key in keys:
-        value = raw.get(key)
-        if value is not None and value != "":
+        value = os.environ.get(key)
+        if value:
             return value
     return None
 
 
-def _with_new_api_defaults(raw: dict) -> dict:
-    merged = dict(raw)
-    if not _first_present(merged, "provider", "vendor", "name", "llm"):
-        merged["provider"] = DEFAULT_NEW_API_PROVIDER
-    if not _first_present(merged, "model", "modelId", "model_id", "modelName", "model_name"):
-        merged["model"] = DEFAULT_NEW_API_MODEL
-    if not _first_present(merged, "baseUrl", "base_url", "url", "apiUrl", "api_url", "endpoint"):
-        merged["baseUrl"] = DEFAULT_NEW_API_BASE_URL
-    if not _first_present(merged, "apiKey", "apikey", "api_key", "api-key", "apiKeyEnv", "apikeyEnv", "api_key_env", "api-key-env"):
-        merged["apiKeyEnv"] = DEFAULT_NEW_API_KEY_ENV
-    return merged
+def _required_env(key: str) -> str:
+    value = _env_first(key)
+    if not value:
+        raise ValueError(f"环境变量 {key} 未配置")
+    return value
 
 
-def _looks_like_llm(raw: dict) -> bool:
-    return bool(
-        _first_present(raw, "model", "modelId", "model_id", "modelName", "model_name")
-        or _first_present(raw, "baseUrl", "base_url", "url", "apiUrl", "api_url", "endpoint")
-    )
+def _required_int_env(key: str) -> int:
+    return int(_required_env(key))
+
+
+def _load_raw_config(path: Path | None) -> dict:
+    if path is None:
+        raise ValueError("缺少 judge 策略配置文件路径")
+    if not path.exists():
+        raise FileNotFoundError(f"judge 策略配置文件不存在：{path}")
+    with path.open("r", encoding="utf-8") as file:
+        raw = json.load(file)
+    if not isinstance(raw, dict):
+        raise ValueError("judge 策略配置文件必须是 JSON 对象")
+    return raw
+
+
+def _required_json(raw: dict, key: str, allow_none: bool = False):
+    if key not in raw:
+        raise ValueError(f"config.json 缺少 judge.{key}")
+    value = raw[key]
+    if value == "" or (value is None and not allow_none):
+        raise ValueError(f"config.json 缺少 judge.{key}")
+    return value
+
+
+def _optional_int(value) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)

@@ -25,7 +25,22 @@
 当前只建立 `data.map` 适配边界，不写入高德 key。后续接入时：
 
 1. 在高德开放平台创建 Android Key，绑定包名和签名。
-2. 将 key 放入本地 Gradle 或安全配置，不提交到仓库。
+2. 将 key 放入 `android-app/local.properties.dev` 或 CI 环境变量，不提交到仓库。
 3. 在 `data.map` 下封装 MapView、定位、POI 搜索和路线 overlay。
 4. 页面层只调用封装后的地图能力。
 
+## 本地配置
+
+`android-app/local.properties` 保留给 Android Studio / SDK 本地用途。
+业务 dev 配置写入 `android-app/local.properties.dev`，该文件不提交：
+
+```properties
+backend.base.url=http://10.0.2.2:8080
+amap.api.key=你的高德 Android Key
+```
+
+Gradle 读取优先级：
+
+```text
+BACKEND_BASE_URL / AMAP_API_KEY 环境变量 > local.properties.dev > local.properties > 构建默认值
+```

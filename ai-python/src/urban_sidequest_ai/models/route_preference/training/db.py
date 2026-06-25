@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-import json
 import os
 from typing import Any
 
-
-DEFAULT_DB_CONNECT_TIMEOUT_SECONDS = 10
+from urban_sidequest_ai.env_loader import load_runtime_env
 
 
 @dataclass(frozen=True)
@@ -19,7 +16,7 @@ class DatabaseConfig:
     user: str | None = None
     password: str | None = None
     sslmode: str | None = None
-    connect_timeout: int = DEFAULT_DB_CONNECT_TIMEOUT_SECONDS
+    connect_timeout: int = 0
 
     def connection_kwargs(self) -> dict[str, Any]:
         if self.dsn:
@@ -34,27 +31,23 @@ class DatabaseConfig:
         return kwargs
 
 
-def load_database_config(path: Path | None = None) -> DatabaseConfig:
-    raw = _load_raw_config(path)
-    db_raw = raw.get("database") or raw.get("db") or raw
-    dsn = _first_present(db_raw, "dsn", "url", "databaseUrl", "database_url") or _env_first(
+def load_database_config() -> DatabaseConfig:
+    load_runtime_env()
+    dsn = _env_first(
         "ROUTE_PREF_DB_DSN",
         "URBAN_SIDEQUEST_AI_DB_DSN",
         "DATABASE_URL",
     )
-    connect_timeout = int(
-        _first_present(db_raw, "connectTimeout", "connect_timeout")
-        or os.environ.get("ROUTE_PREF_DB_CONNECT_TIMEOUT")
-        or DEFAULT_DB_CONNECT_TIMEOUT_SECONDS
-    )
+    connect_timeout = _required_int_env("ROUTE_PREF_DB_CONNECT_TIMEOUT")
+    if dsn:
+        return DatabaseConfig(dsn=dsn, connect_timeout=connect_timeout)
     return DatabaseConfig(
-        dsn=dsn,
-        host=_first_present(db_raw, "host") or os.environ.get("ROUTE_PREF_DB_HOST"),
-        port=_optional_int(_first_present(db_raw, "port") or os.environ.get("ROUTE_PREF_DB_PORT")),
-        dbname=_first_present(db_raw, "dbname", "database", "databaseName") or os.environ.get("ROUTE_PREF_DB_NAME"),
-        user=_first_present(db_raw, "user", "username") or os.environ.get("ROUTE_PREF_DB_USER"),
-        password=_first_present(db_raw, "password") or os.environ.get("ROUTE_PREF_DB_PASSWORD"),
-        sslmode=_first_present(db_raw, "sslmode", "sslMode") or os.environ.get("ROUTE_PREF_DB_SSLMODE"),
+        host=_required_env("ROUTE_PREF_DB_HOST"),
+        port=_required_int_env("ROUTE_PREF_DB_PORT"),
+        dbname=_required_env("ROUTE_PREF_DB_NAME"),
+        user=_required_env("ROUTE_PREF_DB_USER"),
+        password=_required_env("ROUTE_PREF_DB_PASSWORD"),
+        sslmode=_env_first("ROUTE_PREF_DB_SSLMODE"),
         connect_timeout=connect_timeout,
     )
 
@@ -65,21 +58,6 @@ def connect(config: DatabaseConfig):
     return psycopg.connect(**config.connection_kwargs())
 
 
-def _load_raw_config(path: Path | None) -> dict[str, Any]:
-    if path is None:
-        return {}
-    with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
-
-
-def _first_present(raw: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        value = raw.get(key)
-        if value is not None and value != "":
-            return value
-    return None
-
-
 def _env_first(*keys: str) -> str | None:
     for key in keys:
         value = os.environ.get(key)
@@ -88,7 +66,12 @@ def _env_first(*keys: str) -> str | None:
     return None
 
 
-def _optional_int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    return int(value)
+def _required_env(key: str) -> str:
+    value = _env_first(key)
+    if not value:
+        raise ValueError(f"环境变量 {key} 未配置")
+    return value
+
+
+def _required_int_env(key: str) -> int:
+    return int(_required_env(key))

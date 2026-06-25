@@ -20,7 +20,7 @@ def parse_args():
     subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser("run", help="执行路线生成 + LLM 模拟用户评价。")
-    run_parser.add_argument("--config", default=str(DEFAULT_CONFIG_FILE), help="配置 JSON，默认读取模块目录下的 config.json。")
+    run_parser.add_argument("--config", default=str(DEFAULT_CONFIG_FILE), help="judge 策略配置 JSON；连接、模型和密钥只读取环境变量。")
     run_parser.add_argument("--requests", default=str(DEFAULT_REQUESTS_FILE), help="路线请求 JSON 数组，默认读取模块目录下的 requests.json。")
     run_parser.add_argument("--dry-run", action="store_true", help="不调用 Java 后端，使用内置假路线并打印 judgment payload。")
     run_parser.add_argument("--concurrency", type=int, default=1, help="路线生成并发数，默认 1；本地小批量可设为 2。")

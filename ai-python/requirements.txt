@@ -3,3 +3,4 @@ psycopg[binary]>=3.1
 matplotlib>=3.8
 onnx>=1.15
 onnxscript>=0.1
+python-dotenv>=1.0

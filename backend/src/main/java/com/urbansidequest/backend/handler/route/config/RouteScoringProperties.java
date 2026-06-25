@@ -4,13 +4,14 @@ import com.urbansidequest.backend.domain.enums.BudgetLevel;
 import com.urbansidequest.backend.domain.enums.DurationBucket;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
 import com.urbansidequest.backend.domain.enums.TransportProfile;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -25,8 +26,9 @@ public class RouteScoringProperties {
 
     private final Map<String, Integer> intValues;
 
-    public RouteScoringProperties() {
-        this(resolveConfigResource());
+    @Autowired
+    public RouteScoringProperties(@Value("${route.scoring.config-path:}") String configPath) {
+        this(resolveConfigResource(configPath));
     }
 
     public RouteScoringProperties(Path configPath) {
@@ -163,23 +165,11 @@ public class RouteScoringProperties {
         return Math.max(0d, Math.min(1d, value));
     }
 
-    private static Resource resolveConfigResource() {
-        String override = System.getProperty("route.scoring.config.path");
-        if (override == null || override.isBlank()) {
-            override = System.getenv("ROUTE_SCORING_CONFIG_PATH");
+    private static Resource resolveConfigResource(String configPath) {
+        if (configPath == null || configPath.isBlank()) {
+            throw new IllegalStateException("路线打分配置路径未配置：route.scoring.config-path");
         }
-        if (override != null && !override.isBlank()) {
-            return new FileSystemResource(Path.of(override.trim()));
-        }
-        Path backendRelative = Path.of("config/private/route-scoring.yml");
-        if (Files.isRegularFile(backendRelative)) {
-            return new FileSystemResource(backendRelative);
-        }
-        Path repoRelative = Path.of("backend/config/private/route-scoring.yml");
-        if (Files.isRegularFile(repoRelative)) {
-            return new FileSystemResource(repoRelative);
-        }
-        return new FileSystemResource(repoRelative);
+        return new FileSystemResource(Path.of(configPath.trim()));
     }
 
     private void validate(Properties properties) {

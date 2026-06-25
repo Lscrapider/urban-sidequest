@@ -6,15 +6,23 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val localProperties = Properties().apply {
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        localPropertiesFile.inputStream().use(::load)
+fun loadLocalProperties(fileName: String) = Properties().apply {
+    val propertiesFile = rootProject.file(fileName)
+    if (propertiesFile.exists()) {
+        propertiesFile.inputStream().use(::load)
     }
 }
 
-val localBackendBaseUrl = localProperties.getProperty("backend.base.url")
-    ?.takeIf { it.isNotBlank() }
+val localProperties = loadLocalProperties("local.properties")
+val devProperties = loadLocalProperties("local.properties.dev")
+
+fun envValue(name: String): String? = providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+
+fun localValue(name: String): String? =
+    devProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+        ?: localProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+
+val localBackendBaseUrl = localValue("backend.base.url")
 
 android {
     namespace = "com.urbansidequest.app"
@@ -26,11 +34,14 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        val backendBaseUrl = providers.environmentVariable("BACKEND_BASE_URL")
-            .orElse(localBackendBaseUrl ?: "http://10.0.2.2:8080")
-            .get()
+        val backendBaseUrl = envValue("BACKEND_BASE_URL")
+            ?: localBackendBaseUrl
+            ?: "http://10.0.2.2:8080"
+        val amapApiKey = envValue("AMAP_API_KEY")
+            ?: localValue("amap.api.key")
+            ?: ""
         buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
-        manifestPlaceholders["AMAP_API_KEY"] = localProperties.getProperty("amap.api.key", "")
+        manifestPlaceholders["AMAP_API_KEY"] = amapApiKey
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")

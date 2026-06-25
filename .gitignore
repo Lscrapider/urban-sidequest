@@ -1,6 +1,5 @@
 # macOS
 .DS_Store
-backend/src/main/resources/application.yml
 # IDE / editor
 .idea/
 .vscode/
@@ -8,12 +7,10 @@ backend/src/main/resources/application.yml
 *.swo
 .claude
 # Local env
-.env
 .env.*
-!.env.example
+backend/src/main/resources/application-dev.yml
 ai-python/src/urban_sidequest_ai/route_preference_judge/config.json
 ai-python/src/urban_sidequest_ai/route_preference_judge/requests.json
-ai-python/src/urban_sidequest_ai/models/route_preference/training/config.json
 
 # Dependencies
 node_modules/
@@ -44,6 +41,7 @@ target/
 
 # Android local config / build outputs
 local.properties
+android-app/local.properties.dev
 android-app/.gradle/
 android-app/**/build/
 

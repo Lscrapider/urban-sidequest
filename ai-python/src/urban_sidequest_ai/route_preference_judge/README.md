@@ -13,53 +13,75 @@
 
 ## 配置
 
-首次使用时，把样例复制为模块本地配置。`config.json` 和 `requests.json` 都是默认运行路径：
+Python 运行配置统一来自仓库根目录环境文件：
 
-```bash
-cp ai-python/src/urban_sidequest_ai/route_preference_judge/config.example.json \
-  ai-python/src/urban_sidequest_ai/route_preference_judge/config.json
-cp ai-python/src/urban_sidequest_ai/route_preference_judge/requests.example.json \
-  ai-python/src/urban_sidequest_ai/route_preference_judge/requests.json
+```text
+.env      # 可提交，只放变量名和空占位
+.env.dev  # 不提交，本地真实 dev 值
 ```
 
-`config.json` 中的 LLM key 可以直接写在本地配置里，也可以用环境变量。本地 `config.json` 已加入 `.gitignore`，不要把真实 key 写进 example 文件。
+加载优先级：
 
-主路径使用 New API 单入口：
-
-```json
-{
-  "newApi": {
-    "provider": "new-api",
-    "baseUrl": "http://localhost:3000/v1",
-    "completionsPath": "/chat/completions",
-    "apiKey": "填你的 New API key",
-    "model": "urban-mock-user"
-  }
-}
+```text
+Docker/CI 已注入环境变量 > .env.dev > .env
 ```
 
-实际请求地址是 `http://localhost:3000/v1/chat/completions`。`model=urban-mock-user` 是 New API 路由模型名，不建议直接作为数据库里的真实 `judge_model` 解释。脚本保存 judgment 时会优先使用响应 JSON 顶层的 `model` / `modelId` / `model_id`，例如 `kimi-k2.6`、`qwen3.6-flash`；响应缺少模型字段时才 fallback 到配置标识。
+`config.json` 只保留 judge 策略参数。连接地址、模型、API Key、后端鉴权和数据库配置全部放在 `.env.dev` 或运行环境变量里；缺配置时直接报错，不做本地 JSON fallback。
+`requests.json` 仍是默认 job 输入路径，本地文件已加入 `.gitignore`。
 
-`llmPool` 仍可作为 legacy / advanced / optional fallback，用于多供应商轮询、全量评价或 fallback 实验。当前代码解析优先级仍是 `llmPool` > `newApi` > `llm` > 裸 LLM 配置 > 默认 New API，因此同时配置时会优先使用 `llmPool`：
+主路径使用 New API 单入口，常用变量：
 
-```json
-{
-  "llmPool": [
-    {
-      "provider": "qwen",
-      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "apiKeyEnv": "QWEN_API_KEY",
-      "model": "qwen3.6-flash",
-      "completionsPath": "/chat/completions"
-    }
-  ]
-}
+```env
+NEW_API_KEY=
+ROUTE_LLM_PROVIDER=
+ROUTE_LLM_BASE_URL=
+ROUTE_LLM_COMPLETIONS_PATH=
+ROUTE_LLM_MODEL=urban-mock-user
+BACKEND_BASE_URL=
+BACKEND_LOGIN_PHONE=
+BACKEND_LOGIN_CODE=
+BACKEND_TIMEOUT_SECONDS=
 ```
+
+实际请求地址是 `ROUTE_LLM_BASE_URL + ROUTE_LLM_COMPLETIONS_PATH`。`ROUTE_LLM_MODEL=urban-mock-user` 是 New API 里用于模拟用户 judge 的路由模型名，不要填 Java 路线生成模型。脚本保存 judgment 时会优先使用响应 JSON 顶层的 `model` / `modelId` / `model_id`，例如 `kimi-k2.6`、`qwen3.6-flash`；响应缺少模型字段时才 fallback 到配置标识。
 
 后端鉴权二选一：
 
-- `backend.authToken`：直接填 `Bearer ...`
-- `backend.login.phone/code`：脚本先调用 `/api/auth/login` 获取 token
+- `BACKEND_AUTH_TOKEN`：直接填 `Bearer ...`
+- `BACKEND_LOGIN_PHONE` / `BACKEND_LOGIN_CODE`：脚本先调用 `/api/auth/login` 获取 token
+
+补跑缺失 judgment 时还会读取数据库，数据库连接同样来自 `.env.dev`。可以二选一：
+
+```env
+ROUTE_PREF_DB_DSN=
+```
+
+或拆分字段：
+
+```env
+ROUTE_PREF_DB_HOST=
+ROUTE_PREF_DB_PORT=
+ROUTE_PREF_DB_NAME=
+ROUTE_PREF_DB_USER=
+ROUTE_PREF_DB_PASSWORD=
+ROUTE_PREF_DB_CONNECT_TIMEOUT=
+```
+
+`config.json` 示例：
+
+```json
+{
+  "judge": {
+    "promptVersion": "llm-sim-user-v5-personal-review",
+    "judgesPerCandidateSet": 2,
+    "fullJudgeRatio": 1,
+    "maxRetries": 1,
+    "timeoutSeconds": 300,
+    "temperature": 0.2,
+    "seed": 20260625
+  }
+}
+```
 
 ## 生成画像和 request
 
@@ -117,7 +139,7 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 - 候选路线少于 2 条时跳过 LLM judge 并记录原因。
 - `judge.fullJudgeRatio` 表示进入多评判的 candidate set 比例；未命中时只评价 1 次，命中后按 `judge.judgesPerCandidateSet` 评价多次。
 - 当前主路径是 New API 单入口，所以 `judgesPerCandidateSet=2`、`fullJudgeRatio=0.1` 表示约 10% 的 candidate set 会调用 2 次 New API；`judgesPerCandidateSet=2`、`fullJudgeRatio=1` 表示每个 candidate set 都调用 2 次 New API。
-- 如果配置了多个 `llmPool`，命中多评判时会按轮询顺序选择 `judgesPerCandidateSet` 个评价任务；New API 单入口时则重复选择同一个入口。
+- New API 单入口会按 `judgesPerCandidateSet` 重复调用同一个入口完成多评判。
 - LLM timeout 使用 `judge.timeoutSeconds`，默认 300 秒。请求已经产生 token 成本，不建议随意调低。
 - `judge.maxRetries` 表示每个 LLM 配置在一次 judgment 内除首次调用外的额外重试次数；primary 仍失败后，最多尝试 3 个其他 LLM，每个 fallback 也按同样次数重试。
 

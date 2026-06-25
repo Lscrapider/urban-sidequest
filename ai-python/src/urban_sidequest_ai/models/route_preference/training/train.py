@@ -59,7 +59,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[6]
 
 @dataclass(frozen=True)
 class TrainingRuntimeConfig:
-    database_config_path: Path | None
     feature_schema_version: str | None
     output_dir: Path
     epochs: int
@@ -98,7 +97,6 @@ RUN_MODE = "train"
 
 # 真实训练配置。这里只放训练执行参数，不改变模型输入 X、监督 Y、输出口径或 reason code 契约。
 TRAIN_CONFIG = TrainingRuntimeConfig(
-    database_config_path=Path(__file__).with_name("config.json"),
     feature_schema_version="route_pref_v4",
     output_dir=PROJECT_ROOT / "tmp" / "route-pref-training-output",
     # 跑多轮观察 loss 是否继续下降；最终导出由 best_metric 决定，避免后段 loss 降但排序指标回落。
@@ -141,7 +139,6 @@ TRAIN_CONFIG = TrainingRuntimeConfig(
 
 # 自检配置：用于 PyCharm 里快速确认训练流程能跑通，不依赖数据库。
 SELF_CHECK_CONFIG = TrainingRuntimeConfig(
-    database_config_path=None,
     feature_schema_version="self_check",
     output_dir=PROJECT_ROOT / "tmp" / "route-pref-training-self-check",
     epochs=2,
@@ -200,7 +197,7 @@ def _model_config_from_feature_spec(
 def run_train(config: TrainingRuntimeConfig) -> int:
     torch.manual_seed(config.seed)
     device = torch.device(config.device)
-    db_config = load_database_config(config.database_config_path)
+    db_config = load_database_config()
     with connect(db_config) as connection:
         repository = RoutePreferenceTrainingRepository(connection)
         sample_rows = repository.fetch_training_samples(config.feature_schema_version)
