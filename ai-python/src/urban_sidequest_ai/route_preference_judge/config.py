@@ -82,6 +82,8 @@ def load_config(path: Path, require_api_key: bool = True) -> AppConfig:
         raise ValueError("judgesPerCandidateSet 必须 >= 1")
     if not 0 <= judge.full_judge_ratio <= 1:
         raise ValueError("fullJudgeRatio 必须在 [0, 1]")
+    if judge.max_retries < 0:
+        raise ValueError("maxRetries 必须 >= 0")
     return AppConfig(backend=backend, llm_pool=llm_pool, judge=judge)
 
 

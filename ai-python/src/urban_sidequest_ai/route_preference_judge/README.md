@@ -119,7 +119,7 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 - 当前主路径是 New API 单入口，所以 `judgesPerCandidateSet=2`、`fullJudgeRatio=0.1` 表示约 10% 的 candidate set 会调用 2 次 New API；`judgesPerCandidateSet=2`、`fullJudgeRatio=1` 表示每个 candidate set 都调用 2 次 New API。
 - 如果配置了多个 `llmPool`，命中多评判时会按轮询顺序选择 `judgesPerCandidateSet` 个评价任务；New API 单入口时则重复选择同一个入口。
 - LLM timeout 使用 `judge.timeoutSeconds`，默认 300 秒。请求已经产生 token 成本，不建议随意调低。
-- `judge.maxRetries` 当前仅被解析；真实 fallback 行为是 primary LLM 失败后，最多尝试 3 个其他 LLM。
+- `judge.maxRetries` 表示每个 LLM 配置在一次 judgment 内除首次调用外的额外重试次数；primary 仍失败后，最多尝试 3 个其他 LLM，每个 fallback 也按同样次数重试。
 
 ## 输入请求
 

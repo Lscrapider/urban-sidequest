@@ -237,7 +237,7 @@ def _run_judgment_task(
                     )
                     if attempt_index > 1:
                         _print_stderr(
-                            f"[{index}/{total_jobs}] fallback judgment succeeded: {llm.judge_model} "
+                            f"[{index}/{total_jobs}] retry/fallback judgment succeeded: {llm.judge_model} "
                             f"apiAttempt={attempt_index}/{len(llm_candidates)}"
                         )
                     break
@@ -251,7 +251,7 @@ def _run_judgment_task(
             failed += 1
             _print_stderr(
                 f"[{index}/{total_jobs}] failed judgment: {primary_llm.judge_model}: "
-                f"fallback exhausted after {len(llm_candidates)} api attempts"
+                f"retry/fallback exhausted after {len(llm_candidates)} api attempts"
             )
             continue
 
@@ -354,7 +354,18 @@ def llm_attempt_candidates(config: AppConfig, primary_llm, rng: random.Random):
     fallback_count = min(MAX_LLM_FALLBACK_ATTEMPTS, len(remaining))
     if fallback_count > 0:
         candidates.extend(rng.sample(remaining, fallback_count))
-    return candidates
+    return retry_expanded_attempt_candidates(candidates, config.judge.max_retries)
+
+
+def retry_expanded_attempt_candidates(llm_candidates: list, max_retries: int) -> list:
+    if max_retries < 0:
+        raise ValueError("maxRetries 必须 >= 0")
+    retry_count = max_retries + 1
+    return [
+        llm
+        for llm in llm_candidates
+        for _ in range(retry_count)
+    ]
 
 
 def call_once(llm, config: AppConfig, user_prompt: str, route_codes: list[str]) -> tuple[dict, str | None]:
