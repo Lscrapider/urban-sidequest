@@ -63,21 +63,36 @@ BUDGET_MISMATCH
 HIGH_ROUTE_RISK
 ```
 
-未知 reason code 默认报错；训练命令显式加 `--skip-invalid-judgments` 时会跳过对应 judgment 并记录原因。
+未知 reason code 默认报错；如需跳过非法 judgment，在 `training/train.py` 顶部的 `TRAIN_CONFIG.skip_invalid_judgments` 改为 `True`。
 
 ## 训练
 
-示例：
+当前训练入口面向本地 PyCharm 直接运行，不再通过 CLI 参数传配置。运行前在
+`training/train.py` 顶部修改静态配置：
 
-```bash
-PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.models.route_preference.training train \
-  --config ai-python/src/urban_sidequest_ai/models/route_preference/training/config.json \
-  --feature-schema-version route_pref_v4 \
-  --output-dir tmp/route-pref-training-output \
-  --device cpu
+`TRAIN_CONFIG` 里的常改字段：
+
+```text
+RUN_MODE = "train"        # 真实训练，读取 PostgreSQL
+# RUN_MODE = "self-check" # 自检，不连接数据库
+
+feature_schema_version = "route_pref_v4"
+output_dir = PROJECT_ROOT / "tmp" / "route-pref-training-output"
+epochs = 20
+batch_candidate_sets = 8
+lr = 8e-4
+weight_decay = 5e-4
+dropout = 0.25
+lambda_goodness = 0.80
+lambda_reason = 0.35
+best_metric = "valid/weightedPairwiseAccuracy"
+reason_pos_weight_cap = 6.0
+reason_pos_weight_min_support = 30
+goodness_pos_weight_cap = 0.0
 ```
 
-严格 CLI 下 `--output-dir` 必填；本地直接无参数运行 `training/train.py` 时，默认输出到项目根目录下的 `tmp/route-pref-training-output`。
+PyCharm 中直接运行 `training/train.py` 即可。真实训练默认输出到项目根目录下的
+`tmp/route-pref-training-output`；自检默认输出到 `tmp/route-pref-training-self-check`。
 
 训练产物包括：
 

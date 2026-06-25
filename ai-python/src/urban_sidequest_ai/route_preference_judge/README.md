@@ -115,6 +115,9 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 - 路线生成和 LLM judge 使用分离线程池；不传 `--judge-concurrency` 时与 `--concurrency` 相同。
 - 主流程会等待所有 judgment 保存成功或失败后再退出。
 - 候选路线少于 2 条时跳过 LLM judge 并记录原因。
+- `judge.fullJudgeRatio` 表示进入多评判的 candidate set 比例；未命中时只评价 1 次，命中后按 `judge.judgesPerCandidateSet` 评价多次。
+- 当前主路径是 New API 单入口，所以 `judgesPerCandidateSet=2`、`fullJudgeRatio=0.1` 表示约 10% 的 candidate set 会调用 2 次 New API；`judgesPerCandidateSet=2`、`fullJudgeRatio=1` 表示每个 candidate set 都调用 2 次 New API。
+- 如果配置了多个 `llmPool`，命中多评判时会按轮询顺序选择 `judgesPerCandidateSet` 个评价任务；New API 单入口时则重复选择同一个入口。
 - LLM timeout 使用 `judge.timeoutSeconds`，默认 300 秒。请求已经产生 token 成本，不建议随意调低。
 - `judge.maxRetries` 当前仅被解析；真实 fallback 行为是 primary LLM 失败后，最多尝试 3 个其他 LLM。
 

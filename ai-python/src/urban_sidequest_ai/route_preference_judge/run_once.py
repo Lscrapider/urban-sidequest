@@ -21,7 +21,7 @@ else:
 CONFIG_FILE = BASE_DIR / "config.json"
 REQUESTS_FILE = BASE_DIR / "requests.json"
 ROUTE_CONCURRENCY = 3
-JUDGE_CONCURRENCY = 3
+JUDGE_CONCURRENCY = 2
 
 
 def ensure_requests_file() -> None:

@@ -338,9 +338,12 @@ def _unwrap_route_generation(response: dict) -> dict:
 
 
 def select_llms(config: AppConfig, rng: random.Random, llm_order: list, llm_cursor: int):
-    if rng.random() < config.judge.full_judge_ratio:
-        return list(config.llm_pool), llm_cursor
-    count = min(config.judge.judges_per_candidate_set, len(config.llm_pool))
+    if not llm_order:
+        return [], llm_cursor
+
+    # fullJudgeRatio 控制进入多评判的 candidate set 比例；命中后按 judgesPerCandidateSet
+    # 发起多次评价。New API 单入口时会重复选择同一个 LLM 配置，从而真实调用多次 New API。
+    count = config.judge.judges_per_candidate_set if rng.random() < config.judge.full_judge_ratio else 1
     selected = [llm_order[(llm_cursor + offset) % len(llm_order)] for offset in range(count)]
     return selected, llm_cursor + count
 

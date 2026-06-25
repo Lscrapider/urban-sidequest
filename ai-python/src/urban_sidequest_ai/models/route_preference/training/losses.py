@@ -15,6 +15,8 @@ class LossConfig:
     beta: float = DEFAULT_RANKING_BETA
     lambda_goodness: float = DEFAULT_LAMBDA_GOODNESS
     lambda_reason: float = DEFAULT_LAMBDA_REASON
+    reason_pos_weight: tuple[float, ...] | None = None
+    goodness_pos_weight: float | None = None
 
 
 @dataclass(frozen=True)
@@ -35,8 +37,8 @@ class LossResult:
 
 def compute_losses(output: RoutePreferenceOutput, batch: TensorBatch, config: LossConfig) -> LossResult:
     ranking_loss = _ranking_loss(output, batch, config.beta)
-    goodness_loss = _goodness_loss(output, batch)
-    reason_loss = _reason_loss(output, batch)
+    goodness_loss = _goodness_loss(output, batch, config.goodness_pos_weight)
+    reason_loss = _reason_loss(output, batch, config.reason_pos_weight)
     total_loss = ranking_loss + config.lambda_goodness * goodness_loss + config.lambda_reason * reason_loss
     return LossResult(
         total_loss=total_loss,
@@ -56,23 +58,42 @@ def _ranking_loss(output: RoutePreferenceOutput, batch: TensorBatch, beta: float
     return (normalized_weights * F.softplus(-beta * (chosen_scores - rejected_scores))).mean()
 
 
-def _goodness_loss(output: RoutePreferenceOutput, batch: TensorBatch) -> torch.Tensor:
+def _goodness_loss(output: RoutePreferenceOutput, batch: TensorBatch, pos_weight: float | None) -> torch.Tensor:
+    weight = None
+    if pos_weight is not None:
+        weight = torch.tensor(
+            pos_weight,
+            dtype=output.route_goodness_logit.dtype,
+            device=output.route_goodness_logit.device,
+        )
     raw_loss = F.binary_cross_entropy_with_logits(
         output.route_goodness_logit,
         batch.goodness_label,
         reduction="none",
+        pos_weight=weight,
     )
     masked_loss = raw_loss * batch.goodness_mask
     return masked_loss.sum() / batch.goodness_mask.sum().clamp_min(1.0)
 
 
-def _reason_loss(output: RoutePreferenceOutput, batch: TensorBatch) -> torch.Tensor:
+def _reason_loss(
+    output: RoutePreferenceOutput,
+    batch: TensorBatch,
+    pos_weight: tuple[float, ...] | None,
+) -> torch.Tensor:
+    weight = None
+    if pos_weight is not None:
+        weight = torch.tensor(
+            pos_weight,
+            dtype=output.reason_code_logits.dtype,
+            device=output.reason_code_logits.device,
+        )
     raw_loss = F.binary_cross_entropy_with_logits(
         output.reason_code_logits,
         batch.reason_labels,
         reduction="none",
+        pos_weight=weight,
     )
     masked_loss = raw_loss * batch.reason_mask.unsqueeze(-1)
     denominator = (batch.reason_mask.sum() * len(REASON_CODES)).clamp_min(1.0)
     return masked_loss.sum() / denominator
-

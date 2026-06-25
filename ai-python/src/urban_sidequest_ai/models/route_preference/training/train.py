@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from argparse import ArgumentParser
-from pathlib import Path
+import copy
+from dataclasses import dataclass, replace
 import logging
+import math
+from pathlib import Path
 import sys
 from typing import Any
 
 import torch
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
 
 if __package__ in (None, ""):
     # 允许直接执行 train.py，同时保留 python -m 的包入口。
@@ -30,11 +33,10 @@ from .losses import LossConfig, compute_losses
 from .model import RoutePreferenceModel, RoutePreferenceModelConfig
 from .pairs import build_pairwise_samples
 from .plots import append_history, render_history_plots
-from .repository import JudgmentRow, RoutePreferenceTrainingRepository, TrainingSampleRow
+from .repository import RoutePreferenceTrainingRepository
 from .schema import (
     DEFAULT_BATCH_CANDIDATE_SETS,
     DEFAULT_DROPOUT,
-    DEFAULT_EPOCHS,
     DEFAULT_GRAD_CLIP_NORM,
     DEFAULT_HIDDEN_DIM,
     DEFAULT_LAMBDA_GOODNESS,
@@ -52,152 +54,316 @@ from .schema import (
 
 LOGGER = logging.getLogger(__name__)
 HISTORY_FILENAME = "history.jsonl"
+PROJECT_ROOT = Path(__file__).resolve().parents[6]
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_arg_parser()
-    if argv is None and len(sys.argv) == 1:
-        project_tmp = Path(__file__).resolve().parents[6] / "tmp"
-        # 本地直接运行时改这里：保留一个 local_argv 赋值，另一个注释掉。
-        # 训练配置：从 PostgreSQL 读取真实样本。
-        local_argv = [
-            "train",
-            "--feature-schema-version",
-            "route_pref_v4",
-            "--output-dir",
-            str(project_tmp / "route-pref-training-output"),
-            "--epochs",
-            str(DEFAULT_EPOCHS),
-            "--batch-candidate-sets",
-            str(DEFAULT_BATCH_CANDIDATE_SETS),
-            "--lr",
-            str(DEFAULT_LR),
-            "--weight-decay",
-            str(DEFAULT_WEIGHT_DECAY),
-            "--grad-clip-norm",
-            str(DEFAULT_GRAD_CLIP_NORM),
-            "--device",
-            "cpu",
-            "--config",
-            str(Path(__file__).with_name("config.json")),
-            # "--skip-invalid-judgments",
-            "--skip-onnx",
-        ]
+@dataclass(frozen=True)
+class TrainingRuntimeConfig:
+    database_config_path: Path | None
+    feature_schema_version: str | None
+    output_dir: Path
+    epochs: int
+    batch_candidate_sets: int
+    lr: float
+    weight_decay: float
+    grad_clip_norm: float
+    hidden_dim: int
+    reason_hidden_dim: int
+    dropout: float
+    beta: float
+    lambda_goodness: float
+    lambda_reason: float
+    seed: int
+    skip_invalid_judgments: bool
+    skip_onnx: bool
+    device: str
+    best_metric: str
+    patience: int
+    min_delta: float
+    lr_scheduler: str
+    warmup_epochs: int
+    lr_min: float
+    lr_plateau_factor: float
+    lr_plateau_patience: int
+    reason_pos_weight_cap: float
+    reason_pos_weight_min_support: int
+    goodness_pos_weight_cap: float
 
-        # 自检配置：不连数据库，使用合成数据验证训练、导出和画图流程。
-        # local_argv = [
-        #     "self-check",
-        #     "--output-dir",
-        #     str(project_tmp / "route-pref-training-self-check"),
-        #     "--skip-onnx",
-        #     "--device",
-        #     "cpu",
-        # ]
-        argv = local_argv
-    args = parser.parse_args(argv)
+
+# PyCharm 运行入口：直接运行本文件即可。
+# 可选值：
+# - "train"：连接 PostgreSQL 读取真实样本训练。
+# - "self-check"：不连接数据库，用合成样本验证训练、导出和画图流程。
+RUN_MODE = "train"
+
+# 真实训练配置。这里只放训练执行参数，不改变模型输入 X、监督 Y、输出口径或 reason code 契约。
+TRAIN_CONFIG = TrainingRuntimeConfig(
+    database_config_path=Path(__file__).with_name("config.json"),
+    feature_schema_version="route_pref_v4",
+    output_dir=PROJECT_ROOT / "tmp" / "route-pref-training-output",
+    # 跑多轮观察 loss 是否继续下降；最终导出由 best_metric 决定，避免后段 loss 降但排序指标回落。
+    epochs=20,
+    # batch 单位是 candidate_set_id，不是单条 route。
+    batch_candidate_sets=8,
+    lr=8e-4,
+    weight_decay=5e-4,
+    grad_clip_norm=DEFAULT_GRAD_CLIP_NORM,
+    hidden_dim=DEFAULT_HIDDEN_DIM,
+    reason_hidden_dim=DEFAULT_REASON_HIDDEN_DIM,
+    dropout=0.25,
+    beta=DEFAULT_RANKING_BETA,
+    # 排序是主任务；goodness 辅助头略降权，避免后期牵引共享 encoder 过拟合。
+    lambda_goodness=0.80,
+    # reason 使用 per-code pos_weight 后不再叠加提高 lambda。
+    lambda_reason=0.35,
+    seed=DEFAULT_RANDOM_SEED,
+    skip_invalid_judgments=False,
+    skip_onnx=True,
+    device="cpu",
+    # 以验证集加权 pairwise 为主选最佳轮；更贴近同一 candidate_set 内排序质量。
+    best_metric="valid/weightedPairwiseAccuracy",
+    # patience=0 表示只选最优轮、不提前中断；如要早停可改为 2 或 3。
+    patience=0,
+    min_delta=0.0,
+    # 学习率调度默认关闭；可选 "none"、"cosine"、"plateau"。
+    lr_scheduler="cosine",
+    warmup_epochs=0,
+    lr_min=1e-4,
+    lr_plateau_factor=0.5,
+    lr_plateau_patience=2,
+    # 只用训练集统计 reason 正样本权重；cap 限制极端不平衡 code 的放大倍数。
+    reason_pos_weight_cap=6.0,
+    # 正样本太少的 reason code 不放大，避免 HIGH_ROUTE_RISK 这类低支持度噪声被高权重牵引。
+    reason_pos_weight_min_support=30,
+    # goodness 先不加正样本权重；若 accepted/rejected 明显失衡，再改为 3.0 试。
+    goodness_pos_weight_cap=0.0,
+)
+
+# 自检配置：用于 PyCharm 里快速确认训练流程能跑通，不依赖数据库。
+SELF_CHECK_CONFIG = TrainingRuntimeConfig(
+    database_config_path=None,
+    feature_schema_version="self_check",
+    output_dir=PROJECT_ROOT / "tmp" / "route-pref-training-self-check",
+    epochs=2,
+    batch_candidate_sets=2,
+    lr=DEFAULT_LR,
+    weight_decay=DEFAULT_WEIGHT_DECAY,
+    grad_clip_norm=DEFAULT_GRAD_CLIP_NORM,
+    hidden_dim=DEFAULT_HIDDEN_DIM,
+    reason_hidden_dim=DEFAULT_REASON_HIDDEN_DIM,
+    dropout=DEFAULT_DROPOUT,
+    beta=DEFAULT_RANKING_BETA,
+    lambda_goodness=DEFAULT_LAMBDA_GOODNESS,
+    lambda_reason=DEFAULT_LAMBDA_REASON,
+    seed=DEFAULT_RANDOM_SEED,
+    skip_invalid_judgments=False,
+    skip_onnx=True,
+    device="cpu",
+    best_metric="",
+    patience=0,
+    min_delta=0.0,
+    lr_scheduler="none",
+    warmup_epochs=0,
+    lr_min=0.0,
+    lr_plateau_factor=0.5,
+    lr_plateau_patience=2,
+    reason_pos_weight_cap=0.0,
+    reason_pos_weight_min_support=30,
+    goodness_pos_weight_cap=0.0,
+)
+
+
+def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    if args.command == "train":
-        return run_train(args)
-    if args.command == "self-check":
-        return run_self_check(args)
-    parser.print_help()
-    return 2
+    if RUN_MODE == "train":
+        return run_train(TRAIN_CONFIG)
+    if RUN_MODE == "self-check":
+        return run_self_check(SELF_CHECK_CONFIG)
+    raise ValueError(f"未知 RUN_MODE: {RUN_MODE}")
 
 
-def build_arg_parser() -> ArgumentParser:
-    parser = ArgumentParser(description="训练路线偏好排序模型。")
-    subparsers = parser.add_subparsers(dest="command")
-    train_parser = subparsers.add_parser("train", help="从 PostgreSQL 读取样本并训练模型。")
-    train_parser.add_argument("--config", type=Path, help="JSON 配置文件，database/db 节点或直接 DB 字段。")
-    train_parser.add_argument("--feature-schema-version", help="只训练指定 feature_schema_version。")
-    train_parser.add_argument("--output-dir", type=Path, required=True, help="训练产物输出目录。")
-    train_parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
-    train_parser.add_argument("--batch-candidate-sets", type=int, default=DEFAULT_BATCH_CANDIDATE_SETS)
-    train_parser.add_argument("--lr", type=float, default=DEFAULT_LR)
-    train_parser.add_argument("--weight-decay", type=float, default=DEFAULT_WEIGHT_DECAY)
-    train_parser.add_argument("--grad-clip-norm", type=float, default=DEFAULT_GRAD_CLIP_NORM)
-    train_parser.add_argument("--hidden-dim", type=int, default=DEFAULT_HIDDEN_DIM)
-    train_parser.add_argument("--reason-hidden-dim", type=int, default=DEFAULT_REASON_HIDDEN_DIM)
-    train_parser.add_argument("--dropout", type=float, default=DEFAULT_DROPOUT)
-    train_parser.add_argument("--beta", type=float, default=DEFAULT_RANKING_BETA)
-    train_parser.add_argument("--lambda-goodness", type=float, default=DEFAULT_LAMBDA_GOODNESS)
-    train_parser.add_argument("--lambda-reason", type=float, default=DEFAULT_LAMBDA_REASON)
-    train_parser.add_argument("--seed", type=int, default=DEFAULT_RANDOM_SEED)
-    train_parser.add_argument("--skip-invalid-judgments", action="store_true", help="遇到非法 reason code 等 judgment 时跳过并记录。")
-    train_parser.add_argument("--skip-onnx", action="store_true", help="只导出 PyTorch state，不导出 ONNX。")
-    train_parser.add_argument("--device", default="cpu", help="cpu/cuda/mps。")
-
-    self_check_parser = subparsers.add_parser("self-check", help="不连数据库，使用合成数据跑一轮训练和绘图。")
-    self_check_parser.add_argument("--output-dir", type=Path, required=True)
-    self_check_parser.add_argument("--skip-onnx", action="store_true")
-    self_check_parser.add_argument("--device", default="cpu")
-    return parser
-
-
-def run_train(args) -> int:
-    torch.manual_seed(args.seed)
-    device = torch.device(args.device)
-    db_config = load_database_config(args.config)
-    with connect(db_config) as connection:
-        repository = RoutePreferenceTrainingRepository(connection)
-        sample_rows = repository.fetch_training_samples(args.feature_schema_version)
-        judgment_rows = repository.fetch_completed_judgments({row.candidate_set_id for row in sample_rows})
-    policy = InvalidJudgmentPolicy.SKIP if args.skip_invalid_judgments else InvalidJudgmentPolicy.FAIL
-    bundle = build_dataset_bundle(sample_rows, judgment_rows, policy)
-    loss_config = LossConfig(beta=args.beta, lambda_goodness=args.lambda_goodness, lambda_reason=args.lambda_reason)
-    model_config = RoutePreferenceModelConfig.from_feature_spec(bundle.feature_spec)
-    model_config = RoutePreferenceModelConfig(
+def _model_config_from_feature_spec(
+    feature_spec: FeatureSpec,
+    config: TrainingRuntimeConfig,
+) -> RoutePreferenceModelConfig:
+    base_config = RoutePreferenceModelConfig.from_feature_spec(feature_spec)
+    return RoutePreferenceModelConfig(
         **{
-            **model_config.__dict__,
-            "hidden_dim": args.hidden_dim,
-            "dropout": args.dropout,
-            "reason_hidden_dim": args.reason_hidden_dim,
+            **base_config.__dict__,
+            "hidden_dim": config.hidden_dim,
+            "dropout": config.dropout,
+            "reason_hidden_dim": config.reason_hidden_dim,
         }
     )
-    return train_and_export(bundle, model_config, loss_config, args, device)
 
 
-def run_self_check(args) -> int:
-    torch.manual_seed(DEFAULT_RANDOM_SEED)
-    device = torch.device(args.device)
+def run_train(config: TrainingRuntimeConfig) -> int:
+    torch.manual_seed(config.seed)
+    device = torch.device(config.device)
+    db_config = load_database_config(config.database_config_path)
+    with connect(db_config) as connection:
+        repository = RoutePreferenceTrainingRepository(connection)
+        sample_rows = repository.fetch_training_samples(config.feature_schema_version)
+        judgment_rows = repository.fetch_completed_judgments({row.candidate_set_id for row in sample_rows})
+    policy = InvalidJudgmentPolicy.SKIP if config.skip_invalid_judgments else InvalidJudgmentPolicy.FAIL
+    bundle = build_dataset_bundle(sample_rows, judgment_rows, policy)
+    loss_config = LossConfig(
+        beta=config.beta,
+        lambda_goodness=config.lambda_goodness,
+        lambda_reason=config.lambda_reason,
+    )
+    model_config = _model_config_from_feature_spec(bundle.feature_spec, config)
+    return train_and_export(bundle, model_config, loss_config, config, device)
+
+
+def run_self_check(config: TrainingRuntimeConfig) -> int:
+    torch.manual_seed(config.seed)
+    device = torch.device(config.device)
     bundle = synthetic_bundle()
-    loss_config = LossConfig()
-    model_config = RoutePreferenceModelConfig.from_feature_spec(bundle.feature_spec)
-    args.epochs = 2
-    args.batch_candidate_sets = 2
-    args.lr = DEFAULT_LR
-    args.weight_decay = DEFAULT_WEIGHT_DECAY
-    args.grad_clip_norm = DEFAULT_GRAD_CLIP_NORM
-    return train_and_export(bundle, model_config, loss_config, args, device)
+    loss_config = LossConfig(
+        beta=config.beta,
+        lambda_goodness=config.lambda_goodness,
+        lambda_reason=config.lambda_reason,
+    )
+    model_config = _model_config_from_feature_spec(bundle.feature_spec, config)
+    return train_and_export(bundle, model_config, loss_config, config, device)
+
+
+def _metric_higher_is_better(metric_key: str) -> bool:
+    # loss 越低越好，其余排序 / AUC / F1 指标越高越好。
+    return "loss" not in metric_key
+
+
+def _build_scheduler(optimizer: AdamW, config: TrainingRuntimeConfig):
+    kind = config.lr_scheduler
+    if kind == "none":
+        return None
+    if kind == "cosine":
+        total_epochs = max(config.epochs, 1)
+        warmup_epochs = max(config.warmup_epochs, 0)
+        lr_floor_ratio = (config.lr_min / config.lr) if config.lr > 0 else 0.0
+
+        def lr_lambda(epoch_index: int) -> float:
+            # epoch_index 为 0 基的已完成 step 数。
+            if warmup_epochs > 0 and epoch_index < warmup_epochs:
+                return (epoch_index + 1) / warmup_epochs
+            progress = (epoch_index - warmup_epochs) / max(total_epochs - warmup_epochs, 1)
+            progress = min(max(progress, 0.0), 1.0)
+            cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return lr_floor_ratio + (1.0 - lr_floor_ratio) * cosine
+
+        return LambdaLR(optimizer, lr_lambda)
+    if kind == "plateau":
+        monitor = config.best_metric or "valid/loss/total"
+        mode = "max" if _metric_higher_is_better(monitor) else "min"
+        return ReduceLROnPlateau(
+            optimizer,
+            mode=mode,
+            factor=config.lr_plateau_factor,
+            patience=config.lr_plateau_patience,
+        )
+    raise ValueError(f"未知 lr-scheduler: {kind}")
+
+
+def _compute_reason_pos_weight(
+    groups: tuple[LabeledCandidateSet, ...],
+    cap: float,
+    min_support: int,
+) -> tuple[float, ...] | None:
+    if cap <= 0:
+        return None
+    required_support = max(min_support, 1)
+    pos = [0] * len(REASON_CODES)
+    neg = [0] * len(REASON_CODES)
+    for group in groups:
+        for item in group.items:
+            if item.reason_mask:
+                for index, label in enumerate(item.reason_labels):
+                    if label >= 0.5:
+                        pos[index] += 1
+                    else:
+                        neg[index] += 1
+    weights = []
+    for index in range(len(REASON_CODES)):
+        # 支持度不足的 code 不放大，避免少量噪声样本被高权重牵引。
+        if pos[index] < required_support:
+            weights.append(1.0)
+        else:
+            weights.append(min(neg[index] / pos[index], cap))
+    return tuple(weights)
+
+
+def _compute_goodness_pos_weight(
+    groups: tuple[LabeledCandidateSet, ...],
+    cap: float,
+) -> float | None:
+    if cap <= 0:
+        return None
+    pos = 0
+    neg = 0
+    for group in groups:
+        for item in group.items:
+            if item.goodness_mask:
+                if item.goodness_label >= 0.5:
+                    pos += 1
+                else:
+                    neg += 1
+    if not pos:
+        return None
+    return min(neg / pos, cap)
 
 
 def train_and_export(
     bundle: DatasetBundle,
     model_config: RoutePreferenceModelConfig,
     loss_config: LossConfig,
-    args,
+    config: TrainingRuntimeConfig,
     device: torch.device,
 ) -> int:
-    splits = split_by_candidate_set(bundle.groups, seed=getattr(args, "seed", DEFAULT_RANDOM_SEED))
+    splits = split_by_candidate_set(bundle.groups, seed=config.seed)
     if not splits.train:
         raise ValueError("训练集为空，无法训练")
+    if config.reason_pos_weight_cap > 0:
+        reason_pos_weight = _compute_reason_pos_weight(
+            splits.train,
+            config.reason_pos_weight_cap,
+            config.reason_pos_weight_min_support,
+        )
+        loss_config = replace(loss_config, reason_pos_weight=reason_pos_weight)
+        LOGGER.info("reason pos_weight=%s", reason_pos_weight)
+    if config.goodness_pos_weight_cap > 0:
+        goodness_pos_weight = _compute_goodness_pos_weight(splits.train, config.goodness_pos_weight_cap)
+        loss_config = replace(loss_config, goodness_pos_weight=goodness_pos_weight)
+        LOGGER.info("goodness pos_weight=%s", goodness_pos_weight)
     model = RoutePreferenceModel(model_config).to(device)
-    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    output_dir: Path = args.output_dir
+    optimizer = AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+    scheduler = _build_scheduler(optimizer, config)
+
+    best_metric_key = config.best_metric
+    patience = max(config.patience, 0)
+    min_delta = max(config.min_delta, 0.0)
+    higher_is_better = _metric_higher_is_better(best_metric_key) if best_metric_key else True
+    plateau_monitor = (best_metric_key or "valid/loss/total") if isinstance(scheduler, ReduceLROnPlateau) else None
+    best_score: float | None = None
+    best_state: dict | None = None
+    best_epoch = 0
+    epochs_without_improvement = 0
+
+    output_dir = config.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     history_path = output_dir / HISTORY_FILENAME
     if history_path.exists():
         history_path.unlink()
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(1, config.epochs + 1):
         model.train()
         train_loss_totals: dict[str, float] = {}
         batch_count = 0
         for batch in iter_batches(
             splits.train,
-            args.batch_candidate_sets,
+            config.batch_candidate_sets,
             shuffle=True,
-            seed=getattr(args, "seed", DEFAULT_RANDOM_SEED) + epoch,
+            seed=config.seed + epoch,
             device=device,
         ):
             optimizer.zero_grad()
@@ -209,12 +375,12 @@ def train_and_export(
             )
             losses = compute_losses(output, batch, loss_config)
             losses.total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip_norm)
             optimizer.step()
             for key, value in losses.detached_metrics().items():
                 train_loss_totals[key] = train_loss_totals.get(key, 0.0) + value
             batch_count += 1
-        record: dict[str, Any] = {"epoch": epoch}
+        record: dict[str, Any] = {"epoch": epoch, "lr": optimizer.param_groups[0]["lr"]}
         for key, value in train_loss_totals.items():
             record[f"train/{key}"] = value / max(batch_count, 1)
         record.update(
@@ -222,20 +388,62 @@ def train_and_export(
                 model,
                 splits.valid,
                 loss_config,
-                args.batch_candidate_sets,
+                config.batch_candidate_sets,
                 device,
-                getattr(args, "seed", DEFAULT_RANDOM_SEED),
+                config.seed,
                 "valid",
             )
         )
         append_history(history_path, record)
         LOGGER.info(
-            "epoch=%s trainLoss=%.6f validPairwise=%.4f validNdcg@3=%.4f",
+            "epoch=%s lr=%.2e trainLoss=%.6f validPairwise=%.4f validNdcg@3=%.4f",
             epoch,
+            record.get("lr", 0.0),
             record.get("train/loss/total", 0.0),
             record.get("valid/pairwiseAccuracy", 0.0),
             record.get("valid/ndcg@3", 0.0),
         )
+
+        # 学习率调度：plateau 监控验证指标，cosine/warmup 按轮推进。
+        if isinstance(scheduler, ReduceLROnPlateau):
+            monitored = record.get(plateau_monitor)
+            if monitored is not None:
+                scheduler.step(monitored)
+        elif scheduler is not None:
+            scheduler.step()
+
+        # 选最优轮 + early stopping：仅在 best_metric 非空时生效。
+        if best_metric_key:
+            current = record.get(best_metric_key)
+            if current is None:
+                LOGGER.warning("验证记录缺少 best-metric=%s，本轮跳过最优轮判定", best_metric_key)
+            else:
+                if best_score is None:
+                    improved = True
+                elif higher_is_better:
+                    improved = current > best_score + min_delta
+                else:
+                    improved = current < best_score - min_delta
+                if improved:
+                    best_score = current
+                    best_state = copy.deepcopy(model.state_dict())
+                    best_epoch = epoch
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+                    if patience > 0 and epochs_without_improvement >= patience:
+                        LOGGER.info(
+                            "触发 early stopping: epoch=%s 最优 %s=%.4f @epoch %s",
+                            epoch,
+                            best_metric_key,
+                            best_score,
+                            best_epoch,
+                        )
+                        break
+
+    if best_state is not None:
+        LOGGER.info("导出最优轮权重: %s=%.4f @epoch %s", best_metric_key, best_score, best_epoch)
+        model.load_state_dict(best_state)
 
     final_metrics = {}
     final_metrics.update(
@@ -243,9 +451,9 @@ def train_and_export(
             model,
             splits.valid,
             loss_config,
-            args.batch_candidate_sets,
+            config.batch_candidate_sets,
             device,
-            getattr(args, "seed", DEFAULT_RANDOM_SEED),
+            config.seed,
             "valid",
         )
     )
@@ -254,9 +462,9 @@ def train_and_export(
             model,
             splits.test,
             loss_config,
-            args.batch_candidate_sets,
+            config.batch_candidate_sets,
             device,
-            getattr(args, "seed", DEFAULT_RANDOM_SEED),
+            config.seed,
             "test",
         )
     )
@@ -265,7 +473,7 @@ def train_and_export(
         bundle.feature_spec,
         model_config,
         final_metrics,
-        ExportConfig(output_dir=output_dir, export_onnx=not args.skip_onnx),
+        ExportConfig(output_dir=output_dir, export_onnx=not config.skip_onnx),
     )
     render_history_plots(history_path, output_dir)
     LOGGER.info(
