@@ -622,6 +622,22 @@ PERSONA_ARCHETYPES = [
         "hiddenGemAffinity": 0.58,
         "tagAffinities": {"ENTERTAINMENT": 0.88, "LOCAL": 0.70, "PHOTO": 0.62},
     },
+    {
+        "name": "night_risk_averse",
+        "distanceSensitivity": 0.78,
+        "budgetSensitivity": 0.52,
+        "transferSensitivity": 0.86,
+        "hiddenGemAffinity": 0.46,
+        "tagAffinities": {"NIGHT": 0.92, "FOOD_LOCAL_FLAVOR": 0.72, "LOCAL": 0.64, "PHOTO": 0.58},
+    },
+    {
+        "name": "tight_schedule_family",
+        "distanceSensitivity": 0.86,
+        "budgetSensitivity": 0.66,
+        "transferSensitivity": 0.78,
+        "hiddenGemAffinity": 0.30,
+        "tagAffinities": {"SCENIC": 0.76, "MUSEUM": 0.66, "FOOD_LOCAL_FLAVOR": 0.60, "LOCAL": 0.48},
+    },
 ]
 
 
@@ -682,4 +698,10 @@ REQUEST_TEMPLATES = [
     {"routeGoal": "NIGHT", "transportProfile": "WALK_SUBWAY", "budgetLevel": "LOW", "interestTags": ["NIGHT", "LOCAL", "COFFEE"], "durationMinutes": 240, "hour": 20},
     {"routeGoal": "CLASSIC", "transportProfile": "WALK_ONLY", "budgetLevel": "NORMAL", "interestTags": ["SCENIC", "MUSEUM", "LOCAL"], "durationMinutes": 180, "hour": 13},
     {"routeGoal": "PHOTO", "transportProfile": "WALK_TRANSIT", "budgetLevel": "NORMAL", "interestTags": ["PHOTO", "NIGHT", "FOOD_LOCAL_FLAVOR"], "durationMinutes": 300, "hour": 16},
+    {"routeGoal": "NIGHT", "transportProfile": "WALK_BUS", "budgetLevel": "LOW", "interestTags": ["NIGHT", "EVENT", "FOOD_LOCAL_FLAVOR"], "durationMinutes": 240, "hour": 21},
+    {"routeGoal": "NIGHT", "transportProfile": "WALK_SUBWAY", "budgetLevel": "NORMAL", "interestTags": ["NIGHT", "PHOTO", "LOCAL"], "durationMinutes": 300, "hour": 20},
+    {"routeGoal": "PHOTO", "transportProfile": "WALK_ONLY", "budgetLevel": "NORMAL", "interestTags": ["SCENIC", "PHOTO", "LOCAL"], "durationMinutes": 360, "hour": 16},
+    {"routeGoal": "STEADY", "transportProfile": "WALK_TRANSIT", "budgetLevel": "LOW", "interestTags": ["SCENIC", "MUSEUM", "LOCAL"], "durationMinutes": 480, "hour": 8},
+    {"routeGoal": "LOCAL", "transportProfile": "WALK_BUS", "budgetLevel": "LOW", "interestTags": ["LOCAL", "FOOD_LOCAL_FLAVOR", "SHOPPING"], "durationMinutes": 420, "hour": 15},
+    {"routeGoal": "CLASSIC", "transportProfile": "WALK_ONLY", "budgetLevel": "LOW", "interestTags": ["SCENIC", "MUSEUM", "FOOD_LOCAL_FLAVOR"], "durationMinutes": 360, "hour": 9},
 ]

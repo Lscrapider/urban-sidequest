@@ -33,7 +33,7 @@ judge_model
 judge_prompt_version
 ```
 
-训练按 `candidate_set_id` 对齐 route X 与 judgment。每条 completed judgment 会生成一组 `LabeledCandidateSet`；pair 只在同一 `candidate_set_id` 内构造，train/valid/test 也按 `candidate_set_id` 切分。
+训练按 `candidate_set_id` 对齐 route X 与 judgment。每条 completed judgment 会生成一组 `LabeledCandidateSet`；pair 只在同一 `candidate_set_id` 内构造，train/valid/test 也按 `candidate_set_id` 稳定哈希切分，避免新增数据后旧 candidate set 在验证集和测试集之间漂移。
 
 ## 输出
 
@@ -78,16 +78,17 @@ RUN_MODE = "train"        # 真实训练，读取 PostgreSQL
 
 feature_schema_version = "route_pref_v4"
 output_dir = PROJECT_ROOT / "tmp" / "route-pref-training-output"
-epochs = 20
-batch_candidate_sets = 8
+epochs = 12
+batch_candidate_sets = 12
 lr = 8e-4
-weight_decay = 5e-4
+weight_decay = 1e-3
 dropout = 0.25
-lambda_goodness = 0.80
-lambda_reason = 0.35
+lambda_goodness = 0.60
+lambda_reason = 0.025
 best_metric = "valid/weightedPairwiseAccuracy"
+patience = 3
 reason_pos_weight_cap = 6.0
-reason_pos_weight_min_support = 30
+reason_pos_weight_min_support = 40
 goodness_pos_weight_cap = 0.0
 ```
 

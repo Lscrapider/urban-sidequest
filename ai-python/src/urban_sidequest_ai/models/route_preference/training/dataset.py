@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import logging
 import random
@@ -161,26 +162,94 @@ def split_by_candidate_set(
     if ratio_sum <= 0:
         raise ValueError("数据切分比例之和必须大于 0")
     candidate_set_ids = sorted({group.candidate_set_id for group in groups})
-    rng = random.Random(seed)
-    rng.shuffle(candidate_set_ids)
     total = len(candidate_set_ids)
     if total < MIN_SPLIT_GROUPS_WITH_TEST:
-        valid_count = 1 if total > 1 else 0
-        test_count = 0
+        train_ids, valid_ids, test_ids = _count_split_by_stable_hash(
+            candidate_set_ids,
+            seed,
+            ratio_sum,
+            train_ratio,
+            valid_ratio,
+            test_ratio,
+            allow_test=False,
+        )
     else:
-        valid_count = max(1, round(total * valid_ratio / ratio_sum))
-        test_count = max(1, round(total * test_ratio / ratio_sum))
-        if valid_count + test_count >= total:
-            test_count = max(0, total - valid_count - 1)
-    train_count = max(total - valid_count - test_count, 0)
-    train_ids = set(candidate_set_ids[:train_count])
-    valid_ids = set(candidate_set_ids[train_count : train_count + valid_count])
-    test_ids = set(candidate_set_ids[train_count + valid_count :])
+        train_ids, valid_ids, test_ids = _threshold_split_by_stable_hash(
+            candidate_set_ids,
+            seed,
+            ratio_sum,
+            train_ratio,
+            valid_ratio,
+        )
+        if not train_ids or not valid_ids or not test_ids:
+            train_ids, valid_ids, test_ids = _count_split_by_stable_hash(
+                candidate_set_ids,
+                seed,
+                ratio_sum,
+                train_ratio,
+                valid_ratio,
+                test_ratio,
+                allow_test=True,
+            )
     return SplitBundle(
         train=tuple(group for group in groups if group.candidate_set_id in train_ids),
         valid=tuple(group for group in groups if group.candidate_set_id in valid_ids),
         test=tuple(group for group in groups if group.candidate_set_id in test_ids),
     )
+
+
+def _threshold_split_by_stable_hash(
+    candidate_set_ids: list[str],
+    seed: int,
+    ratio_sum: float,
+    train_ratio: float,
+    valid_ratio: float,
+) -> tuple[set[str], set[str], set[str]]:
+    train_cut = train_ratio / ratio_sum
+    valid_cut = (train_ratio + valid_ratio) / ratio_sum
+    train_ids: set[str] = set()
+    valid_ids: set[str] = set()
+    test_ids: set[str] = set()
+    for candidate_set_id in candidate_set_ids:
+        score = _stable_split_score(candidate_set_id, seed)
+        if score < train_cut:
+            train_ids.add(candidate_set_id)
+        elif score < valid_cut:
+            valid_ids.add(candidate_set_id)
+        else:
+            test_ids.add(candidate_set_id)
+    return train_ids, valid_ids, test_ids
+
+
+def _count_split_by_stable_hash(
+    candidate_set_ids: list[str],
+    seed: int,
+    ratio_sum: float,
+    train_ratio: float,
+    valid_ratio: float,
+    test_ratio: float,
+    allow_test: bool,
+) -> tuple[set[str], set[str], set[str]]:
+    ordered_ids = sorted(candidate_set_ids, key=lambda value: (_stable_split_score(value, seed), value))
+    total = len(ordered_ids)
+    valid_count = 1 if total > 1 else 0
+    test_count = 0
+    if allow_test:
+        valid_count = max(1, round(total * valid_ratio / ratio_sum))
+        test_count = max(1, round(total * test_ratio / ratio_sum))
+        if valid_count + test_count >= total:
+            test_count = max(0, total - valid_count - 1)
+    train_count = max(total - valid_count - test_count, 0)
+    return (
+        set(ordered_ids[:train_count]),
+        set(ordered_ids[train_count : train_count + valid_count]),
+        set(ordered_ids[train_count + valid_count :]),
+    )
+
+
+def _stable_split_score(candidate_set_id: str, seed: int) -> float:
+    digest = hashlib.sha256(f"{seed}:{candidate_set_id}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") / float(1 << 64)
 
 
 def iter_batches(

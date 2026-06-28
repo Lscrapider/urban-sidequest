@@ -154,30 +154,9 @@ public class RouteGenerationPipeline {
 
     private void executeStep(String stepName, RouteGenerationContext context, RouteGenerationStep step) {
         long startedAt = System.nanoTime();
-        LOGGER.info(
-                "路线生成 step 开始，candidateSetId={}，step={}，poiCandidates={}，candidateRoutes={}，selectedRoutes={}，segmentCosts={}，warnings={}",
-                context.getCandidateSetId(),
-                stepName,
-                context.getPoiCandidates().size(),
-                context.getCandidateRoutes().size(),
-                context.getSelectedRoutes().size(),
-                context.getSegmentCosts().size(),
-                context.getWarnings().size()
-        );
         try {
             step.execute(context);
         } finally {
-            LOGGER.info(
-                    "路线生成 step 结束，candidateSetId={}，step={}，elapsedMs={}，poiCandidates={}，candidateRoutes={}，selectedRoutes={}，segmentCosts={}，warnings={}",
-                    context.getCandidateSetId(),
-                    stepName,
-                    this.elapsedMillis(startedAt),
-                    context.getPoiCandidates().size(),
-                    context.getCandidateRoutes().size(),
-                    context.getSelectedRoutes().size(),
-                    context.getSegmentCosts().size(),
-                    context.getWarnings().size()
-            );
         }
     }
 

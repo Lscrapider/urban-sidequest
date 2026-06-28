@@ -72,8 +72,9 @@ ROUTE_PREF_DB_CONNECT_TIMEOUT=
 ```json
 {
   "judge": {
-    "promptVersion": "llm-sim-user-v5-personal-review",
+    "promptVersion": "llm-sim-user-v7-reason-audit",
     "judgesPerCandidateSet": 2,
+    "candidateSetJudgeConcurrency": 2,
     "fullJudgeRatio": 1,
     "maxRetries": 1,
     "timeoutSeconds": 300,
@@ -140,6 +141,7 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 - `judge.fullJudgeRatio` 表示进入多评判的 candidate set 比例；未命中时只评价 1 次，命中后按 `judge.judgesPerCandidateSet` 评价多次。
 - 当前主路径是 New API 单入口，所以 `judgesPerCandidateSet=2`、`fullJudgeRatio=0.1` 表示约 10% 的 candidate set 会调用 2 次 New API；`judgesPerCandidateSet=2`、`fullJudgeRatio=1` 表示每个 candidate set 都调用 2 次 New API。
 - New API 单入口会按 `judgesPerCandidateSet` 重复调用同一个入口完成多评判。
+- `judge.candidateSetJudgeConcurrency` 只控制同一个 candidate set 内这些重复 judge 的并发数；缺省为 1，保持原来的串行行为。实际并发仍受全局 `--judge-concurrency` 或 `run_once.py` 里的 `JUDGE_CONCURRENCY` 限制。
 - LLM timeout 使用 `judge.timeoutSeconds`，默认 300 秒。请求已经产生 token 成本，不建议随意调低。
 - `judge.maxRetries` 表示每个 LLM 配置在一次 judgment 内除首次调用外的额外重试次数；primary 仍失败后，最多尝试 3 个其他 LLM，每个 fallback 也按同样次数重试。
 
@@ -181,7 +183,7 @@ LOW / NORMAL / FLEXIBLE
 
 模拟用户 prompt 会把本次 request 当作当前强意图，把 persona 当作长期偏好背景。例如距离敏感用户这次选择 `WALK_TAXI` 时，prompt 会表达“愿意为了更值得的地点出远门，但无意义绕路和折返仍应降分”。餐饮兴趣按整体是否对味判断：如果本次选择 `FOOD_SICHUAN`，可以接受近似风味、同父类餐饮、饭点安排和整体路线质量形成的合理替代，但不能只因为是普通 FOOD 或表面标签命中就算完全满足。
 
-当前 `llm-sim-user-v5-personal-review` 会要求 LLM 先输出 `personalReview`，用第一人称写出作为漫步者的真实取舍，再输出 ranking 和 reasonCodes。该字段只用于人工查看和 dry-run 输出，不写入 Java judgment 接口，也不进入训练标签。
+当前 `llm-sim-user-v7-reason-audit` 会要求 LLM 先输出 `personalReview`，用第一人称写出作为漫步者的真实取舍，再输出 ranking 和 reasonCodes；同时不再把 reasonCodes 描述为弱解释，并要求对每条 rejectedRouteCodes 逐项审计 9 类 reason code，避免削弱结构化拒绝原因。该字段只用于人工查看和 dry-run 输出，不写入 Java judgment 接口，也不进入训练标签。
 
 reason code 固定为 9 个：
 
@@ -196,6 +198,15 @@ REPETITIVE_POI_TYPE
 BUDGET_MISMATCH
 HIGH_ROUTE_RISK
 ```
+
+reasonCodes 审计要求：
+
+- 对每条 rejectedRouteCodes 中的路线逐项检查 9 类问题。
+- 有明确证据才写入对应 code；没有明确证据不要为了凑数添加。
+- HIGH_ROUTE_RISK 只用于路线能不能顺利执行的不确定性，例如 fallback、营业时间不确定、夜间可玩性不确定、天气/交通风险、POI 信息严重缺失、路线警告、交通估算缺失。
+- 单纯距离远优先标 HIGH_FATIGUE，不标 HIGH_ROUTE_RISK。
+- 单纯绕路优先标 BAD_SPATIAL_FLOW，不标 HIGH_ROUTE_RISK。
+- 单纯饭点不顺优先标 BAD_TIME_STRUCTURE，不标 HIGH_ROUTE_RISK。
 
 未知 reason code 会导致本次 LLM 输出校验失败，并触发 fallback；所有 fallback 都失败时，该 judgment 不保存。
 
@@ -214,7 +225,7 @@ POST /api/route-preferences/judgments
   "candidateSetId": "...",
   "judgeType": "LLM_SIM_USER",
   "judgeModel": "kimi-k2.6",
-  "judgePromptVersion": "llm-sim-user-v5-personal-review",
+  "judgePromptVersion": "llm-sim-user-v7-reason-audit",
   "ranking": ["A", "B", "C"],
   "acceptedRouteCodes": ["A"],
   "rejectedRouteCodes": ["C"],

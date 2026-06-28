@@ -36,6 +36,7 @@ class LlmConfig:
 class JudgeConfig:
     prompt_version: str
     judges_per_candidate_set: int
+    candidate_set_judge_concurrency: int
     full_judge_ratio: float
     max_retries: int
     timeout_seconds: int
@@ -67,9 +68,15 @@ def load_config(path: Path | None = None, require_api_key: bool = True) -> AppCo
     judge_raw = raw.get("judge")
     if not isinstance(judge_raw, dict):
         raise ValueError("config.json 缺少 judge 配置对象")
+    candidate_set_judge_concurrency = (
+        int(judge_raw["candidateSetJudgeConcurrency"])
+        if "candidateSetJudgeConcurrency" in judge_raw
+        else 1
+    )
     judge = JudgeConfig(
         prompt_version=str(_required_json(judge_raw, "promptVersion")),
         judges_per_candidate_set=int(_required_json(judge_raw, "judgesPerCandidateSet")),
+        candidate_set_judge_concurrency=candidate_set_judge_concurrency,
         full_judge_ratio=float(_required_json(judge_raw, "fullJudgeRatio")),
         max_retries=int(_required_json(judge_raw, "maxRetries")),
         timeout_seconds=int(_required_json(judge_raw, "timeoutSeconds")),
@@ -78,6 +85,8 @@ def load_config(path: Path | None = None, require_api_key: bool = True) -> AppCo
     )
     if judge.judges_per_candidate_set < 1:
         raise ValueError("judgesPerCandidateSet 必须 >= 1")
+    if judge.candidate_set_judge_concurrency < 1:
+        raise ValueError("candidateSetJudgeConcurrency 必须 >= 1")
     if not 0 <= judge.full_judge_ratio <= 1:
         raise ValueError("fullJudgeRatio 必须在 [0, 1]")
     if judge.max_retries < 0:
