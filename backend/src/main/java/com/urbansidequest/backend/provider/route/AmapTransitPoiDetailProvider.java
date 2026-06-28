@@ -26,7 +26,7 @@ public class AmapTransitPoiDetailProvider implements PoiDetailProvider {
 
     private static final int PAGE_SIZE = 25;
 
-    private static final int MAX_PAGE_NUM = 4;
+    private static final int MAX_PAGE_NUM = 2;
 
     private static final int BOUNDS_BUFFER_METERS = 500;
 
