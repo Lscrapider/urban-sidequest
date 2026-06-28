@@ -72,8 +72,9 @@ def _goodness_loss(output: RoutePreferenceOutput, batch: TensorBatch, pos_weight
         reduction="none",
         pos_weight=weight,
     )
-    masked_loss = raw_loss * batch.goodness_mask
-    return masked_loss.sum() / batch.goodness_mask.sum().clamp_min(1.0)
+    sample_weight = batch.goodness_mask * batch.goodness_weight_raw
+    masked_loss = raw_loss * sample_weight
+    return masked_loss.sum() / sample_weight.sum().clamp_min(1.0)
 
 
 def _reason_loss(
@@ -94,6 +95,7 @@ def _reason_loss(
         reduction="none",
         pos_weight=weight,
     )
-    masked_loss = raw_loss * batch.reason_mask.unsqueeze(-1)
-    denominator = (batch.reason_mask.sum() * len(REASON_CODES)).clamp_min(1.0)
+    sample_weight = batch.reason_mask * batch.reason_weight_raw
+    masked_loss = raw_loss * sample_weight.unsqueeze(-1)
+    denominator = (sample_weight.sum() * len(REASON_CODES)).clamp_min(1.0)
     return masked_loss.sum() / denominator

@@ -35,12 +35,14 @@ class LlmConfig:
 @dataclass(frozen=True)
 class JudgeConfig:
     prompt_version: str
-    judges_per_candidate_set: int
+    multi_judge_enabled: bool
+    judge_count: int
     candidate_set_judge_concurrency: int
     full_judge_ratio: float
     max_retries: int
     timeout_seconds: int
     temperature: float
+    multi_judge_temperatures: tuple[float, float, float]
     seed: int | None
 
 
@@ -68,6 +70,12 @@ def load_config(path: Path | None = None, require_api_key: bool = True) -> AppCo
     judge_raw = raw.get("judge")
     if not isinstance(judge_raw, dict):
         raise ValueError("config.json 缺少 judge 配置对象")
+    multi_judge_enabled, judge_count = _parse_judge_count(_required_json(judge_raw, "judgesPerCandidateSet"))
+    temperature = float(_required_json(judge_raw, "temperature"))
+    multi_judge_temperatures = _parse_multi_judge_temperatures(
+        judge_raw.get("multiJudgeTemperatures"),
+        temperature,
+    )
     candidate_set_judge_concurrency = (
         int(judge_raw["candidateSetJudgeConcurrency"])
         if "candidateSetJudgeConcurrency" in judge_raw
@@ -75,16 +83,16 @@ def load_config(path: Path | None = None, require_api_key: bool = True) -> AppCo
     )
     judge = JudgeConfig(
         prompt_version=str(_required_json(judge_raw, "promptVersion")),
-        judges_per_candidate_set=int(_required_json(judge_raw, "judgesPerCandidateSet")),
+        multi_judge_enabled=multi_judge_enabled,
+        judge_count=judge_count,
         candidate_set_judge_concurrency=candidate_set_judge_concurrency,
-        full_judge_ratio=float(_required_json(judge_raw, "fullJudgeRatio")),
+        full_judge_ratio=float(judge_raw.get("fullJudgeRatio", 1.0)),
         max_retries=int(_required_json(judge_raw, "maxRetries")),
         timeout_seconds=int(_required_json(judge_raw, "timeoutSeconds")),
-        temperature=float(_required_json(judge_raw, "temperature")),
+        temperature=temperature,
+        multi_judge_temperatures=multi_judge_temperatures,
         seed=_optional_int(_required_json(judge_raw, "seed", allow_none=True)),
     )
-    if judge.judges_per_candidate_set < 1:
-        raise ValueError("judgesPerCandidateSet 必须 >= 1")
     if judge.candidate_set_judge_concurrency < 1:
         raise ValueError("candidateSetJudgeConcurrency 必须 >= 1")
     if not 0 <= judge.full_judge_ratio <= 1:
@@ -151,3 +159,25 @@ def _optional_int(value) -> int | None:
     if value is None or value == "":
         return None
     return int(value)
+
+
+def _parse_judge_count(value) -> tuple[bool, int]:
+    if isinstance(value, bool):
+        return value, 3 if value else 1
+    count = int(value)
+    if count < 1:
+        raise ValueError("judgesPerCandidateSet 必须为 boolean，或兼容旧配置的正整数")
+    return count > 1, count
+
+
+def _parse_multi_judge_temperatures(value, single_temperature: float) -> tuple[float, float, float]:
+    if value is None:
+        return (single_temperature, 0.5, 1.0)
+    if not isinstance(value, list) or len(value) != 3:
+        raise ValueError("multiJudgeTemperatures 必须是 3 个数字的数组")
+    temperatures = tuple(float(item) for item in value)
+    if any(item < 0 for item in temperatures):
+        raise ValueError("multiJudgeTemperatures 不能包含负数")
+    if single_temperature not in temperatures:
+        raise ValueError("multiJudgeTemperatures 必须包含 judge.temperature，保留 k=1 温度")
+    return temperatures

@@ -12,6 +12,7 @@ from .schema import (
     DEFAULT_SOURCE_WEIGHT,
     HEAD_PAIR_DEPTH,
     MIN_PAIR_WEIGHT_DENOMINATOR,
+    PAIR_DIRECTION_MARGIN_MIN,
     SOURCE_WEIGHTS,
 )
 
@@ -41,7 +42,7 @@ def build_pairwise_samples(
         return []
 
     source_weight = SOURCE_WEIGHTS.get(judge_type, DEFAULT_SOURCE_WEIGHT)
-    confidence_clipped = min(max(confidence if confidence is not None else DEFAULT_CONFIDENCE, CONFIDENCE_FLOOR), 1.0)
+    confidence_clipped = clip_confidence(confidence)
     denominator = max(route_count - 1, MIN_PAIR_WEIGHT_DENOMINATOR)
     pairs: dict[tuple[str, str], PairwiseSample] = {}
 
@@ -72,6 +73,62 @@ def build_pairwise_samples(
             _put_pair(pairs, route_index, chosen_code, rejected_code, weight, "accept_reject")
 
     return list(pairs.values())
+
+
+def aggregate_pairwise_samples(
+    route_codes: list[str],
+    pair_samples: list[PairwiseSample],
+    margin_min: float = PAIR_DIRECTION_MARGIN_MIN,
+) -> list[PairwiseSample]:
+    route_index = {route_code: index for index, route_code in enumerate(route_codes)}
+    votes: dict[tuple[str, str], dict[str, float]] = {}
+    for sample in pair_samples:
+        route_a, route_b = sorted((sample.chosen_route_code, sample.rejected_route_code))
+        key = (route_a, route_b)
+        direction = "forward" if sample.chosen_route_code == route_a else "reverse"
+        bucket = votes.setdefault(key, {"forward": 0.0, "reverse": 0.0})
+        bucket[direction] += sample.weight_raw
+
+    aggregated: list[PairwiseSample] = []
+    for (route_a, route_b), bucket in votes.items():
+        forward_weight = bucket["forward"]
+        reverse_weight = bucket["reverse"]
+        total_weight = forward_weight + reverse_weight
+        if total_weight <= 0:
+            continue
+        margin_weight = abs(forward_weight - reverse_weight)
+        margin_ratio = margin_weight / total_weight
+        if margin_ratio < margin_min:
+            continue
+        if forward_weight > reverse_weight:
+            chosen_code = route_a
+            rejected_code = route_b
+            weight = margin_weight
+        elif reverse_weight > forward_weight:
+            chosen_code = route_b
+            rejected_code = route_a
+            weight = margin_weight
+        else:
+            continue
+        aggregated.append(
+            PairwiseSample(
+                chosen_route_code=chosen_code,
+                rejected_route_code=rejected_code,
+                chosen_index=route_index[chosen_code],
+                rejected_index=route_index[rejected_code],
+                weight_raw=weight,
+                pair_type="aggregated",
+            )
+        )
+    return aggregated
+
+
+def judgment_support_weight(judge_type: str, confidence: float | None) -> float:
+    return SOURCE_WEIGHTS.get(judge_type, DEFAULT_SOURCE_WEIGHT) * clip_confidence(confidence)
+
+
+def clip_confidence(confidence: float | None) -> float:
+    return min(max(confidence if confidence is not None else DEFAULT_CONFIDENCE, CONFIDENCE_FLOOR), 1.0)
 
 
 def _pair_weight(
@@ -114,4 +171,3 @@ def _should_replace(current: PairwiseSample, candidate: PairwiseSample) -> bool:
     if current.pair_type == "accept_reject" and candidate.pair_type != "accept_reject":
         return False
     return candidate.weight_raw > current.weight_raw
-

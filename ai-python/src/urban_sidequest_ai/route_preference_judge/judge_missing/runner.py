@@ -70,6 +70,7 @@ def run_missing_judgments(
             index=index,
             total_jobs=len(jobs),
             llm_attempt_groups=llm_attempt_groups,
+            temperature=app_config.judge.temperature,
         )
         if task is None:
             continue
@@ -100,6 +101,7 @@ def build_judgment_task_from_snapshot(
     index: int,
     total_jobs: int,
     llm_attempt_groups: list,
+    temperature: float,
 ) -> JudgmentTask | None:
     route_codes = [
         route.get("routeCode")
@@ -128,8 +130,9 @@ def build_judgment_task_from_snapshot(
         total_jobs=total_jobs,
         candidate_set_id=job.candidate_set_id,
         route_codes=route_codes,
-        user_prompt=user_prompt,
         llm_attempt_groups=llm_attempt_groups,
+        user_prompts=[user_prompt],
+        temperatures=[temperature],
     )
 
 

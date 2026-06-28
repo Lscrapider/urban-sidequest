@@ -19,7 +19,7 @@ class LlmClient:
         self._llm = llm
         self._judge = judge
 
-    def judge(self, user_prompt: str) -> LlmJudgeResult:
+    def judge(self, user_prompt: str, temperature: float | None = None) -> LlmJudgeResult:
         if not self._llm.api_key:
             raise ValueError(f"LLM {self._llm.judge_model} 缺少 apiKey")
         payload = {
@@ -29,7 +29,7 @@ class LlmClient:
                 {"role": "user", "content": user_prompt},
             ],
             "stream": False,
-            "temperature": self._judge.temperature,
+            "temperature": self._judge.temperature if temperature is None else temperature,
             "response_format": {"type": "json_object"},
         }
         response = post_json(

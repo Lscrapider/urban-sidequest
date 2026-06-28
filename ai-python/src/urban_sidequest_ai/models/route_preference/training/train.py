@@ -99,29 +99,29 @@ RUN_MODE = "train"
 TRAIN_CONFIG = TrainingRuntimeConfig(
     feature_schema_version="route_pref_v4",
     output_dir=PROJECT_ROOT / "tmp" / "route-pref-training-output",
-    # 跑多轮观察 loss 是否继续下降；最终导出由 best_metric 决定，避免后段 loss 降但排序指标回落。
-    epochs=20,
+    # 缩短训练上限并配合 early stopping，避免后段 train loss 继续下降但验证排序回落。
+    epochs=12,
     # batch 单位是 candidate_set_id，不是单条 route。
-    batch_candidate_sets=8,
+    batch_candidate_sets=12,
     lr=8e-4,
-    weight_decay=5e-4,
+    weight_decay=1e-3,
     grad_clip_norm=DEFAULT_GRAD_CLIP_NORM,
     hidden_dim=DEFAULT_HIDDEN_DIM,
     reason_hidden_dim=DEFAULT_REASON_HIDDEN_DIM,
     dropout=0.25,
     beta=DEFAULT_RANKING_BETA,
     # 排序是主任务；goodness 辅助头略降权，避免后期牵引共享 encoder 过拟合。
-    lambda_goodness=0.80,
-    # reason 使用 per-code pos_weight 后不再叠加提高 lambda。
-    lambda_reason=0.35,
+    lambda_goodness=0.60,
+    # reason 只作为轻量辅助头；0.35 会明显恢复 reason，但对 ranking 主任务有拖累。
+    lambda_reason=0.025,
     seed=DEFAULT_RANDOM_SEED,
     skip_invalid_judgments=False,
     skip_onnx=True,
     device="cpu",
-    # 以验证集加权 pairwise 为主选最佳轮；更贴近同一 candidate_set 内排序质量。
+    # 直接按主排序指标选轮，验证是否比 ranking loss 选轮更贴近线上排序目标。
     best_metric="valid/weightedPairwiseAccuracy",
-    # patience=0 表示只选最优轮、不提前中断；如要早停可改为 2 或 3。
-    patience=0,
+    # 连续 3 轮验证主排序指标不改善则提前停止，减少后段过拟合训练。
+    patience=3,
     min_delta=0.0,
     # 学习率调度默认关闭；可选 "none"、"cosine"、"plateau"。
     lr_scheduler="cosine",
@@ -132,7 +132,7 @@ TRAIN_CONFIG = TrainingRuntimeConfig(
     # 只用训练集统计 reason 正样本权重；cap 限制极端不平衡 code 的放大倍数。
     reason_pos_weight_cap=6.0,
     # 正样本太少的 reason code 不放大，避免 HIGH_ROUTE_RISK 这类低支持度噪声被高权重牵引。
-    reason_pos_weight_min_support=30,
+    reason_pos_weight_min_support=40,
     # goodness 先不加正样本权重；若 accepted/rejected 明显失衡，再改为 3.0 试。
     goodness_pos_weight_cap=0.0,
 )
@@ -270,23 +270,25 @@ def _compute_reason_pos_weight(
     if cap <= 0:
         return None
     required_support = max(min_support, 1)
-    pos = [0] * len(REASON_CODES)
-    neg = [0] * len(REASON_CODES)
+    pos_count = [0] * len(REASON_CODES)
+    pos_weight = [0.0] * len(REASON_CODES)
+    neg_weight = [0.0] * len(REASON_CODES)
     for group in groups:
         for item in group.items:
             if item.reason_mask:
                 for index, label in enumerate(item.reason_labels):
                     if label >= 0.5:
-                        pos[index] += 1
+                        pos_count[index] += 1
+                        pos_weight[index] += item.reason_weight_raw
                     else:
-                        neg[index] += 1
+                        neg_weight[index] += item.reason_weight_raw
     weights = []
     for index in range(len(REASON_CODES)):
-        # 支持度不足的 code 不放大，避免少量噪声样本被高权重牵引。
-        if pos[index] < required_support:
+        # min_support 按正样本条数判断；pos/neg 比值按聚合后的 route-level weight 计算。
+        if pos_count[index] < required_support or pos_weight[index] <= 0:
             weights.append(1.0)
         else:
-            weights.append(min(neg[index] / pos[index], cap))
+            weights.append(min(neg_weight[index] / pos_weight[index], cap))
     return tuple(weights)
 
 
@@ -296,15 +298,15 @@ def _compute_goodness_pos_weight(
 ) -> float | None:
     if cap <= 0:
         return None
-    pos = 0
-    neg = 0
+    pos = 0.0
+    neg = 0.0
     for group in groups:
         for item in group.items:
             if item.goodness_mask:
                 if item.goodness_label >= 0.5:
-                    pos += 1
+                    pos += item.goodness_weight_raw
                 else:
-                    neg += 1
+                    neg += item.goodness_weight_raw
     if not pos:
         return None
     return min(neg / pos, cap)
@@ -523,8 +525,10 @@ def synthetic_bundle() -> DatasetBundle:
                     is_rejected=is_rejected,
                     goodness_label=1.0 if is_accepted else 0.0,
                     goodness_mask=1.0 if is_accepted or is_rejected else 0.0,
+                    goodness_weight_raw=1.0 if is_accepted or is_rejected else 0.0,
                     reason_labels=tuple(labels),
                     reason_mask=1.0 if route_code in reason_codes else 0.0,
+                    reason_weight_raw=1.0 if route_code in reason_codes else 0.0,
                 )
             )
         pairs = build_pairwise_samples(route_codes, ranking, accepted, rejected, "LLM_SIM_USER", 0.8)

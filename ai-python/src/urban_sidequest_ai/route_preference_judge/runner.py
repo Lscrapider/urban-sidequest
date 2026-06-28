@@ -41,8 +41,9 @@ class JudgmentTask:
     total_jobs: int
     candidate_set_id: str
     route_codes: list[str]
-    user_prompt: str
     llm_attempt_groups: list
+    user_prompts: list[str]
+    temperatures: list[float]
 
 
 @dataclass(frozen=True)
@@ -65,12 +66,15 @@ def run(
     dry_run: bool = False,
     concurrency: int = 1,
     judge_concurrency: int | None = None,
+    multi_judge_ratio: float = 1.0,
 ) -> RunStats:
     if concurrency < 1:
         raise ValueError("concurrency 必须 >= 1")
     judge_concurrency = judge_concurrency or concurrency
     if judge_concurrency < 1:
         raise ValueError("judge_concurrency 必须 >= 1")
+    if not 0.0 <= multi_judge_ratio <= 1.0:
+        raise ValueError("multi_judge_ratio 必须在 [0, 1]")
     rng = random.Random(config.judge.seed)
     backend = BackendClient(config.backend)
     if not dry_run:
@@ -83,9 +87,11 @@ def run(
     for index, job in enumerate(jobs, start=1):
         persona = job.get("persona")
         route_request = build_route_request(job, persona)
-        selected_llms, llm_cursor = select_llms(config, rng, llm_order, llm_cursor)
+        judge_count = select_judge_count(config, rng, multi_judge_ratio)
+        selected_llms, llm_cursor = select_llms(config, llm_order, llm_cursor, judge_count)
         llm_attempt_groups = [llm_attempt_candidates(config, llm, rng) for llm in selected_llms]
-        job_inputs.append((index, persona, route_request, llm_attempt_groups))
+        prompt_seed = rng.randrange(1 << 63)
+        job_inputs.append((index, persona, route_request, llm_attempt_groups, prompt_seed))
 
     route_results: list[RouteJobResult] = []
     judgment_results: list[JobResult] = []
@@ -128,6 +134,7 @@ def _run_route_job(
     persona: dict | None,
     route_request: dict,
     llm_attempt_groups,
+    prompt_seed: int,
 ) -> RouteJobResult:
     _print_stderr(f"[{index}/{total_jobs}] 生成路线...")
     failed = 0
@@ -179,10 +186,12 @@ def _run_route_job(
         )
         return RouteJobResult(RunStats(route_requests=1, candidate_sets=candidate_sets), [])
 
-    user_prompt = build_user_prompt(route_request, route_generation, persona)
+    prompt_rng = random.Random(prompt_seed)
+    user_prompts = build_judge_prompts(route_request, route_generation, persona, len(llm_attempt_groups), prompt_rng)
+    temperatures = judge_temperatures(config, len(llm_attempt_groups))
     _print_stderr(
         f"[{index}/{total_jobs}] candidateSetId={candidate_set_id} "
-        f"routes={route_codes} judges={len(llm_attempt_groups)}"
+        f"routes={route_codes} judges={len(llm_attempt_groups)} temperatures={temperatures}"
     )
     _print_stderr(f"[{index}/{total_jobs}] LLM prompt 构建完毕，提交异步模拟用户评价任务...")
     return RouteJobResult(
@@ -193,8 +202,9 @@ def _run_route_job(
                 total_jobs=total_jobs,
                 candidate_set_id=candidate_set_id,
                 route_codes=route_codes,
-                user_prompt=user_prompt,
                 llm_attempt_groups=llm_attempt_groups,
+                user_prompts=user_prompts,
+                temperatures=temperatures,
             )
         ],
     )
@@ -222,6 +232,8 @@ def _run_judgment_task(
             llm_candidates,
             judge_index,
             len(task.llm_attempt_groups),
+            task.user_prompts[judge_index - 1],
+            task.temperatures[judge_index - 1],
         )
         stdout_payloads.extend(result.stdout_payloads)
         saved += result.stats.judgments_saved
@@ -268,6 +280,8 @@ def _submit_judgment_task(
             llm_candidates,
             judge_index,
             len(task.llm_attempt_groups),
+            task.user_prompts[judge_index - 1],
+            task.temperatures[judge_index - 1],
             semaphore,
         )
         for judge_index, llm_candidates in enumerate(task.llm_attempt_groups, start=1)
@@ -282,6 +296,8 @@ def _run_judgment_group_with_semaphore(
     llm_candidates,
     judge_index: int,
     judge_total: int,
+    user_prompt: str,
+    temperature: float,
     semaphore: Semaphore,
 ) -> JobResult:
     with semaphore:
@@ -293,6 +309,8 @@ def _run_judgment_group_with_semaphore(
             llm_candidates,
             judge_index,
             judge_total,
+            user_prompt,
+            temperature,
         )
 
 
@@ -304,6 +322,8 @@ def _run_judgment_group(
     llm_candidates,
     judge_index: int,
     judge_total: int,
+    user_prompt: str,
+    temperature: float,
 ) -> JobResult:
     stdout_payloads = []
     saved = 0
@@ -316,16 +336,16 @@ def _run_judgment_group(
     judgment_model_id = primary_llm.judge_model
     if dry_run:
         judgment = fake_judgment(task.route_codes)
-        _print_stderr(f"[{index}/{total_jobs}] dry-run judgment 已生成 {judge_label}")
+        _print_stderr(f"[{index}/{total_jobs}] dry-run judgment 已生成 {judge_label} temperature={temperature}")
     else:
         for attempt_index, llm in enumerate(llm_candidates, start=1):
             try:
                 llm_started_at = monotonic()
                 _print_stderr(
                     f"[{index}/{total_jobs}] 调用 LLM 获取评价: {llm.judge_model} "
-                    f"{judge_label} apiAttempt={attempt_index}/{len(llm_candidates)}"
+                    f"{judge_label} temperature={temperature} apiAttempt={attempt_index}/{len(llm_candidates)}"
                 )
-                judgment, response_model = call_once(llm, config, task.user_prompt, task.route_codes)
+                judgment, response_model = call_once(llm, config, user_prompt, task.route_codes, temperature)
                 judgment_model_id = response_model or llm.judge_model
                 _print_stderr(
                     f"[{index}/{total_jobs}] LLM 评价返回且校验通过: {llm.judge_model} "
@@ -432,15 +452,61 @@ def _unwrap_route_generation(response: dict) -> dict:
     return response
 
 
-def select_llms(config: AppConfig, rng: random.Random, llm_order: list, llm_cursor: int):
+def select_judge_count(config: AppConfig, rng: random.Random, multi_judge_ratio: float) -> int:
+    if not config.judge.multi_judge_enabled:
+        return 1
+    if rng.random() < multi_judge_ratio:
+        return config.judge.judge_count
+    return 1
+
+
+def select_llms(config: AppConfig, llm_order: list, llm_cursor: int, judge_count: int | None = None):
     if not llm_order:
         return [], llm_cursor
 
-    # fullJudgeRatio 控制进入多评判的 candidate set 比例；命中后按 judgesPerCandidateSet
-    # 发起多次评价。New API 单入口时会重复选择同一个 LLM 配置，从而真实调用多次 New API。
-    count = config.judge.judges_per_candidate_set if rng.random() < config.judge.full_judge_ratio else 1
+    count = judge_count if judge_count is not None else config.judge.judge_count
     selected = [llm_order[(llm_cursor + offset) % len(llm_order)] for offset in range(count)]
     return selected, llm_cursor + count
+
+
+def judge_temperatures(config: AppConfig, judge_count: int) -> list[float]:
+    if judge_count <= 1:
+        return [config.judge.temperature]
+    temperatures = list(config.judge.multi_judge_temperatures)
+    if judge_count <= len(temperatures):
+        return temperatures[:judge_count]
+    return temperatures + [temperatures[-1]] * (judge_count - len(temperatures))
+
+
+def build_judge_prompts(
+    route_request: dict,
+    route_generation: dict,
+    persona: dict | None,
+    judge_count: int,
+    rng: random.Random,
+) -> list[str]:
+    prompts = []
+    routes = list(route_generation.get("routes") or [])
+    for judge_index in range(judge_count):
+        prompt_route_generation = deepcopy(route_generation)
+        if judge_count > 1 and judge_index > 0:
+            prompt_routes = shuffled_routes(routes, rng)
+        else:
+            prompt_routes = routes
+        prompt_route_generation["routes"] = prompt_routes
+        prompts.append(build_user_prompt(route_request, prompt_route_generation, persona))
+    return prompts
+
+
+def shuffled_routes(routes: list, rng: random.Random) -> list:
+    shuffled = list(routes)
+    if len(shuffled) <= 1:
+        return shuffled
+    for _ in range(5):
+        rng.shuffle(shuffled)
+        if shuffled != routes:
+            return shuffled
+    return shuffled
 
 
 def llm_attempt_candidates(config: AppConfig, primary_llm, rng: random.Random):
@@ -463,9 +529,15 @@ def retry_expanded_attempt_candidates(llm_candidates: list, max_retries: int) ->
     ]
 
 
-def call_once(llm, config: AppConfig, user_prompt: str, route_codes: list[str]) -> tuple[dict, str | None]:
+def call_once(
+    llm,
+    config: AppConfig,
+    user_prompt: str,
+    route_codes: list[str],
+    temperature: float,
+) -> tuple[dict, str | None]:
     client = LlmClient(llm, config.judge)
-    result = client.judge(user_prompt)
+    result = client.judge(user_prompt, temperature=temperature)
     try:
         return validate_judgment(result.judgment, route_codes), result.response_model
     except Exception as validation_exception:

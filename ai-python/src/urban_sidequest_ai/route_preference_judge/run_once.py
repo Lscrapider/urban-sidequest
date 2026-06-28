@@ -20,8 +20,11 @@ else:
 
 CONFIG_FILE = BASE_DIR / "config.json"
 REQUESTS_FILE = BASE_DIR / "requests.json"
-ROUTE_CONCURRENCY = 3
-JUDGE_CONCURRENCY = 2
+ROUTE_CONCURRENCY = 5
+JUDGE_CONCURRENCY = 4
+# 仅当 config.json 里 judgesPerCandidateSet=true 时生效：
+# 1.0 表示全部 route 走 3 个 LLM judge；0.6 表示约 60% 走 3 judge，其余走单 judge。
+MULTI_JUDGE_RATIO = 0.6
 
 
 def ensure_requests_file() -> None:
@@ -46,6 +49,7 @@ def main() -> int:
         dry_run=False,
         concurrency=ROUTE_CONCURRENCY,
         judge_concurrency=JUDGE_CONCURRENCY,
+        multi_judge_ratio=MULTI_JUDGE_RATIO,
     )
     print(
         "完成："

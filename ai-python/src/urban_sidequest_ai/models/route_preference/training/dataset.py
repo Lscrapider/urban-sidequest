@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 import hashlib
 import json
@@ -9,7 +10,7 @@ from typing import Any, Iterable
 
 import torch
 
-from .pairs import PairwiseSample, build_pairwise_samples
+from .pairs import PairwiseSample, aggregate_pairwise_samples, build_pairwise_samples, judgment_support_weight
 from .repository import JudgmentRow, TrainingSampleRow
 from .schema import (
     DatasetSplit,
@@ -48,8 +49,10 @@ class RouteTrainingItem:
     is_rejected: bool
     goodness_label: float
     goodness_mask: float
+    goodness_weight_raw: float
     reason_labels: tuple[float, ...]
     reason_mask: float
+    reason_weight_raw: float
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,16 @@ class LabeledCandidateSet:
     confidence: float
     items: tuple[RouteTrainingItem, ...]
     pairs: tuple[PairwiseSample, ...]
+
+
+@dataclass(frozen=True)
+class ParsedJudgment:
+    row: JudgmentRow
+    ranking: list[str]
+    accepted: list[str]
+    rejected: list[str]
+    reason_codes: dict[str, list[str]]
+    support_weight: float
 
 
 @dataclass(frozen=True)
@@ -86,8 +99,10 @@ class TensorBatch:
     context_cross_vector: torch.Tensor
     goodness_label: torch.Tensor
     goodness_mask: torch.Tensor
+    goodness_weight_raw: torch.Tensor
     reason_labels: torch.Tensor
     reason_mask: torch.Tensor
+    reason_weight_raw: torch.Tensor
     pair_chosen_index: torch.Tensor
     pair_rejected_index: torch.Tensor
     pair_weight_raw: torch.Tensor
@@ -110,19 +125,26 @@ def build_dataset_bundle(
     samples_by_candidate_set = _samples_by_candidate_set(sample_rows, feature_spec)
     groups: list[LabeledCandidateSet] = []
     skipped: list[str] = []
-
+    judgments_by_candidate_set: dict[str, list[JudgmentRow]] = defaultdict(list)
     for judgment in judgment_rows:
-        route_inputs = samples_by_candidate_set.get(judgment.candidate_set_id)
+        judgments_by_candidate_set[judgment.candidate_set_id].append(judgment)
+
+    for candidate_set_id, judgments in sorted(judgments_by_candidate_set.items()):
+        route_inputs = samples_by_candidate_set.get(candidate_set_id)
         if not route_inputs:
             continue
-        try:
-            groups.append(_build_labeled_candidate_set(judgment, route_inputs))
-        except ValueError as exception:
-            message = f"judgmentId={judgment.judgment_id} candidateSetId={judgment.candidate_set_id}: {exception}"
-            if invalid_judgment_policy == InvalidJudgmentPolicy.FAIL:
-                raise ValueError(message) from exception
-            LOGGER.warning("跳过无效 judgment: %s", message)
-            skipped.append(message)
+        parsed_judgments: list[ParsedJudgment] = []
+        for judgment in judgments:
+            try:
+                parsed_judgments.append(_parse_judgment(judgment, sorted(route_inputs)))
+            except ValueError as exception:
+                message = f"judgmentId={judgment.judgment_id} candidateSetId={judgment.candidate_set_id}: {exception}"
+                if invalid_judgment_policy == InvalidJudgmentPolicy.FAIL:
+                    raise ValueError(message) from exception
+                LOGGER.warning("跳过无效 judgment: %s", message)
+                skipped.append(message)
+        if parsed_judgments:
+            groups.append(_build_labeled_candidate_set(candidate_set_id, parsed_judgments, route_inputs))
 
     if not groups:
         raise ValueError("没有可用于训练的 completed judgment 与训练样本匹配")
@@ -272,8 +294,10 @@ def tensorize_candidate_sets(groups: list[LabeledCandidateSet], device: torch.de
     route_inputs: list[RouteInput] = []
     goodness_label: list[float] = []
     goodness_mask: list[float] = []
+    goodness_weight_raw: list[float] = []
     reason_labels: list[tuple[float, ...]] = []
     reason_mask: list[float] = []
+    reason_weight_raw: list[float] = []
     pair_chosen_index: list[int] = []
     pair_rejected_index: list[int] = []
     pair_weight_raw: list[float] = []
@@ -287,8 +311,10 @@ def tensorize_candidate_sets(groups: list[LabeledCandidateSet], device: torch.de
             route_inputs.append(item.route_input)
             goodness_label.append(item.goodness_label)
             goodness_mask.append(item.goodness_mask)
+            goodness_weight_raw.append(item.goodness_weight_raw)
             reason_labels.append(item.reason_labels)
             reason_mask.append(item.reason_mask)
+            reason_weight_raw.append(item.reason_weight_raw)
             route_codes.append(item.route_code)
         for pair in group.pairs:
             pair_chosen_index.append(route_offset + pair.chosen_index)
@@ -317,8 +343,10 @@ def tensorize_candidate_sets(groups: list[LabeledCandidateSet], device: torch.de
         ),
         goodness_label=torch.tensor(goodness_label, dtype=torch.float32, device=device),
         goodness_mask=torch.tensor(goodness_mask, dtype=torch.float32, device=device),
+        goodness_weight_raw=torch.tensor(goodness_weight_raw, dtype=torch.float32, device=device),
         reason_labels=torch.tensor(reason_labels, dtype=torch.float32, device=device),
         reason_mask=torch.tensor(reason_mask, dtype=torch.float32, device=device),
+        reason_weight_raw=torch.tensor(reason_weight_raw, dtype=torch.float32, device=device),
         pair_chosen_index=torch.tensor(pair_chosen_index, dtype=torch.long, device=device),
         pair_rejected_index=torch.tensor(pair_rejected_index, dtype=torch.long, device=device),
         pair_weight_raw=torch.tensor(pair_weight_raw, dtype=torch.float32, device=device),
@@ -346,57 +374,113 @@ def _samples_by_candidate_set(
     return result
 
 
-def _build_labeled_candidate_set(
-    judgment: JudgmentRow,
-    route_inputs: dict[str, RouteInput],
-) -> LabeledCandidateSet:
-    route_codes = sorted(route_inputs)
+def _parse_judgment(judgment: JudgmentRow, route_codes: list[str]) -> ParsedJudgment:
     ranking = _string_list(_parse_json(judgment.ranking_json), "ranking_json")
     accepted = _string_list(_parse_json(judgment.accepted_route_codes_json), "accepted_route_codes_json")
     rejected = _string_list(_parse_json(judgment.rejected_route_codes_json), "rejected_route_codes_json")
     reason_codes = _reason_code_map(_parse_json(judgment.reason_codes_json))
     _validate_judgment_payload(route_codes, ranking, accepted, rejected, reason_codes)
+    return ParsedJudgment(
+        row=judgment,
+        ranking=ranking,
+        accepted=accepted,
+        rejected=rejected,
+        reason_codes=reason_codes,
+        support_weight=judgment_support_weight(judgment.judge_type, judgment.confidence),
+    )
 
-    rank_by_code = {route_code: rank for rank, route_code in enumerate(ranking)}
-    accepted_set = set(accepted)
-    rejected_set = set(rejected)
-    items: list[RouteTrainingItem] = []
-    for route_code in ranking:
-        route_reasons = reason_codes.get(route_code, [])
-        reason_labels = [0.0] * len(REASON_CODES)
-        for reason_code in route_reasons:
-            reason_labels[REASON_CODE_TO_INDEX[reason_code]] = 1.0
-        is_accepted = route_code in accepted_set
-        is_rejected = route_code in rejected_set
-        items.append(
-            RouteTrainingItem(
-                candidate_set_id=judgment.candidate_set_id,
-                route_code=route_code,
-                route_input=route_inputs[route_code],
-                rank=rank_by_code[route_code],
-                is_accepted=is_accepted,
-                is_rejected=is_rejected,
-                goodness_label=1.0 if is_accepted else 0.0,
-                goodness_mask=1.0 if is_accepted or is_rejected else 0.0,
-                reason_labels=tuple(reason_labels),
-                reason_mask=1.0 if is_rejected and bool(route_reasons) else 0.0,
+
+def _build_labeled_candidate_set(
+    candidate_set_id: str,
+    judgments: list[ParsedJudgment],
+    route_inputs: dict[str, RouteInput],
+) -> LabeledCandidateSet:
+    route_codes = sorted(route_inputs)
+    rank_sum = {route_code: 0.0 for route_code in route_codes}
+    rank_weight_sum = {route_code: 0.0 for route_code in route_codes}
+    accepted_support = {route_code: 0.0 for route_code in route_codes}
+    rejected_support = {route_code: 0.0 for route_code in route_codes}
+    reason_support = {
+        route_code: [0.0] * len(REASON_CODES)
+        for route_code in route_codes
+    }
+    pair_samples: list[PairwiseSample] = []
+    route_label_support_denominator = (
+        sum(judgment.support_weight for judgment in judgments) / max(len(judgments), 1)
+    )
+
+    for judgment in judgments:
+        route_label_support = judgment.support_weight / max(route_label_support_denominator, 1e-8)
+        for rank, route_code in enumerate(judgment.ranking):
+            rank_sum[route_code] += rank * judgment.support_weight
+            rank_weight_sum[route_code] += judgment.support_weight
+        for route_code in judgment.accepted:
+            accepted_support[route_code] += route_label_support
+        for route_code in judgment.rejected:
+            rejected_support[route_code] += route_label_support
+        for route_code, codes in judgment.reason_codes.items():
+            for reason_code in codes:
+                reason_support[route_code][REASON_CODE_TO_INDEX[reason_code]] += route_label_support
+        pair_samples.extend(
+            build_pairwise_samples(
+                route_codes,
+                judgment.ranking,
+                judgment.accepted,
+                judgment.rejected,
+                judgment.row.judge_type,
+                judgment.row.confidence,
             )
         )
-    pairs = build_pairwise_samples(
-        [item.route_code for item in items],
-        ranking,
-        accepted,
-        rejected,
-        judgment.judge_type,
-        judgment.confidence,
+
+    consensus_route_codes = sorted(
+        route_codes,
+        key=lambda route_code: (
+            rank_sum[route_code] / max(rank_weight_sum[route_code], 1e-8),
+            route_code,
+        ),
     )
+    consensus_rank = {route_code: rank for rank, route_code in enumerate(consensus_route_codes)}
+    items: list[RouteTrainingItem] = []
+    for route_code in consensus_route_codes:
+        accepted_weight = accepted_support[route_code]
+        rejected_weight = rejected_support[route_code]
+        is_accepted = accepted_weight > rejected_weight
+        is_rejected = rejected_weight > accepted_weight
+        goodness_mask = 1.0 if is_accepted or is_rejected else 0.0
+        goodness_label = 1.0 if is_accepted else 0.0
+        route_label_margin_weight = abs(accepted_weight - rejected_weight)
+        goodness_weight_raw = route_label_margin_weight if goodness_mask else 0.0
+        reason_labels = [1.0 if weight > 0.0 else 0.0 for weight in reason_support[route_code]]
+        reason_mask = 1.0 if is_rejected and any(reason_labels) else 0.0
+        reason_weight_raw = route_label_margin_weight if reason_mask else 0.0
+        items.append(
+            RouteTrainingItem(
+                candidate_set_id=candidate_set_id,
+                route_code=route_code,
+                route_input=route_inputs[route_code],
+                rank=consensus_rank[route_code],
+                is_accepted=is_accepted,
+                is_rejected=is_rejected,
+                goodness_label=goodness_label,
+                goodness_mask=goodness_mask,
+                goodness_weight_raw=goodness_weight_raw,
+                reason_labels=tuple(reason_labels),
+                reason_mask=reason_mask,
+                reason_weight_raw=reason_weight_raw,
+            )
+        )
+    pairs = aggregate_pairwise_samples([item.route_code for item in items], pair_samples)
+    judgment_ids = tuple(judgment.row.judgment_id for judgment in judgments)
+    judge_types = tuple(sorted({judgment.row.judge_type for judgment in judgments}))
+    judge_models = tuple(sorted({judgment.row.judge_model for judgment in judgments}))
+    prompt_versions = tuple(sorted({judgment.row.judge_prompt_version for judgment in judgments}))
     return LabeledCandidateSet(
-        candidate_set_id=judgment.candidate_set_id,
-        judgment_id=judgment.judgment_id,
-        judge_type=judgment.judge_type,
-        judge_model=judgment.judge_model,
-        judge_prompt_version=judgment.judge_prompt_version,
-        confidence=judgment.confidence,
+        candidate_set_id=candidate_set_id,
+        judgment_id=",".join(judgment_ids),
+        judge_type=",".join(judge_types),
+        judge_model=",".join(judge_models),
+        judge_prompt_version=",".join(prompt_versions),
+        confidence=sum(judgment.row.confidence for judgment in judgments) / len(judgments),
         items=tuple(items),
         pairs=tuple(pairs),
     )

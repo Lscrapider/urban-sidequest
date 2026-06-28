@@ -73,12 +73,12 @@ ROUTE_PREF_DB_CONNECT_TIMEOUT=
 {
   "judge": {
     "promptVersion": "llm-sim-user-v7-reason-audit",
-    "judgesPerCandidateSet": 2,
-    "candidateSetJudgeConcurrency": 2,
-    "fullJudgeRatio": 1,
+    "judgesPerCandidateSet": true,
+    "candidateSetJudgeConcurrency": 3,
     "maxRetries": 1,
     "timeoutSeconds": 300,
     "temperature": 0.2,
+    "multiJudgeTemperatures": [0.2, 0.5, 1.0],
     "seed": 20260625
   }
 }
@@ -138,10 +138,12 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 - 路线生成和 LLM judge 使用分离线程池；不传 `--judge-concurrency` 时与 `--concurrency` 相同。
 - 主流程会等待所有 judgment 保存成功或失败后再退出。
 - 候选路线少于 2 条时跳过 LLM judge 并记录原因。
-- `judge.fullJudgeRatio` 表示进入多评判的 candidate set 比例；未命中时只评价 1 次，命中后按 `judge.judgesPerCandidateSet` 评价多次。
-- 当前主路径是 New API 单入口，所以 `judgesPerCandidateSet=2`、`fullJudgeRatio=0.1` 表示约 10% 的 candidate set 会调用 2 次 New API；`judgesPerCandidateSet=2`、`fullJudgeRatio=1` 表示每个 candidate set 都调用 2 次 New API。
-- New API 单入口会按 `judgesPerCandidateSet` 重复调用同一个入口完成多评判。
-- `judge.candidateSetJudgeConcurrency` 只控制同一个 candidate set 内这些重复 judge 的并发数；缺省为 1，保持原来的串行行为。实际并发仍受全局 `--judge-concurrency` 或 `run_once.py` 里的 `JUDGE_CONCURRENCY` 限制。
+- `judge.judgesPerCandidateSet` 现在作为布尔开关：`true` 表示每个 candidate set 调 3 次 New API judge，`false` 表示只调 1 次。旧的正整数配置仍可兼容读取，但新数据生成统一用布尔值。
+- `judge.temperature` 是单 judge（`judgesPerCandidateSet=false`）时的温度，保留当前 k=1 行为。
+- `judge.multiJudgeTemperatures` 是多 judge 3 次调用的温度档位，必须包含 `judge.temperature`；当前建议 `[0.2, 0.5, 1.0]`。
+- 多 judge 时，第 1 次 prompt 保留后端返回的路线顺序；后续 judge 会随机打乱候选路线展示顺序，但 routeCode 不重贴，LLM 返回后仍直接按原始 routeCode 保存。
+- `judge.candidateSetJudgeConcurrency` 只控制同一个 candidate set 内这些重复 judge 的并发数；实际并发仍受全局 `--judge-concurrency` 或 `run_once.py` 里的 `JUDGE_CONCURRENCY` 限制。
+- `run_once.py` 里的 `MULTI_JUDGE_RATIO` 只在 `judgesPerCandidateSet=true` 时生效：`1.0` 表示全部 route 走 3 judge，`0.6` 表示约 60% route 走 3 judge、其余走单 judge；`judgesPerCandidateSet=false` 时始终是单 judge。
 - LLM timeout 使用 `judge.timeoutSeconds`，默认 300 秒。请求已经产生 token 成本，不建议随意调低。
 - `judge.maxRetries` 表示每个 LLM 配置在一次 judgment 内除首次调用外的额外重试次数；primary 仍失败后，最多尝试 3 个其他 LLM，每个 fallback 也按同样次数重试。
 
