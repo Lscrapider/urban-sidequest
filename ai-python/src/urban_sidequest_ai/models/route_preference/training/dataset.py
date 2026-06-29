@@ -152,7 +152,7 @@ def build_dataset_bundle(
 
 
 def infer_feature_spec(sample_rows: list[TrainingSampleRow]) -> FeatureSpec:
-    versions = {row.feature_schema_version for row in sample_rows}
+    versions = {_feature_schema_base_version(row.feature_schema_version) for row in sample_rows}
     if len(versions) != 1:
         raise ValueError(f"训练集只能包含一个 feature_schema_version，实际为 {sorted(versions)}")
     stop_keys: set[str] = set()
@@ -171,6 +171,10 @@ def infer_feature_spec(sample_rows: list[TrainingSampleRow]) -> FeatureSpec:
         route_derived_keys=tuple(sorted(route_keys)),
         context_cross_keys=tuple(sorted(context_keys)),
     )
+
+
+def _feature_schema_base_version(feature_schema_version: str) -> str:
+    return feature_schema_version.split("@", maxsplit=1)[0]
 
 
 def split_by_candidate_set(

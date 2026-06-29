@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.template.st.StTemplateRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -192,11 +193,13 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
                 MAX_ROUTE_COUNT
         );
         try {
-            responseContent = this.chatClient.prompt()
+            ChatResponse chatResponse = this.chatClient.prompt()
                     .system(SYSTEM_PROMPT)
                     .user(userPrompt)
                     .call()
-                    .content();
+                    .chatResponse();
+            responseContent = this.responseContent(chatResponse);
+            context.setLlmRouteComposeModelId(this.responseModelId(chatResponse));
         } catch (RuntimeException exception) {
             LOGGER.warn(
                     "LLM 路线编排失败，candidateSetId={}，elapsedMs={}，poiPoolSize={}，userPromptChars={}",
@@ -223,6 +226,21 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
                 context.getWarnings().size()
         );
         return routes;
+    }
+
+    private String responseContent(ChatResponse chatResponse) {
+        if (chatResponse == null || chatResponse.getResult() == null || chatResponse.getResult().getOutput() == null) {
+            return null;
+        }
+        return chatResponse.getResult().getOutput().getText();
+    }
+
+    private String responseModelId(ChatResponse chatResponse) {
+        if (chatResponse == null || chatResponse.getMetadata() == null || chatResponse.getMetadata().getModel() == null) {
+            return null;
+        }
+        String modelId = chatResponse.getMetadata().getModel().trim();
+        return modelId.isBlank() ? null : modelId;
     }
 
     String buildUserPrompt(RouteGenerationContext context) {

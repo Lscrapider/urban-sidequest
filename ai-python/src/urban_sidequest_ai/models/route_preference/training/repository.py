@@ -45,12 +45,16 @@ class RoutePreferenceTrainingRepository:
                 route_derived_vector_json,
                 context_cross_vector_json
             FROM route_preference_training_samples
-            WHERE (%s::text IS NULL OR feature_schema_version = %s::text)
+            WHERE (
+                %s::text IS NULL
+                OR feature_schema_version = %s::text
+                OR feature_schema_version LIKE (%s::text || '@%%')
+            )
               AND sample_status = 'TRAIN_READY'
             ORDER BY candidate_set_id, route_code
         """
         with self._connection.cursor() as cursor:
-            cursor.execute(sql, (feature_schema_version, feature_schema_version))
+            cursor.execute(sql, (feature_schema_version, feature_schema_version, feature_schema_version))
             rows = cursor.fetchall()
         return [
             TrainingSampleRow(
@@ -119,11 +123,15 @@ class RoutePreferenceTrainingRepository:
                 context_cross_vector_json
             FROM route_preference_training_samples
             WHERE candidate_set_id::text = %s::text
-              AND (%s::text IS NULL OR feature_schema_version = %s::text)
+              AND (
+                  %s::text IS NULL
+                  OR feature_schema_version = %s::text
+                  OR feature_schema_version LIKE (%s::text || '@%%')
+              )
             ORDER BY route_code
         """
         with self._connection.cursor() as cursor:
-            cursor.execute(sql, (candidate_set_id, feature_schema_version, feature_schema_version))
+            cursor.execute(sql, (candidate_set_id, feature_schema_version, feature_schema_version, feature_schema_version))
             rows = cursor.fetchall()
         return [
             TrainingSampleRow(

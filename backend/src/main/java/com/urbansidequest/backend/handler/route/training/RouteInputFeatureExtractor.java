@@ -76,13 +76,21 @@ public class RouteInputFeatureExtractor {
         Map<String, Object> contextCrossVector = this.contextCrossVector(context, routeDerivedVector, route, source);
         Map<String, Object> contextJson = this.contextJson(context);
         return new RouteInputFeatureSnapshot(
-                RoutePreferenceFeatureSchema.VERSION,
+                this.featureSchemaVersion(context),
                 this.writeJson(stopMatrix),
                 this.writeJson(segmentMatrix),
                 this.writeJson(routeDerivedVector),
                 this.writeJson(contextCrossVector),
                 this.writeJson(contextJson)
         );
+    }
+
+    private String featureSchemaVersion(RouteGenerationContext context) {
+        String modelId = context.getLlmRouteComposeModelId();
+        if (modelId == null || modelId.isBlank()) {
+            return RoutePreferenceFeatureSchema.VERSION;
+        }
+        return RoutePreferenceFeatureSchema.VERSION + "@" + modelId.trim();
     }
 
     private FeatureSource toFeatureSource(CandidateRouteDTO route, RouteGenerationContext context) {

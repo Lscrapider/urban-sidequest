@@ -135,7 +135,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
     @Select("""
             SELECT DISTINCT candidate_set_id::text
             FROM route_preference_training_samples
-            WHERE feature_schema_version <> #{featureSchemaVersion}
+            WHERE split_part(feature_schema_version, '@', 1) <> #{featureSchemaVersion}
             ORDER BY candidate_set_id
             """)
     List<String> findOutdatedCandidateSetIds(@Param("featureSchemaVersion") String featureSchemaVersion);

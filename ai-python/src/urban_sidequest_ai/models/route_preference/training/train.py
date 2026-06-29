@@ -103,12 +103,12 @@ TRAIN_CONFIG = TrainingRuntimeConfig(
     epochs=12,
     # batch 单位是 candidate_set_id，不是单条 route。
     batch_candidate_sets=12,
-    lr=8e-4,
-    weight_decay=1e-3,
+    lr=7e-4,
+    weight_decay=1.5e-3,
     grad_clip_norm=DEFAULT_GRAD_CLIP_NORM,
     hidden_dim=DEFAULT_HIDDEN_DIM,
     reason_hidden_dim=DEFAULT_REASON_HIDDEN_DIM,
-    dropout=0.25,
+    dropout=0.3,
     beta=DEFAULT_RANKING_BETA,
     # 排序是主任务；goodness 辅助头略降权，避免后期牵引共享 encoder 过拟合。
     lambda_goodness=0.60,

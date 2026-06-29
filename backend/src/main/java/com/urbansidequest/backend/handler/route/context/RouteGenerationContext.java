@@ -48,6 +48,8 @@ public class RouteGenerationContext {
 
     private List<CandidateRouteDTO> selectedRoutes = new ArrayList<>();
 
+    private String llmRouteComposeModelId;
+
     private final List<String> warnings = new ArrayList<>();
 
     public RouteGenerationContext(UUID requestId, UUID userId, RouteGenerateParam generateParam) {
@@ -171,6 +173,14 @@ public class RouteGenerationContext {
 
     public void setSelectedRoutes(List<CandidateRouteDTO> selectedRoutes) {
         this.selectedRoutes = selectedRoutes;
+    }
+
+    public String getLlmRouteComposeModelId() {
+        return this.llmRouteComposeModelId;
+    }
+
+    public void setLlmRouteComposeModelId(String llmRouteComposeModelId) {
+        this.llmRouteComposeModelId = llmRouteComposeModelId;
     }
 
     public List<String> getWarnings() {
