@@ -14,6 +14,7 @@ import com.urbansidequest.backend.domain.enums.SegmentTransportMode;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -51,6 +52,8 @@ public class AmapApi {
 
     private final AmapKeyPool amapKeyPool;
 
+    private final AmapKeyFailureClassifier amapKeyFailureClassifier;
+
     private final RestTemplate restTemplate;
 
     private final ObjectMapper objectMapper;
@@ -58,11 +61,13 @@ public class AmapApi {
     public AmapApi(
             AmapWebProperties amapWebProperties,
             AmapKeyPool amapKeyPool,
+            AmapKeyFailureClassifier amapKeyFailureClassifier,
             RestTemplateBuilder restTemplateBuilder,
             ObjectMapper objectMapper
     ) {
         this.amapWebProperties = amapWebProperties;
         this.amapKeyPool = amapKeyPool;
+        this.amapKeyFailureClassifier = amapKeyFailureClassifier;
         this.restTemplate = restTemplateBuilder
                 .connectTimeout(amapWebProperties.getConnectTimeout())
                 .readTimeout(amapWebProperties.getReadTimeout())
@@ -77,13 +82,11 @@ public class AmapApi {
     // ===== POI 搜索 =====
 
     public JsonNode searchPoi(AmapPoiSearchQueryDTO query) {
-        String key = this.amapKeyPool.acquireKey();
-        URI uri = switch (query.searchType()) {
+        return this.getForObjectWithHealthyKey(key -> switch (query.searchType()) {
             case SEARCH_TYPE_AROUND -> this.buildAroundUri(query, key);
             case SEARCH_TYPE_POLYGON -> this.buildPolygonUri(query, key);
             default -> throw new IllegalArgumentException("不支持的高德 POI 搜索类型：" + query.searchType());
-        };
-        return this.restTemplate.getForObject(uri, JsonNode.class);
+        }, "POI 搜索");
     }
 
     private URI buildAroundUri(AmapPoiSearchQueryDTO query, String key) {
@@ -142,10 +145,9 @@ public class AmapApi {
             return RoutePlanResultDTO.unsupported();
         }
         try {
-            String key = this.amapKeyPool.acquireKey();
-            JsonNode response = this.restTemplate.getForObject(
-                    this.buildRouteUri(origin, destination, mode, cityName, cityAdcode, key),
-                    JsonNode.class
+            JsonNode response = this.getForObjectWithHealthyKey(
+                    key -> this.buildRouteUri(origin, destination, mode, cityName, cityAdcode, key),
+                    "路径规划"
             );
             Optional<RoutePlanDTO> plan = RoutePlanDTO.fromAmapResponse(response, mode);
             if (plan.isEmpty()) {
@@ -261,8 +263,10 @@ public class AmapApi {
             return Optional.empty();
         }
         try {
-            String key = this.amapKeyPool.acquireKey();
-            JsonNode response = this.restTemplate.getForObject(this.buildWeatherUri(cityAdcode, key), JsonNode.class);
+            JsonNode response = this.getForObjectWithHealthyKey(
+                    key -> this.buildWeatherUri(cityAdcode, key),
+                    "天气查询"
+            );
             Optional<RouteWeatherDTO> weather = RouteWeatherDTO.fromAmapLive(response);
             if (weather.isEmpty()) {
                 this.logUnusableWeather(response);
@@ -315,5 +319,30 @@ public class AmapApi {
                 .map(this::toLocation)
                 .reduce((left, right) -> left + "|" + right)
                 .orElse("");
+    }
+
+    private JsonNode getForObjectWithHealthyKey(Function<String, URI> uriFactory, String operationName) {
+        int maxAttempts = Math.max(1, this.amapKeyPool.configuredKeyCount());
+        RestClientException lastKeyFailure = null;
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+            String key;
+            try {
+                key = this.amapKeyPool.acquireKey();
+            } catch (IllegalStateException exception) {
+                throw new RestClientException("没有可用高德 Web Key 执行" + operationName, exception);
+            }
+            JsonNode response = this.restTemplate.getForObject(uriFactory.apply(key), JsonNode.class);
+            AmapKeyFailureClassifier.Classification classification = this.amapKeyFailureClassifier.classify(response);
+            if (classification.shouldDisableKey()) {
+                this.amapKeyPool.disableKey(key, classification);
+                lastKeyFailure = new RestClientException("高德" + operationName + "命中不可用 Key：" + classification.reason());
+                continue;
+            }
+            return response;
+        }
+        if (lastKeyFailure != null) {
+            throw lastKeyFailure;
+        }
+        throw new RestClientException("没有可用高德 Web Key 执行" + operationName);
     }
 }

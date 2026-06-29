@@ -22,6 +22,8 @@ spring:
     redis:
       host: ${SPRING_REDIS_HOST}
       port: ${SPRING_REDIS_PORT}
+      connect-timeout: ${SPRING_REDIS_CONNECT_TIMEOUT:500ms}
+      timeout: ${SPRING_REDIS_TIMEOUT:200ms}
 
 server:
   port: ${SERVER_PORT}

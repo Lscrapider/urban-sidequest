@@ -51,7 +51,7 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
             你只能根据输入 JSON 中的真实 districts[].pois 候选池生成路线，不能编造 POI、坐标、距离、交通耗时、评分、营业信息或图片。
             你必须保持用户请求不变：城市、出发时间、路线时长、交通方式、路线目标、必去点和用户选择都不能更改。
             你只能决定选点、排序、停留时间、路线主题、路线说明、节点理由、warnings 和 backendReviewHints；真实路径、距离和交通耗时由后端/地图服务计算。
-            request.routeGoalPolicy 是偏好；USER prompt 中的硬约束优先于 routeGoalPolicy。
+            request.routeGoalPolicy 和 request.budgetPolicy 是偏好；USER prompt 中的硬约束优先于这些偏好。
             如果无法满足某个需求，只能在 warnings 或 backendReviewHints 中说明原因，不能编造地点或数据。
             你必须返回合法 JSON，不要输出 Markdown、解释文字或代码块。
             """;
@@ -63,7 +63,7 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
             1. 从 districts[].pois 中选点，生成恰好 5 条彼此有实质差异的路线（主题、选点不同，不能只换顺序）。
             2. 按 request.mealWindows 安排正餐；按 request.durationMinutes 与候选语义安排咖啡/休息点。
             3. 在 districtBudget 上限内组织片区；近片区能组好就不跨，点不够时再按 districtOrder 扩展。
-            4. 用 request.routeGoalPolicy 调整选点、排序、主题与节点理由（倾向，不得违反硬约束）。
+            4. 用 request.routeGoalPolicy 和 request.budgetPolicy 调整选点、排序、主题与节点理由（倾向，不得违反硬约束）。
             5. 选点依据：primaryCategoryGroup、poiTagHits、semanticTags、rating、avgPriceCent、nearestTransit、transitAccessibility；用 mealCandidate / restCandidate / localExperienceCandidate 判断能否承担饭点/休息/本地体验；routeRoleHints 仅为角色建议。
 
             == 硬约束 ==
@@ -96,7 +96,7 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
             - 每个 routeRole=MEAL 的 stop 必须填写 intendedMealWindow，取值为 LUNCH 或 DINNER，且与其所属饭点一致；非正餐 stop 的 intendedMealWindow 填 null。
             - 未能安排 mealWindows 中的某个饭点时，必须在 warnings 说明原因。
 
-            路线多样性（高优先级质量约束，优先于 routeGoalPolicy 的主题偏好；候选池高度同质时允许例外并写 warning）：
+            路线多样性（高优先级质量约束，优先于 routeGoalPolicy 和 budgetPolicy 的主题偏好；候选池高度同质时允许例外并写 warning）：
             - 同质 POI（相同 typecode、相同 rawType，或明显属于同一种体验，如连续广场、连续公园、连续商场）原则上最多连续 2 个，避免连续 3 个及以上。
             - 候选充足时，应在同质 POI 之间穿插不同 primaryCategoryGroup、routeRole 或体验类型的 stop。
             - 仅当候选池本身高度同质、无法避免时，才允许连续同质，并在 warnings 说明“候选池同质，路线多样性受限”。

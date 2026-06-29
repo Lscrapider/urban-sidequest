@@ -322,7 +322,7 @@ def render_budget_motivation(budget_level: str, budget_sensitivity: float) -> st
     if budget_level == "LOW":
         return "你这次明确低预算，价格不合适会直接影响路线接受度。"
     if budget_level == "FLEXIBLE":
-        return "你这次预算更灵活，可以为明确更好的体验多花一点，但普通高价点仍不值得。"
+        return "你这次预算更灵活，可以为明确更好的体验或餐食多花一点，但普通且没特点的高价点仍不值得。"
     if budget_sensitivity >= 0.6:
         return "你平时在意花费，但这次预算是 NORMAL，所以可以接受正常消费，不接受明显溢价。"
     return "你这次预算正常，价格主要用来排除明显不划算或相对过贵的路线。"

@@ -384,7 +384,7 @@ def _run_judgment_group(
             "candidateSetId": task.candidate_set_id,
             "judgeType": "LLM_SIM_USER",
             "judgeModel": judgment_model_id,
-            "judgePromptVersion": config.judge.prompt_version,
+            "judgePromptVersion": prompt_version_with_temperature(config.judge.prompt_version, temperature),
             **judgment_payload,
         }
         if dry_run:
@@ -412,6 +412,13 @@ def _run_judgment_group(
     )
 
 
+def prompt_version_with_temperature(prompt_version: str, temperature: float) -> str:
+    text = f"{temperature:.3f}".rstrip("0").rstrip(".")
+    if "." not in text:
+        text = f"{text}.0"
+    return f"{prompt_version}@t{text}"
+
+
 def _print_job_result(result: JobResult) -> None:
     for payload in result.stdout_payloads:
         print(payload)
@@ -428,10 +435,8 @@ def _route_warning_lines(route_generation: dict) -> list[str]:
     warnings = route_generation.get("warnings") or []
     if status:
         lines.append(f"    status={status}")
-    for warning in warnings[:5]:
+    for warning in warnings:
         lines.append(f"    warning={warning}")
-    if len(warnings) > 5:
-        lines.append(f"    warning=... 还有 {len(warnings) - 5} 条")
     return lines
 
 

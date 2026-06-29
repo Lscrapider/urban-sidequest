@@ -144,6 +144,7 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 - 多 judge 时，第 1 次 prompt 保留后端返回的路线顺序；后续 judge 会随机打乱候选路线展示顺序，但 routeCode 不重贴，LLM 返回后仍直接按原始 routeCode 保存。
 - `judge.candidateSetJudgeConcurrency` 只控制同一个 candidate set 内这些重复 judge 的并发数；实际并发仍受全局 `--judge-concurrency` 或 `run_once.py` 里的 `JUDGE_CONCURRENCY` 限制。
 - `run_once.py` 里的 `MULTI_JUDGE_RATIO` 只在 `judgesPerCandidateSet=true` 时生效：`1.0` 表示全部 route 走 3 judge，`0.6` 表示约 60% route 走 3 judge、其余走单 judge；`judgesPerCandidateSet=false` 时始终是单 judge。
+- 保存 judgment 时会在 `judgePromptVersion` 后追加温度审计尾缀，例如 `llm-sim-user-v7-reason-audit@t0.5`。这个尾缀只用于诊断和 SQL 分组，不改变实际 prompt 文本。
 - LLM timeout 使用 `judge.timeoutSeconds`，默认 300 秒。请求已经产生 token 成本，不建议随意调低。
 - `judge.maxRetries` 表示每个 LLM 配置在一次 judgment 内除首次调用外的额外重试次数；primary 仍失败后，最多尝试 3 个其他 LLM，每个 fallback 也按同样次数重试。
 
@@ -227,7 +228,7 @@ POST /api/route-preferences/judgments
   "candidateSetId": "...",
   "judgeType": "LLM_SIM_USER",
   "judgeModel": "kimi-k2.6",
-  "judgePromptVersion": "llm-sim-user-v7-reason-audit",
+  "judgePromptVersion": "llm-sim-user-v7-reason-audit@t0.2",
   "ranking": ["A", "B", "C"],
   "acceptedRouteCodes": ["A"],
   "rejectedRouteCodes": ["C"],

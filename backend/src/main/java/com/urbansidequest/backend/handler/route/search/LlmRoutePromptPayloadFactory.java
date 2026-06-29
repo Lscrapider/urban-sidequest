@@ -4,6 +4,7 @@ import com.urbansidequest.backend.domain.constant.DateTimeFormatConstant;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.PoiCandidateDTO;
 import com.urbansidequest.backend.domain.dto.TransitFacilityDTO;
+import com.urbansidequest.backend.domain.enums.BudgetLevel;
 import com.urbansidequest.backend.domain.enums.MealWindow;
 import com.urbansidequest.backend.domain.enums.PoiCandidateRole;
 import com.urbansidequest.backend.domain.enums.RouteGoal;
@@ -82,6 +83,8 @@ public class LlmRoutePromptPayloadFactory {
         payload.put("transportProfile", context.getGenerateParam().getTransportProfile());
         payload.put("routeGoal", context.getGenerateParam().getRouteGoal());
         payload.put("routeGoalPolicy", this.routeGoalPolicy(context.getGenerateParam().getRouteGoal()));
+        payload.put("budgetLevel", context.getGenerateParam().getBudgetLevel());
+        payload.put("budgetPolicy", this.budgetPolicy(context.getGenerateParam().getBudgetLevel()));
         payload.put("interestTags", context.getGenerateParam().getInterestTags());
         payload.put("mealWindows", context.getGenerateParam().getMealWindows());
         payload.put("mustVisitPoiIds", context.getPoiCandidates().stream()
@@ -142,6 +145,33 @@ public class LlmRoutePromptPayloadFactory {
         };
     }
 
+    private Map<String, Object> budgetPolicy(BudgetLevel budgetLevel) {
+        if (budgetLevel == null) {
+            return this.budgetPolicy(
+                    "按普通预算处理，综合体验价值、路线主题、饭点需求和消费水平。",
+                    "避免连续安排多个明显高消费或强消费型 POI。",
+                    "预算风险不明显时无需额外提示。"
+            );
+        }
+        return switch (budgetLevel) {
+            case LOW -> this.budgetPolicy(
+                    "同等体验下优先选择免费、低价或 avgPriceCent 较低的 POI，控制餐饮、咖啡、购物等消费型 stop 数量。",
+                    "避免连续安排多个高 avgPriceCent 或强消费 POI；不要为了低价牺牲必去点、饭点和路线完整度。",
+                    "必须安排高消费点时，在 warnings 或 backendReviewHints(type=BUDGET) 说明原因。"
+            );
+            case NORMAL -> this.budgetPolicy(
+                    "按普通预算平衡体验价值和消费水平，价格作为选点与排序的参考因素。",
+                    "避免无理由连续安排多个高均价消费点，但不要为了省钱牺牲路线主题和必去点。",
+                    "路线整体消费明显偏高时，在 backendReviewHints(type=BUDGET) 提示。"
+            );
+            case FLEXIBLE -> this.budgetPolicy(
+                    "预算敏感度低，可选择更贵但体验价值明确、主题匹配度高的 POI。",
+                    "不要仅因价格高就排除优质体验，但仍避免贵且低价值、绕路或重复的 POI。",
+                    "只有消费风险会影响路线体验时才需要提示。"
+            );
+        };
+    }
+
     private Map<String, Object> mealWindowPayload(String type, String start, String end) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", type);
@@ -155,6 +185,14 @@ public class LlmRoutePromptPayloadFactory {
         payload.put("focus", focus);
         payload.put("avoid", avoid);
         payload.put("themeInstruction", themeInstruction);
+        return payload;
+    }
+
+    private Map<String, Object> budgetPolicy(String focus, String avoid, String reviewInstruction) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("focus", focus);
+        payload.put("avoid", avoid);
+        payload.put("reviewInstruction", reviewInstruction);
         return payload;
     }
 
