@@ -5,5 +5,5 @@ public final class RoutePreferenceFeatureSchema {
     private RoutePreferenceFeatureSchema() {
     }
 
-    public static final String VERSION = "route_pref_v4";
+    public static final String VERSION = "route_pref_v5";
 }

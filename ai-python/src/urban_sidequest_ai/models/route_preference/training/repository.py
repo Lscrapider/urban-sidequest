@@ -14,6 +14,7 @@ class TrainingSampleRow:
     segment_matrix_json: Any
     route_derived_vector_json: Any
     context_cross_vector_json: Any
+    intra_set_vector_json: Any
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,8 @@ class RoutePreferenceTrainingRepository:
                 stop_matrix_json,
                 segment_matrix_json,
                 route_derived_vector_json,
-                context_cross_vector_json
+                context_cross_vector_json,
+                intra_set_vector_json
             FROM route_preference_training_samples
             WHERE (%s::text IS NULL OR feature_schema_version = %s::text)
               AND sample_status = 'TRAIN_READY'
@@ -61,6 +63,7 @@ class RoutePreferenceTrainingRepository:
                 segment_matrix_json=row[4],
                 route_derived_vector_json=row[5],
                 context_cross_vector_json=row[6],
+                intra_set_vector_json=row[7],
             )
             for row in rows
         ]
@@ -116,7 +119,8 @@ class RoutePreferenceTrainingRepository:
                 stop_matrix_json,
                 segment_matrix_json,
                 route_derived_vector_json,
-                context_cross_vector_json
+                context_cross_vector_json,
+                intra_set_vector_json
             FROM route_preference_training_samples
             WHERE candidate_set_id::text = %s::text
               AND (%s::text IS NULL OR feature_schema_version = %s::text)
@@ -134,6 +138,7 @@ class RoutePreferenceTrainingRepository:
                 segment_matrix_json=row[4],
                 route_derived_vector_json=row[5],
                 context_cross_vector_json=row[6],
+                intra_set_vector_json=row[7],
             )
             for row in rows
         ]

@@ -8,6 +8,7 @@ import com.urbansidequest.backend.handler.route.training.RouteInputFeatureSnapsh
 import com.urbansidequest.backend.handler.route.training.RoutePreferenceRawSnapshotBuilder;
 import com.urbansidequest.backend.manage.RoutePreferenceRawSnapshotManage;
 import com.urbansidequest.backend.manage.RoutePreferenceTrainingSampleManage;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -45,8 +46,9 @@ public class SaveRoutePreferenceTrainingSamplesStep implements RouteGenerationSt
         if (this.routePreferenceTrainingProperties.isRawSnapshotEnabled()) {
             this.routePreferenceRawSnapshotManage.upsertSnapshot(this.routePreferenceRawSnapshotBuilder.build(context));
         }
+        Map<String, RouteInputFeatureSnapshot> snapshotsByRouteCode = this.routeInputFeatureExtractor.extractCandidateSet(context);
         for (CandidateRouteDTO route : context.getSelectedRoutes()) {
-            RouteInputFeatureSnapshot snapshot = this.routeInputFeatureExtractor.extract(route, context);
+            RouteInputFeatureSnapshot snapshot = snapshotsByRouteCode.get(route.routeCode());
             this.routePreferenceTrainingSampleManage.upsertGeneratedSample(
                     context.getCandidateSetId(),
                     context.getRequestId(),

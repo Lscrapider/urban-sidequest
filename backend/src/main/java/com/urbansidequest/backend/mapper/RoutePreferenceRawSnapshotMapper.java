@@ -3,6 +3,7 @@ package com.urbansidequest.backend.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.urbansidequest.backend.config.PostgresUuidTypeHandler;
 import com.urbansidequest.backend.domain.po.RoutePreferenceRawSnapshotPO;
+import java.util.List;
 import java.util.UUID;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -115,4 +116,15 @@ public interface RoutePreferenceRawSnapshotMapper extends BaseMapper<RoutePrefer
             @Result(column = "updated_at", property = "updatedAt")
     })
     RoutePreferenceRawSnapshotPO selectByCandidateSetId(@Param("candidateSetId") UUID candidateSetId);
+
+    @Select("""
+            SELECT DISTINCT raw_snapshot.candidate_set_id::text
+            FROM route_preference_raw_snapshots raw_snapshot
+            LEFT JOIN route_preference_training_samples sample
+                ON sample.candidate_set_id = raw_snapshot.candidate_set_id
+            WHERE sample.candidate_set_id IS NULL
+               OR sample.feature_schema_version <> #{featureSchemaVersion}
+            ORDER BY raw_snapshot.candidate_set_id::text
+            """)
+    List<String> findRebuildCandidateSetIds(@Param("featureSchemaVersion") String featureSchemaVersion);
 }

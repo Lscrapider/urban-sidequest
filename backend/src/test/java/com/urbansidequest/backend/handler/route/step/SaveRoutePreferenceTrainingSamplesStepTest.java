@@ -24,6 +24,7 @@ import com.urbansidequest.backend.manage.RoutePreferenceRawSnapshotManage;
 import com.urbansidequest.backend.manage.RoutePreferenceTrainingSampleManage;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -78,10 +79,9 @@ class SaveRoutePreferenceTrainingSamplesStepTest {
                 properties
         );
         RouteGenerationContext context = context();
-        CandidateRouteDTO route = context.getSelectedRoutes().get(0);
-        RouteInputFeatureSnapshot snapshot = new RouteInputFeatureSnapshot("v-test", "[]", "[]", "{}", "{}", "{}");
+        RouteInputFeatureSnapshot snapshot = new RouteInputFeatureSnapshot("v-test", "[]", "[]", "{}", "{}", "{}", "{}");
         RoutePreferenceRawSnapshotPayload payload = payload(context);
-        when(extractor.extract(route, context)).thenReturn(snapshot);
+        when(extractor.extractCandidateSet(context)).thenReturn(Map.of("A", snapshot));
         when(rawSnapshotBuilder.build(context)).thenReturn(payload);
         return new Fixture(
                 step,

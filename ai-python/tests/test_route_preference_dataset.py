@@ -22,6 +22,7 @@ class RoutePreferenceDatasetTest(unittest.TestCase):
                 segment_matrix_json=[{"segmentFeature": float(index)}],
                 route_derived_vector_json={"routeFeature": float(index)},
                 context_cross_vector_json={"contextFeature": float(index)},
+                intra_set_vector_json={"intraSetFeature": float(index)},
             )
             for index, route_code in enumerate(["A", "B", "C"], start=1)
         ]
@@ -105,6 +106,7 @@ class RoutePreferenceDatasetTest(unittest.TestCase):
                 segment_matrix_json=[{"segmentFeature": float(index)}],
                 route_derived_vector_json={"routeFeature": float(index)},
                 context_cross_vector_json={"contextFeature": float(index)},
+                intra_set_vector_json={"intraSetFeature": float(index)},
             )
             for index, route_code in enumerate(["A", "B", "C"], start=1)
         ]

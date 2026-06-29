@@ -189,7 +189,7 @@ class RouteInputFeatureExtractorTest {
     }
 
     @Test
-    void extractsRouteXv4BucketTravelFeaturesFromCalibratedSegments() throws Exception {
+    void extractsRouteXBucketTravelFeaturesFromCalibratedSegments() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         RouteInputFeatureExtractor extractor = extractor(objectMapper);
         RouteGenerationContext context = new RouteGenerationContext(
@@ -212,7 +212,7 @@ class RouteInputFeatureExtractorTest {
                 }
         );
 
-        assertThat(snapshot.featureSchemaVersion()).isEqualTo("route_pref_v4");
+        assertThat(snapshot.featureSchemaVersion()).isEqualTo("route_pref_v5");
         assertThat(routeDerivedVector).doesNotContainKeys(
                 "walkDistanceRatio",
                 "bikeDistanceRatio",

@@ -10,6 +10,7 @@ import com.urbansidequest.backend.handler.route.training.RoutePreferenceRawSnaps
 import com.urbansidequest.backend.manage.RoutePreferenceRawSnapshotManage;
 import com.urbansidequest.backend.manage.RoutePreferenceTrainingSampleManage;
 import com.urbansidequest.backend.service.RoutePreferenceFeatureRebuildService;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -49,9 +50,10 @@ public class RoutePreferenceFeatureRebuildServiceImpl implements RoutePreference
             return 0;
         }
         RouteGenerationContext context = this.routePreferenceRawSnapshotRestorer.restore(rawSnapshot.get());
+        Map<String, RouteInputFeatureSnapshot> snapshotsByRouteCode = this.routeInputFeatureExtractor.extractCandidateSet(context);
         int rebuiltCount = 0;
         for (CandidateRouteDTO route : context.getSelectedRoutes()) {
-            RouteInputFeatureSnapshot snapshot = this.routeInputFeatureExtractor.extract(route, context);
+            RouteInputFeatureSnapshot snapshot = snapshotsByRouteCode.get(route.routeCode());
             this.routePreferenceTrainingSampleManage.upsertRebuiltSample(
                     context.getCandidateSetId(),
                     context.getRequestId(),
@@ -67,7 +69,7 @@ public class RoutePreferenceFeatureRebuildServiceImpl implements RoutePreference
     @Override
     public int rebuildOutdatedSamples() {
         int rebuiltCount = 0;
-        for (UUID candidateSetId : this.routePreferenceTrainingSampleManage.findOutdatedCandidateSetIds(RoutePreferenceFeatureSchema.VERSION)) {
+        for (UUID candidateSetId : this.routePreferenceRawSnapshotManage.findRebuildCandidateSetIds(RoutePreferenceFeatureSchema.VERSION)) {
             try {
                 rebuiltCount += this.rebuildByCandidateSetId(candidateSetId);
             } catch (RuntimeException exception) {

@@ -190,8 +190,16 @@ def predict_routes(
         dtype=torch.float32,
         device=device,
     )
+    intra_set_vector = torch.tensor(
+        [
+            _vector(item, "intraSetVector", "intra_set_vector_json", feature_schema.get("intraSetKeys", []))
+            for item in route_inputs
+        ],
+        dtype=torch.float32,
+        device=device,
+    )
     with torch.no_grad():
-        output = model(stop_matrix, segment_matrix, route_derived_vector, context_cross_vector)
+        output = model(stop_matrix, segment_matrix, route_derived_vector, context_cross_vector, intra_set_vector)
         scores = output.route_preference_score.detach().cpu().tolist()
         goodness_probs = torch.sigmoid(output.route_goodness_logit).detach().cpu().tolist()
         reason_probs = torch.sigmoid(output.reason_code_logits).detach().cpu().tolist()
@@ -216,6 +224,7 @@ def _model_config_from_json(raw: dict[str, Any]) -> RoutePreferenceModelConfig:
     return RoutePreferenceModelConfig(
         route_derived_dim=int(raw["routeDerivedDim"]),
         context_cross_dim=int(raw["contextCrossDim"]),
+        intra_set_dim=int(raw.get("intraSetDim", 0)),
         stop_dim=int(raw["stopDim"]),
         segment_dim=int(raw["segmentDim"]),
         max_stops=int(raw["maxStops"]),
@@ -234,6 +243,7 @@ def _route_input_from_row(row: TrainingSampleRow) -> dict:
         "segmentMatrix": row.segment_matrix_json,
         "routeDerivedVector": row.route_derived_vector_json,
         "contextCrossVector": row.context_cross_vector_json,
+        "intraSetVector": row.intra_set_vector_json,
     }
 
 
@@ -244,6 +254,7 @@ def _zero_route_input(feature_schema: dict[str, Any], model_config: RoutePrefere
         "segmentMatrix": [_zero_object(feature_schema["segmentFeatureKeys"])],
         "routeDerivedVector": _zero_object(feature_schema["routeDerivedKeys"]),
         "contextCrossVector": _zero_object(feature_schema["contextCrossKeys"]),
+        "intraSetVector": _zero_object(feature_schema.get("intraSetKeys", [])),
     }
 
 

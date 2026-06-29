@@ -23,6 +23,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
                 segment_matrix_json,
                 route_derived_vector_json,
                 context_cross_vector_json,
+                intra_set_vector_json,
                 context_json,
                 sample_status
             )
@@ -36,6 +37,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
                 CAST(#{segmentMatrixJson} AS JSONB),
                 CAST(#{routeDerivedVectorJson} AS JSONB),
                 CAST(#{contextCrossVectorJson} AS JSONB),
+                CAST(#{intraSetVectorJson} AS JSONB),
                 CAST(#{contextJson} AS JSONB),
                 #{sampleStatus}
             )
@@ -45,6 +47,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
                 segment_matrix_json = EXCLUDED.segment_matrix_json,
                 route_derived_vector_json = EXCLUDED.route_derived_vector_json,
                 context_cross_vector_json = EXCLUDED.context_cross_vector_json,
+                intra_set_vector_json = EXCLUDED.intra_set_vector_json,
                 context_json = EXCLUDED.context_json,
                 sample_status = EXCLUDED.sample_status,
                 updated_at = now()
@@ -59,6 +62,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
             @Param("segmentMatrixJson") String segmentMatrixJson,
             @Param("routeDerivedVectorJson") String routeDerivedVectorJson,
             @Param("contextCrossVectorJson") String contextCrossVectorJson,
+            @Param("intraSetVectorJson") String intraSetVectorJson,
             @Param("contextJson") String contextJson,
             @Param("sampleStatus") String sampleStatus
     );
@@ -74,6 +78,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
                 segment_matrix_json,
                 route_derived_vector_json,
                 context_cross_vector_json,
+                intra_set_vector_json,
                 context_json,
                 sample_status
             )
@@ -87,6 +92,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
                 CAST(#{segmentMatrixJson} AS JSONB),
                 CAST(#{routeDerivedVectorJson} AS JSONB),
                 CAST(#{contextCrossVectorJson} AS JSONB),
+                CAST(#{intraSetVectorJson} AS JSONB),
                 CAST(#{contextJson} AS JSONB),
                 #{sampleStatus}
             )
@@ -98,6 +104,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
                 segment_matrix_json = EXCLUDED.segment_matrix_json,
                 route_derived_vector_json = EXCLUDED.route_derived_vector_json,
                 context_cross_vector_json = EXCLUDED.context_cross_vector_json,
+                intra_set_vector_json = EXCLUDED.intra_set_vector_json,
                 context_json = EXCLUDED.context_json,
                 updated_at = now()
             """)
@@ -111,6 +118,7 @@ public interface RoutePreferenceTrainingSampleMapper extends BaseMapper<RoutePre
             @Param("segmentMatrixJson") String segmentMatrixJson,
             @Param("routeDerivedVectorJson") String routeDerivedVectorJson,
             @Param("contextCrossVectorJson") String contextCrossVectorJson,
+            @Param("intraSetVectorJson") String intraSetVectorJson,
             @Param("contextJson") String contextJson,
             @Param("sampleStatus") String sampleStatus
     );

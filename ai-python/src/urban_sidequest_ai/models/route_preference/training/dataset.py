@@ -37,6 +37,7 @@ class RouteInput:
     segment_matrix: tuple[tuple[float, ...], ...]
     route_derived_vector: tuple[float, ...]
     context_cross_vector: tuple[float, ...]
+    intra_set_vector: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,7 @@ class TensorBatch:
     segment_matrix: torch.Tensor
     route_derived_vector: torch.Tensor
     context_cross_vector: torch.Tensor
+    intra_set_vector: torch.Tensor
     goodness_label: torch.Tensor
     goodness_mask: torch.Tensor
     goodness_weight_raw: torch.Tensor
@@ -159,17 +161,20 @@ def infer_feature_spec(sample_rows: list[TrainingSampleRow]) -> FeatureSpec:
     segment_keys: set[str] = set()
     route_keys: set[str] = set()
     context_keys: set[str] = set()
+    intra_set_keys: set[str] = set()
     for row in sample_rows:
         stop_keys.update(_matrix_keys(_parse_json(row.stop_matrix_json)))
         segment_keys.update(_matrix_keys(_parse_json(row.segment_matrix_json)))
         route_keys.update(_vector_keys(_parse_json(row.route_derived_vector_json)))
         context_keys.update(_vector_keys(_parse_json(row.context_cross_vector_json)))
+        intra_set_keys.update(_vector_keys(_parse_json(row.intra_set_vector_json)))
     return FeatureSpec(
         feature_schema_version=next(iter(versions)),
         stop_feature_keys=tuple(sorted(stop_keys)),
         segment_feature_keys=tuple(sorted(segment_keys)),
         route_derived_keys=tuple(sorted(route_keys)),
         context_cross_keys=tuple(sorted(context_keys)),
+        intra_set_keys=tuple(sorted(intra_set_keys)),
     )
 
 
@@ -323,6 +328,12 @@ def tensorize_candidate_sets(groups: list[LabeledCandidateSet], device: torch.de
         route_offset += len(group.items)
     stop_dim = max((len(row) for item in route_inputs for row in item.stop_matrix), default=0)
     segment_dim = max((len(row) for item in route_inputs for row in item.segment_matrix), default=0)
+    context_cross_vector = torch.tensor(
+        [item.context_cross_vector for item in route_inputs], dtype=torch.float32, device=device
+    )
+    intra_set_vector = torch.tensor([item.intra_set_vector for item in route_inputs], dtype=torch.float32, device=device)
+    # 兼容仍按四参调用 model 的评估路径；训练和导出会显式传 intra_set_vector。
+    context_cross_vector.intra_set_vector = intra_set_vector
 
     return TensorBatch(
         stop_matrix=torch.tensor(
@@ -338,9 +349,8 @@ def tensorize_candidate_sets(groups: list[LabeledCandidateSet], device: torch.de
         route_derived_vector=torch.tensor(
             [item.route_derived_vector for item in route_inputs], dtype=torch.float32, device=device
         ),
-        context_cross_vector=torch.tensor(
-            [item.context_cross_vector for item in route_inputs], dtype=torch.float32, device=device
-        ),
+        context_cross_vector=context_cross_vector,
+        intra_set_vector=intra_set_vector,
         goodness_label=torch.tensor(goodness_label, dtype=torch.float32, device=device),
         goodness_mask=torch.tensor(goodness_mask, dtype=torch.float32, device=device),
         goodness_weight_raw=torch.tensor(goodness_weight_raw, dtype=torch.float32, device=device),
@@ -369,6 +379,9 @@ def _samples_by_candidate_set(
             ),
             context_cross_vector=_vector_to_tuple(
                 _parse_json(row.context_cross_vector_json), feature_spec.context_cross_keys
+            ),
+            intra_set_vector=_vector_to_tuple(
+                _parse_json(row.intra_set_vector_json), feature_spec.intra_set_keys
             ),
         )
     return result

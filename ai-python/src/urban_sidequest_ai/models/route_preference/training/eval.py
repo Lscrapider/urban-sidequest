@@ -47,6 +47,7 @@ def evaluate_model(
                 batch.segment_matrix,
                 batch.route_derived_vector,
                 batch.context_cross_vector,
+                batch.intra_set_vector,
             )
             losses = compute_losses(output, batch, loss_config)
             for key, value in losses.detached_metrics().items():
@@ -249,4 +250,3 @@ def _safe_div(numerator: float, denominator: float) -> float:
 
 def _mean(values: list[float]) -> float:
     return 0.0 if not values else sum(values) / len(values)
-

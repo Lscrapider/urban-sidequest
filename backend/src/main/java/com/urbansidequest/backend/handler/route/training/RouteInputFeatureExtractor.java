@@ -42,6 +42,34 @@ import org.springframework.stereotype.Component;
 public class RouteInputFeatureExtractor {
 
     private static final String MISSING_AMAP_TYPECODE_PREFIX = "__MISSING_AMAP_TYPECODE__";
+    private static final List<String> INTRA_SET_DIMENSION_SCORE_KEYS = List.of(
+            "flowScore",
+            "diversityScore",
+            "timeFitScore",
+            "fatigueScore",
+            "budgetFitScore",
+            "riskScore"
+    );
+    private static final double DIVERSITY_CATEGORY_WEIGHT = 0.5d;
+    private static final double DIVERSITY_DOMINANT_WEIGHT = 0.3d;
+    private static final double DIVERSITY_CONSECUTIVE_WEIGHT = 0.2d;
+    private static final double FLOW_BACKTRACKING_WEIGHT = 0.5d;
+    private static final double FLOW_LONG_SEGMENT_WEIGHT = 0.3d;
+    private static final double FLOW_MAX_DISTANCE_WEIGHT = 0.2d;
+    private static final double TIME_FIT_TIGHT_WEIGHT = 0.35d;
+    private static final double TIME_FIT_MISSING_MEAL_WEIGHT = 0.35d;
+    private static final double TIME_FIT_SPARSE_WEIGHT = 0.30d;
+    private static final double TIME_FIT_TIGHT_USAGE_START = 0.95d;
+    private static final double TIME_FIT_TIGHT_USAGE_WINDOW = 0.05d;
+    private static final double TIME_FIT_SPARSE_USAGE_START = 0.60d;
+    private static final double FATIGUE_TOTAL_DISTANCE_WEIGHT = 0.5d;
+    private static final double FATIGUE_LONG_SEGMENT_WEIGHT = 0.3d;
+    private static final double FATIGUE_MAX_DISTANCE_WEIGHT = 0.2d;
+    private static final double BUDGET_PRESSURE_WEIGHT = 0.8d;
+    private static final double BUDGET_MISSING_PRICE_WEIGHT = 0.2d;
+    private static final double RISK_HIGH_STOP_WEIGHT = 0.6d;
+    private static final double RISK_AVG_PRESSURE_WEIGHT = 0.4d;
+    private static final double SINGLE_ROUTE_RANK_IN_SET_DEFAULT = 0.5d;
 
     private final ObjectMapper objectMapper;
 
@@ -68,6 +96,24 @@ public class RouteInputFeatureExtractor {
     }
 
     public RouteInputFeatureSnapshot extract(CandidateRouteDTO route, RouteGenerationContext context) {
+        RouteInputFeatureParts parts = this.extractParts(route, context);
+        return this.toSnapshot(parts, this.writeJson(new LinkedHashMap<>()));
+    }
+
+    public Map<String, RouteInputFeatureSnapshot> extractCandidateSet(RouteGenerationContext context) {
+        List<RouteInputFeatureParts> partsList = context.getSelectedRoutes().stream()
+                .map(route -> this.extractParts(route, context))
+                .toList();
+        Map<String, Map<String, Object>> intraSetVectors = this.intraSetVectors(partsList);
+        Map<String, RouteInputFeatureSnapshot> snapshots = new LinkedHashMap<>();
+        for (RouteInputFeatureParts parts : partsList) {
+            Map<String, Object> intraSetVector = intraSetVectors.getOrDefault(parts.route().routeCode(), new LinkedHashMap<>());
+            snapshots.put(parts.route().routeCode(), this.toSnapshot(parts, this.writeJson(intraSetVector)));
+        }
+        return snapshots;
+    }
+
+    private RouteInputFeatureParts extractParts(CandidateRouteDTO route, RouteGenerationContext context) {
         FeatureSource source = this.toFeatureSource(route, context);
         List<Map<String, Object>> stopMatrix = this.stopMatrix(route, source);
         List<SegmentFeature> segmentFeatures = this.segmentFeatures(route, context, source);
@@ -75,13 +121,26 @@ public class RouteInputFeatureExtractor {
         Map<String, Object> routeDerivedVector = this.routeDerivedVector(route, context, source, stopMatrix, segmentMatrix, segmentFeatures);
         Map<String, Object> contextCrossVector = this.contextCrossVector(context, routeDerivedVector, route, source);
         Map<String, Object> contextJson = this.contextJson(context);
+        return new RouteInputFeatureParts(
+                route,
+                source,
+                stopMatrix,
+                segmentMatrix,
+                routeDerivedVector,
+                contextCrossVector,
+                contextJson
+        );
+    }
+
+    private RouteInputFeatureSnapshot toSnapshot(RouteInputFeatureParts parts, String intraSetVectorJson) {
         return new RouteInputFeatureSnapshot(
                 RoutePreferenceFeatureSchema.VERSION,
-                this.writeJson(stopMatrix),
-                this.writeJson(segmentMatrix),
-                this.writeJson(routeDerivedVector),
-                this.writeJson(contextCrossVector),
-                this.writeJson(contextJson)
+                this.writeJson(parts.stopMatrix()),
+                this.writeJson(parts.segmentMatrix()),
+                this.writeJson(parts.routeDerivedVector()),
+                this.writeJson(parts.contextCrossVector()),
+                intraSetVectorJson,
+                this.writeJson(parts.contextJson())
         );
     }
 
@@ -384,7 +443,199 @@ public class RouteInputFeatureExtractor {
         vector.put("highRiskStopRatio", stopCount == 0 ? 0d : stopMatrix.stream()
                 .filter(row -> doubleValue(row.get("riskCost")) <= this.routeX("risk-cost-threshold"))
                 .count() / (double) stopCount);
+        this.putDimensionScores(vector);
         return vector;
+    }
+
+    private void putDimensionScores(Map<String, Object> vector) {
+        double diversityScore = clamp01(
+                DIVERSITY_CATEGORY_WEIGHT * doubleValue(vector.get("categoryDiversityRatio"))
+                        + DIVERSITY_DOMINANT_WEIGHT * (1d - doubleValue(vector.get("dominantCategoryRatio")))
+                        + DIVERSITY_CONSECUTIVE_WEIGHT * (1d - doubleValue(vector.get("consecutiveSameCategoryMaxNorm")))
+        );
+        double flowScore = clamp01(
+                1d
+                        - FLOW_BACKTRACKING_WEIGHT * doubleValue(vector.get("backtrackingSegmentRatio"))
+                        - FLOW_LONG_SEGMENT_WEIGHT * doubleValue(vector.get("longSegmentRatio"))
+                        - FLOW_MAX_DISTANCE_WEIGHT * clamp01(doubleValue(vector.get("maxSegmentDistanceNorm")) - 1d)
+        );
+        double timeTightPressure = clamp01(
+                (doubleValue(vector.get("timeBudgetUsageRatio")) - TIME_FIT_TIGHT_USAGE_START)
+                        / TIME_FIT_TIGHT_USAGE_WINDOW
+        );
+        double timeSparsePressure = clamp01(
+                (TIME_FIT_SPARSE_USAGE_START - doubleValue(vector.get("timeBudgetUsageRatio")))
+                        / TIME_FIT_SPARSE_USAGE_START
+        );
+        double timeFitScore = clamp01(
+                1d
+                        - TIME_FIT_TIGHT_WEIGHT * timeTightPressure
+                        - TIME_FIT_MISSING_MEAL_WEIGHT * doubleValue(vector.get("missingRequiredMealFlag"))
+                        - TIME_FIT_SPARSE_WEIGHT * timeSparsePressure
+        );
+        double fatigueScore = clamp01(
+                1d
+                        - FATIGUE_TOTAL_DISTANCE_WEIGHT * clamp01(doubleValue(vector.get("totalDistanceNorm")) - 1d)
+                        - FATIGUE_LONG_SEGMENT_WEIGHT * doubleValue(vector.get("longSegmentRatio"))
+                        - FATIGUE_MAX_DISTANCE_WEIGHT * clamp01(doubleValue(vector.get("maxSegmentDistanceNorm")) - 1d)
+        );
+        double budgetFitScore = clamp01(
+                1d
+                        - BUDGET_PRESSURE_WEIGHT * clamp01(doubleValue(vector.get("budgetPressure")))
+                        - BUDGET_MISSING_PRICE_WEIGHT * doubleValue(vector.get("missingPriceRatio"))
+        );
+        double riskCostThreshold = Math.abs(this.routeX("risk-cost-threshold"));
+        double avgRiskPressure = riskCostThreshold <= 0d
+                ? 0d
+                : clamp01(-doubleValue(vector.get("avgRiskCost")) / riskCostThreshold);
+        double riskScore = clamp01(
+                1d
+                        - RISK_HIGH_STOP_WEIGHT * doubleValue(vector.get("highRiskStopRatio"))
+                        - RISK_AVG_PRESSURE_WEIGHT * avgRiskPressure
+        );
+        vector.put("diversityScore", diversityScore);
+        vector.put("flowScore", flowScore);
+        vector.put("timeFitScore", timeFitScore);
+        vector.put("fatigueScore", fatigueScore);
+        vector.put("budgetFitScore", budgetFitScore);
+        vector.put("riskScore", riskScore);
+    }
+
+    private Map<String, Map<String, Object>> intraSetVectors(List<RouteInputFeatureParts> partsList) {
+        Map<String, Map<String, Object>> vectors = new LinkedHashMap<>();
+        List<IntraSetRouteFeature> routeFeatures = partsList.stream()
+                .map(parts -> new IntraSetRouteFeature(
+                        parts.route().routeCode(),
+                        parts.routeDerivedVector(),
+                        this.stopPoiIds(parts.route()),
+                        this.categoryGroups(parts.route(), parts.source())
+                ))
+                .toList();
+        int routeCount = routeFeatures.size();
+        for (IntraSetRouteFeature routeFeature : routeFeatures) {
+            vectors.put(routeFeature.routeCode(), new LinkedHashMap<>());
+        }
+        for (String dimensionKey : INTRA_SET_DIMENSION_SCORE_KEYS) {
+            this.putRankAndDelta(vectors, routeFeatures, dimensionKey);
+        }
+        this.putOverlapRatios(vectors, routeFeatures, routeCount);
+        this.putCompositeRank(vectors, routeFeatures);
+        return vectors;
+    }
+
+    private void putRankAndDelta(
+            Map<String, Map<String, Object>> vectors,
+            List<IntraSetRouteFeature> routeFeatures,
+            String dimensionKey
+    ) {
+        int routeCount = routeFeatures.size();
+        double best = routeFeatures.stream()
+                .mapToDouble(feature -> feature.dimensionScore(dimensionKey))
+                .max()
+                .orElse(0d);
+        Map<String, Double> rankByRouteCode = this.rankInSet(
+                routeFeatures,
+                feature -> feature.dimensionScore(dimensionKey)
+        );
+        String rankKey = dimensionKey + "RankInSet";
+        String deltaKey = dimensionKey + "DeltaVsBest";
+        for (IntraSetRouteFeature feature : routeFeatures) {
+            Map<String, Object> vector = vectors.get(feature.routeCode());
+            vector.put(rankKey, routeCount <= 1 ? SINGLE_ROUTE_RANK_IN_SET_DEFAULT : rankByRouteCode.get(feature.routeCode()));
+            vector.put(deltaKey, routeCount <= 1 ? 0d : feature.dimensionScore(dimensionKey) - best);
+        }
+    }
+
+    private void putCompositeRank(
+            Map<String, Map<String, Object>> vectors,
+            List<IntraSetRouteFeature> routeFeatures
+    ) {
+        Map<String, Double> rankByRouteCode = this.rankInSet(
+                routeFeatures,
+                feature -> INTRA_SET_DIMENSION_SCORE_KEYS.stream()
+                        .mapToDouble(feature::dimensionScore)
+                        .average()
+                        .orElse(0d)
+        );
+        for (IntraSetRouteFeature feature : routeFeatures) {
+            vectors.get(feature.routeCode()).put(
+                    "compositeRankInSet",
+                    routeFeatures.size() <= 1 ? SINGLE_ROUTE_RANK_IN_SET_DEFAULT : rankByRouteCode.get(feature.routeCode())
+            );
+        }
+    }
+
+    private void putOverlapRatios(
+            Map<String, Map<String, Object>> vectors,
+            List<IntraSetRouteFeature> routeFeatures,
+            int routeCount
+    ) {
+        for (IntraSetRouteFeature feature : routeFeatures) {
+            Map<String, Object> vector = vectors.get(feature.routeCode());
+            if (routeCount <= 1) {
+                vector.put("intraSetStopOverlapRatio", 0d);
+                vector.put("intraSetCategoryOverlapRatio", 0d);
+                continue;
+            }
+            Set<String> otherPoiIds = new LinkedHashSet<>();
+            Set<String> otherCategoryGroups = new LinkedHashSet<>();
+            for (IntraSetRouteFeature other : routeFeatures) {
+                if (feature.routeCode().equals(other.routeCode())) {
+                    continue;
+                }
+                otherPoiIds.addAll(other.poiIds());
+                otherCategoryGroups.addAll(other.categoryGroups());
+            }
+            vector.put("intraSetStopOverlapRatio", overlapRatio(feature.poiIds(), otherPoiIds));
+            vector.put("intraSetCategoryOverlapRatio", overlapRatio(feature.categoryGroups(), otherCategoryGroups));
+        }
+    }
+
+    private Map<String, Double> rankInSet(
+            List<IntraSetRouteFeature> routeFeatures,
+            java.util.function.ToDoubleFunction<IntraSetRouteFeature> scoreFunction
+    ) {
+        Map<String, Double> rankByRouteCode = new LinkedHashMap<>();
+        int routeCount = routeFeatures.size();
+        if (routeCount <= 1) {
+            for (IntraSetRouteFeature feature : routeFeatures) {
+                rankByRouteCode.put(feature.routeCode(), SINGLE_ROUTE_RANK_IN_SET_DEFAULT);
+            }
+            return rankByRouteCode;
+        }
+        List<IntraSetRouteFeature> sortedFeatures = routeFeatures.stream()
+                .sorted(Comparator.comparingDouble(scoreFunction).reversed())
+                .toList();
+        int index = 0;
+        while (index < sortedFeatures.size()) {
+            double score = scoreFunction.applyAsDouble(sortedFeatures.get(index));
+            int end = index;
+            while (end + 1 < sortedFeatures.size()
+                    && Double.compare(scoreFunction.applyAsDouble(sortedFeatures.get(end + 1)), score) == 0) {
+                end++;
+            }
+            double averagePosition = (index + end) / 2d;
+            double rank = 1d - averagePosition / (routeCount - 1d);
+            for (int tieIndex = index; tieIndex <= end; tieIndex++) {
+                rankByRouteCode.put(sortedFeatures.get(tieIndex).routeCode(), rank);
+            }
+            index = end + 1;
+        }
+        return rankByRouteCode;
+    }
+
+    private List<String> stopPoiIds(CandidateRouteDTO route) {
+        return route.stops().stream()
+                .map(stop -> RouteStopIdSupport.poiIdFromStopId(stop.stopId(), route.routeCode()))
+                .toList();
+    }
+
+    private static double overlapRatio(List<String> values, Set<String> otherValues) {
+        if (values.isEmpty()) {
+            return 0d;
+        }
+        long overlapCount = values.stream().filter(otherValues::contains).count();
+        return overlapCount / (double) values.size();
     }
 
     private Map<String, Object> contextJson(RouteGenerationContext context) {
@@ -963,6 +1214,29 @@ public class RouteInputFeatureExtractor {
             Map<String, PoiSemanticProfile> semanticByPoiId,
             List<InterestTagCatalogPO> interestTagCatalog
     ) {
+    }
+
+    private record RouteInputFeatureParts(
+            CandidateRouteDTO route,
+            FeatureSource source,
+            List<Map<String, Object>> stopMatrix,
+            List<Map<String, Object>> segmentMatrix,
+            Map<String, Object> routeDerivedVector,
+            Map<String, Object> contextCrossVector,
+            Map<String, Object> contextJson
+    ) {
+    }
+
+    private record IntraSetRouteFeature(
+            String routeCode,
+            Map<String, Object> routeDerivedVector,
+            List<String> poiIds,
+            List<String> categoryGroups
+    ) {
+
+        private double dimensionScore(String key) {
+            return doubleValue(this.routeDerivedVector.get(key));
+        }
     }
 
     private record MealCoverage(boolean lunchCovered, boolean dinnerCovered) {

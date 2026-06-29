@@ -60,7 +60,7 @@ class RoutePreferenceRawSnapshotRebuildTest {
         RouteInputFeatureExtractor extractor = extractor(objectMapper);
         RouteGenerationContext context = routeGenerationContext();
         CandidateRouteDTO route = context.getSelectedRoutes().get(0);
-        RouteInputFeatureSnapshot onlineSnapshot = extractor.extract(route, context);
+        RouteInputFeatureSnapshot onlineSnapshot = extractor.extractCandidateSet(context).get(route.routeCode());
 
         RoutePreferenceRawSnapshotBuilder builder = new RoutePreferenceRawSnapshotBuilder();
         RoutePreferenceRawSnapshotPayload payload = builder.build(context);
@@ -102,6 +102,7 @@ class RoutePreferenceRawSnapshotRebuildTest {
         assertThat(objectMapper.readTree(actual.segmentMatrixJson())).isEqualTo(objectMapper.readTree(expected.segmentMatrixJson()));
         assertThat(objectMapper.readTree(actual.routeDerivedVectorJson())).isEqualTo(objectMapper.readTree(expected.routeDerivedVectorJson()));
         assertThat(objectMapper.readTree(actual.contextCrossVectorJson())).isEqualTo(objectMapper.readTree(expected.contextCrossVectorJson()));
+        assertThat(objectMapper.readTree(actual.intraSetVectorJson())).isEqualTo(objectMapper.readTree(expected.intraSetVectorJson()));
         assertThat(objectMapper.readTree(actual.contextJson())).isEqualTo(objectMapper.readTree(expected.contextJson()));
     }
 

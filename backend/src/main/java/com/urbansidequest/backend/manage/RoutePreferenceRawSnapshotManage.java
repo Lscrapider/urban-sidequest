@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.domain.po.RoutePreferenceRawSnapshotPO;
 import com.urbansidequest.backend.handler.route.training.RoutePreferenceRawSnapshotPayload;
 import com.urbansidequest.backend.mapper.RoutePreferenceRawSnapshotMapper;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -25,5 +26,11 @@ public class RoutePreferenceRawSnapshotManage extends ServiceImpl<RoutePreferenc
 
     public Optional<RoutePreferenceRawSnapshotPO> findByCandidateSetId(UUID candidateSetId) {
         return Optional.ofNullable(this.baseMapper.selectByCandidateSetId(candidateSetId));
+    }
+
+    public List<UUID> findRebuildCandidateSetIds(String featureSchemaVersion) {
+        return this.baseMapper.findRebuildCandidateSetIds(featureSchemaVersion).stream()
+                .map(UUID::fromString)
+                .toList();
     }
 }

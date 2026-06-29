@@ -6,6 +6,7 @@ public record RouteInputFeatureSnapshot(
         String segmentMatrixJson,
         String routeDerivedVectorJson,
         String contextCrossVectorJson,
+        String intraSetVectorJson,
         String contextJson
 ) {
 }

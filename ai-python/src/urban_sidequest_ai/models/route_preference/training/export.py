@@ -91,18 +91,20 @@ def export_onnx_model(model: RoutePreferenceModel, model_config: RoutePreference
         torch.zeros(1, model_config.max_segments, model_config.segment_dim, dtype=torch.float32, device=device),
         torch.zeros(1, model_config.route_derived_dim, dtype=torch.float32, device=device),
         torch.zeros(1, model_config.context_cross_dim, dtype=torch.float32, device=device),
+        torch.zeros(1, model_config.intra_set_dim, dtype=torch.float32, device=device),
     )
     torch.onnx.export(
         _OnnxExportWrapper(model),
         dummy_inputs,
         output_path,
-        input_names=["stopMatrix", "segmentMatrix", "routeDerivedVector", "contextCrossVector"],
+        input_names=["stopMatrix", "segmentMatrix", "routeDerivedVector", "contextCrossVector", "intraSetVector"],
         output_names=["routePreferenceScore", "routeGoodnessLogit", "reasonCodeLogits"],
         dynamic_axes={
             "stopMatrix": {0: "batch"},
             "segmentMatrix": {0: "batch"},
             "routeDerivedVector": {0: "batch"},
             "contextCrossVector": {0: "batch"},
+            "intraSetVector": {0: "batch"},
             "routePreferenceScore": {0: "batch"},
             "routeGoodnessLogit": {0: "batch"},
             "reasonCodeLogits": {0: "batch"},
@@ -123,8 +125,9 @@ class _OnnxExportWrapper(torch.nn.Module):
         segment_matrix: torch.Tensor,
         route_derived_vector: torch.Tensor,
         context_cross_vector: torch.Tensor,
+        intra_set_vector: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        output = self.model(stop_matrix, segment_matrix, route_derived_vector, context_cross_vector)
+        output = self.model(stop_matrix, segment_matrix, route_derived_vector, context_cross_vector, intra_set_vector)
         return output.route_preference_score, output.route_goodness_logit, output.reason_code_logits
 
 

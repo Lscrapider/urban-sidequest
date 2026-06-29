@@ -43,6 +43,9 @@ public class RoutePreferenceTrainingSamplePO {
     @TableField("context_cross_vector_json")
     private String contextCrossVectorJson;
 
+    @TableField("intra_set_vector_json")
+    private String intraSetVectorJson;
+
     @TableField("context_json")
     private String contextJson;
 

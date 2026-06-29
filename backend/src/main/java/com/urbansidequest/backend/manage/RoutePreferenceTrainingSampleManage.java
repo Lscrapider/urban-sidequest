@@ -30,6 +30,7 @@ public class RoutePreferenceTrainingSampleManage extends ServiceImpl<RoutePrefer
                 snapshot.segmentMatrixJson(),
                 snapshot.routeDerivedVectorJson(),
                 snapshot.contextCrossVectorJson(),
+                snapshot.intraSetVectorJson(),
                 snapshot.contextJson(),
                 RoutePreferenceSampleStatus.GENERATED.name()
         );
@@ -67,6 +68,7 @@ public class RoutePreferenceTrainingSampleManage extends ServiceImpl<RoutePrefer
                 snapshot.segmentMatrixJson(),
                 snapshot.routeDerivedVectorJson(),
                 snapshot.contextCrossVectorJson(),
+                snapshot.intraSetVectorJson(),
                 snapshot.contextJson(),
                 RoutePreferenceSampleStatus.GENERATED.name()
         );

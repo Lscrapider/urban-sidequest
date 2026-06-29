@@ -97,29 +97,31 @@ RUN_MODE = "train"
 
 # 真实训练配置。这里只放训练执行参数，不改变模型输入 X、监督 Y、输出口径或 reason code 契约。
 TRAIN_CONFIG = TrainingRuntimeConfig(
-    feature_schema_version="route_pref_v4",
+    feature_schema_version="route_pref_v5",
     output_dir=PROJECT_ROOT / "tmp" / "route-pref-training-output",
     # 缩短训练上限并配合 early stopping，避免后段 train loss 继续下降但验证排序回落。
     epochs=12,
     # batch 单位是 candidate_set_id，不是单条 route。
     batch_candidate_sets=12,
-    lr=7e-4,
-    weight_decay=1.5e-3,
+    lr=8e-4,
+    weight_decay=1e-3,
     grad_clip_norm=DEFAULT_GRAD_CLIP_NORM,
     hidden_dim=DEFAULT_HIDDEN_DIM,
     reason_hidden_dim=DEFAULT_REASON_HIDDEN_DIM,
-    dropout=0.3,
+    dropout=0.25,
     beta=DEFAULT_RANKING_BETA,
     # 排序是主任务；goodness 辅助头略降权，避免后期牵引共享 encoder 过拟合。
     lambda_goodness=0.60,
-    # reason 只作为轻量辅助头；0.35 会明显恢复 reason，但对 ranking 主任务有拖累。
-    lambda_reason=0.025,
-    seed=DEFAULT_RANDOM_SEED,
+    # 1919-set 聚合数据上扫 λreason：0.025/0.05/0.10/0.15 中 0.10 是膝点——
+    # 0.10 reason macro/topHit 最好且 test 排序几乎无损；0.15 起训练失稳，排序和 reason 同时回落。
+    lambda_reason=0.10,
+    seed=23,
     skip_invalid_judgments=False,
     skip_onnx=True,
     device="cpu",
-    # 直接按主排序指标选轮，验证是否比 ranking loss 选轮更贴近线上排序目标。
-    best_metric="valid/weightedPairwiseAccuracy",
+    # 头部排序实验：选轮口径改用 ndcg@3（对头部更敏感且比 wPA 稳），权重不动；
+    # wPA 退为护栏，对比 top1/top2/ndcg 是否白捡头部精度。
+    best_metric="valid/ndcg@3",
     # 连续 3 轮验证主排序指标不改善则提前停止，减少后段过拟合训练。
     patience=3,
     min_delta=0.0,
@@ -371,6 +373,7 @@ def train_and_export(
                 batch.segment_matrix,
                 batch.route_derived_vector,
                 batch.context_cross_vector,
+                batch.intra_set_vector,
             )
             losses = compute_losses(output, batch, loss_config)
             losses.total_loss.backward()
@@ -494,15 +497,16 @@ def synthetic_bundle() -> DatasetBundle:
         segment_feature_keys=("straightDistanceNorm", "backtrackingFlag"),
         route_derived_keys=("avgInterestScore", "totalDistanceNorm"),
         context_cross_keys=("interestFit", "budgetPressure"),
+        intra_set_keys=("flowScoreRankInSet", "flowScoreDeltaVsBest"),
     )
     groups = []
     for index in range(4):
         candidate_set_id = f"candidate-set-{index}"
         route_codes = ["A", "B", "C"]
         inputs = {
-            "A": RouteInput(((0.9, 0.8), (0.7, 0.6)), ((0.1, 0.0),), (0.85, 0.1), (0.8, 0.1)),
-            "B": RouteInput(((0.5, 0.4),), ((0.3, 0.0),), (0.45, 0.3), (0.5, 0.2)),
-            "C": RouteInput(((0.2, 0.1),), ((0.8, 1.0),), (0.15, 0.9), (0.2, 0.8)),
+            "A": RouteInput(((0.9, 0.8), (0.7, 0.6)), ((0.1, 0.0),), (0.85, 0.1), (0.8, 0.1), (1.0, 0.0)),
+            "B": RouteInput(((0.5, 0.4),), ((0.3, 0.0),), (0.45, 0.3), (0.5, 0.2), (0.5, -0.4)),
+            "C": RouteInput(((0.2, 0.1),), ((0.8, 1.0),), (0.15, 0.9), (0.2, 0.8), (0.0, -0.8)),
         }
         ranking = ["A", "B", "C"]
         accepted = ["A"]
