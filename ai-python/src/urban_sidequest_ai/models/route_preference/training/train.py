@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 import logging
 import math
 from pathlib import Path
+import random
 import sys
 from typing import Any
 
@@ -55,6 +56,7 @@ from .schema import (
 LOGGER = logging.getLogger(__name__)
 HISTORY_FILENAME = "history.jsonl"
 PROJECT_ROOT = Path(__file__).resolve().parents[6]
+RANDOM_SPLIT_SEED_MAX = 2**31 - 1
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,7 @@ class TrainingRuntimeConfig:
     lambda_goodness: float
     lambda_reason: float
     seed: int
+    split_seed: int | None
     skip_invalid_judgments: bool
     skip_onnx: bool
     device: str
@@ -108,16 +111,18 @@ TRAIN_CONFIG = TrainingRuntimeConfig(
     grad_clip_norm=DEFAULT_GRAD_CLIP_NORM,
     hidden_dim=DEFAULT_HIDDEN_DIM,
     reason_hidden_dim=DEFAULT_REASON_HIDDEN_DIM,
-    dropout=0.25,
+    dropout=0.3,
     beta=DEFAULT_RANKING_BETA,
     # 排序是主任务；goodness 辅助头略降权，避免后期牵引共享 encoder 过拟合。
     lambda_goodness=0.60,
     # 1919-set 聚合数据上扫 λreason：0.025/0.05/0.10/0.15 中 0.10 是膝点——
     # 0.10 reason macro/topHit 最好且 test 排序几乎无损；0.15 起训练失稳，排序和 reason 同时回落。
     lambda_reason=0.10,
+    # 训练 seed 控制模型初始化和 batch shuffle；split_seed=None 表示每次运行随机切分 train/valid/test。
     seed=23,
+    split_seed=None,
     skip_invalid_judgments=False,
-    skip_onnx=True,
+    skip_onnx=False,
     device="cpu",
     # 头部排序实验：选轮口径改用 ndcg@3（对头部更敏感且比 wPA 稳），权重不动；
     # wPA 退为护栏，对比 top1/top2/ndcg 是否白捡头部精度。
@@ -155,6 +160,7 @@ SELF_CHECK_CONFIG = TrainingRuntimeConfig(
     lambda_goodness=DEFAULT_LAMBDA_GOODNESS,
     lambda_reason=DEFAULT_LAMBDA_REASON,
     seed=DEFAULT_RANDOM_SEED,
+    split_seed=DEFAULT_RANDOM_SEED,
     skip_invalid_judgments=False,
     skip_onnx=True,
     device="cpu",
@@ -264,6 +270,12 @@ def _build_scheduler(optimizer: AdamW, config: TrainingRuntimeConfig):
     raise ValueError(f"未知 lr-scheduler: {kind}")
 
 
+def _resolve_split_seed(config: TrainingRuntimeConfig) -> int:
+    if config.split_seed is not None:
+        return config.split_seed
+    return random.SystemRandom().randint(0, RANDOM_SPLIT_SEED_MAX)
+
+
 def _compute_reason_pos_weight(
     groups: tuple[LabeledCandidateSet, ...],
     cap: float,
@@ -321,7 +333,9 @@ def train_and_export(
     config: TrainingRuntimeConfig,
     device: torch.device,
 ) -> int:
-    splits = split_by_candidate_set(bundle.groups, seed=config.seed)
+    split_seed = _resolve_split_seed(config)
+    splits = split_by_candidate_set(bundle.groups, seed=split_seed)
+    LOGGER.info("训练 seed=%s split seed=%s", config.seed, split_seed)
     if not splits.train:
         raise ValueError("训练集为空，无法训练")
     if config.reason_pos_weight_cap > 0:
@@ -382,7 +396,12 @@ def train_and_export(
             for key, value in losses.detached_metrics().items():
                 train_loss_totals[key] = train_loss_totals.get(key, 0.0) + value
             batch_count += 1
-        record: dict[str, Any] = {"epoch": epoch, "lr": optimizer.param_groups[0]["lr"]}
+        record: dict[str, Any] = {
+            "epoch": epoch,
+            "lr": optimizer.param_groups[0]["lr"],
+            "seed": config.seed,
+            "splitSeed": split_seed,
+        }
         for key, value in train_loss_totals.items():
             record[f"train/{key}"] = value / max(batch_count, 1)
         record.update(
@@ -479,11 +498,13 @@ def train_and_export(
     )
     render_history_plots(history_path, output_dir)
     LOGGER.info(
-        "训练完成: groups=%s train=%s valid=%s test=%s skippedJudgments=%s output=%s",
+        "训练完成: groups=%s train=%s valid=%s test=%s seed=%s splitSeed=%s skippedJudgments=%s output=%s",
         len(bundle.groups),
         len(splits.train),
         len(splits.valid),
         len(splits.test),
+        config.seed,
+        split_seed,
         len(bundle.skipped_judgments),
         output_dir,
     )

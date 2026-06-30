@@ -23,7 +23,7 @@ JUDGE_CONCURRENCY = 4
 DRY_RUN = False
 CANDIDATE_SET_IDS: list[str] = []
 TARGET_K = 3
-ORIGINAL_K = 1
+ORIGINAL_K = 0
 
 
 def parse_args(argv: list[str] | None = None):

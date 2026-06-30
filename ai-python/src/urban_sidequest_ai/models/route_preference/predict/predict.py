@@ -8,7 +8,7 @@ from typing import Any
 
 import torch
 
-DEFAULT_INPUT_PATH = Path("/Users/qinzeyu/Desktop/route_preference_training_samples_202606232333.json")
+DEFAULT_INPUT_PATH = Path("/Users/qinzeyu/Desktop/route_preference_training_samples_202606302044-1782823495440.json")
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
