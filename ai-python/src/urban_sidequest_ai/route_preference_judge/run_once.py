@@ -22,8 +22,8 @@ CONFIG_FILE = BASE_DIR / "config.json"
 REQUESTS_FILE = BASE_DIR / "requests.json"
 ROUTE_CONCURRENCY = 5
 JUDGE_CONCURRENCY = 4
-# 仅当 config.json 里 judgesPerCandidateSet=true 时生效：
-# 1.0 表示全部 route 走 3 个 LLM judge；0.6 表示约 60% 走 3 judge，其余走单 judge。
+# 仅当 config.json 里 judgesPerCandidateSet > 1 时生效：
+# 1.0 表示全部 route 走配置的 LLM judge 数；0.6 表示约 60% 走完整多 judge，其余走单 judge。
 MULTI_JUDGE_RATIO = 0.6
 
 

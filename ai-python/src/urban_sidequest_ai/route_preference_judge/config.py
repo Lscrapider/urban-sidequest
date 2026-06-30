@@ -42,7 +42,7 @@ class JudgeConfig:
     max_retries: int
     timeout_seconds: int
     temperature: float
-    multi_judge_temperatures: tuple[float, float, float]
+    multi_judge_temperatures: tuple[float, ...]
     seed: int | None
 
 
@@ -65,7 +65,7 @@ def load_config(path: Path | None = None, require_api_key: bool = True) -> AppCo
         timeout_seconds=_required_int_env("BACKEND_TIMEOUT_SECONDS"),
     )
 
-    llm_pool = [_load_llm_config(require_api_key)]
+    llm_pool = _load_llm_pool(require_api_key)
 
     judge_raw = raw.get("judge")
     if not isinstance(judge_raw, dict):
@@ -102,6 +102,19 @@ def load_config(path: Path | None = None, require_api_key: bool = True) -> AppCo
     return AppConfig(backend=backend, llm_pool=llm_pool, judge=judge)
 
 
+def _load_llm_pool(require_api_key: bool) -> list[LlmConfig]:
+    raw_pool = _env_first("ROUTE_LLM_POOL_JSON")
+    if not raw_pool:
+        return [_load_llm_config(require_api_key)]
+    try:
+        decoded = json.loads(raw_pool)
+    except json.JSONDecodeError as exception:
+        raise ValueError("ROUTE_LLM_POOL_JSON 不是合法 JSON") from exception
+    if not isinstance(decoded, list) or not decoded:
+        raise ValueError("ROUTE_LLM_POOL_JSON 必须是非空数组")
+    return [_load_llm_config_from_pool_item(item, require_api_key) for item in decoded]
+
+
 def _load_llm_config(require_api_key: bool) -> LlmConfig:
     api_key = _env_first(DEFAULT_NEW_API_KEY_ENV)
     if not api_key and require_api_key:
@@ -113,6 +126,32 @@ def _load_llm_config(require_api_key: bool) -> LlmConfig:
         model=_required_env("ROUTE_LLM_MODEL"),
         completions_path=_required_env("ROUTE_LLM_COMPLETIONS_PATH"),
     )
+
+
+def _load_llm_config_from_pool_item(raw: dict, require_api_key: bool) -> LlmConfig:
+    if not isinstance(raw, dict):
+        raise ValueError("ROUTE_LLM_POOL_JSON 每一项必须是对象")
+    api_key = raw.get("apiKey") or raw.get("api_key")
+    api_key_env = raw.get("apiKeyEnv") or raw.get("api_key_env") or DEFAULT_NEW_API_KEY_ENV
+    if not api_key:
+        api_key = _env_first(str(api_key_env))
+    if not api_key and require_api_key:
+        raise ValueError(f"ROUTE_LLM_POOL_JSON 模型缺少 apiKey，且环境变量 {api_key_env} 未配置")
+    return LlmConfig(
+        provider=str(_required_pool_value(raw, "provider")),
+        base_url=str(_required_pool_value(raw, "baseUrl", "base_url")).rstrip("/"),
+        api_key=str(api_key or ""),
+        model=str(_required_pool_value(raw, "model")),
+        completions_path=str(_required_pool_value(raw, "completionsPath", "completions_path")),
+    )
+
+
+def _required_pool_value(raw: dict, *keys: str):
+    for key in keys:
+        value = raw.get(key)
+        if value:
+            return value
+    raise ValueError(f"ROUTE_LLM_POOL_JSON 模型缺少字段：{'/'.join(keys)}")
 
 
 def _env_first(*keys: str) -> str | None:
@@ -166,15 +205,15 @@ def _parse_judge_count(value) -> tuple[bool, int]:
         return value, 3 if value else 1
     count = int(value)
     if count < 1:
-        raise ValueError("judgesPerCandidateSet 必须为 boolean，或兼容旧配置的正整数")
+        raise ValueError("judgesPerCandidateSet 必须是正整数")
     return count > 1, count
 
 
-def _parse_multi_judge_temperatures(value, single_temperature: float) -> tuple[float, float, float]:
+def _parse_multi_judge_temperatures(value, single_temperature: float) -> tuple[float, ...]:
     if value is None:
         return (single_temperature, 0.5, 1.0)
-    if not isinstance(value, list) or len(value) != 3:
-        raise ValueError("multiJudgeTemperatures 必须是 3 个数字的数组")
+    if not isinstance(value, list) or not value:
+        raise ValueError("multiJudgeTemperatures 必须是非空数字数组")
     temperatures = tuple(float(item) for item in value)
     if any(item < 0 for item in temperatures):
         raise ValueError("multiJudgeTemperatures 不能包含负数")
