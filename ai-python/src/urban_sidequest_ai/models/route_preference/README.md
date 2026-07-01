@@ -2,18 +2,19 @@
 
 路线偏好模型当前包含训练与预测两部分：
 
-- `training/`：从 PostgreSQL 读取 `route_preference_training_samples` 的四块 routeInput，并从 `route_preference_judgments` 读取监督信号训练模型。
+- `training/`：从 PostgreSQL 读取 `route_preference_training_samples` 的五块 routeInput，并从 `route_preference_judgments` 读取监督信号训练模型。
 - `predict/`：加载训练产物，对单条或同一个 candidate set 的多条路线输出排序分、好坏概率和 reason code 分数。
 
 ## 输入 X
 
-模型输入只包含四块：
+模型输入只包含五块：
 
 ```text
 stop_matrix_json
 segment_matrix_json
 route_derived_vector_json
 context_cross_vector_json
+intra_set_vector_json
 ```
 
 `context_json` 是原始上下文快照，用于审计、诊断和重建特征，不直接进入模型。`ranking_json`、`accepted_route_codes_json`、`rejected_route_codes_json`、`reason_codes_json`、`confidence`、`personalReview` 都是监督或调试信息，也不进入 X。
@@ -76,21 +77,26 @@ HIGH_ROUTE_RISK
 RUN_MODE = "train"        # 真实训练，读取 PostgreSQL
 # RUN_MODE = "self-check" # 自检，不连接数据库
 
-feature_schema_version = "route_pref_v4"
+feature_schema_version = "route_pref_v5"
 output_dir = PROJECT_ROOT / "tmp" / "route-pref-training-output"
 epochs = 12
 batch_candidate_sets = 12
 lr = 8e-4
 weight_decay = 1e-3
-dropout = 0.25
-lambda_goodness = 0.60
-lambda_reason = 0.025
-best_metric = "valid/weightedPairwiseAccuracy"
+dropout = 0.30
+lambda_goodness = 0.30
+lambda_reason = 0.10
+best_metric = "valid/ndcg@3"
 patience = 3
 reason_pos_weight_cap = 6.0
 reason_pos_weight_min_support = 40
 goodness_pos_weight_cap = 0.0
 ```
+
+当前 v5 定稿默认值集中定义在 `training/schema.py`，`training/train.py`
+只负责组装 `TRAIN_CONFIG`。goodness 线上概率使用
+`sigmoid(routeGoodnessLogit / goodnessTemperature)`，当前
+`goodnessTemperature=1.41`，`GOOD_ROUTE_THRESHOLD=0.5` 是校准后概率上的默认业务阈值。
 
 PyCharm 中直接运行 `training/train.py` 即可。真实训练默认输出到项目根目录下的
 `tmp/route-pref-training-output`；自检默认输出到 `tmp/route-pref-training-self-check`。
@@ -118,7 +124,7 @@ reason_metrics.png
 PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.models.route_preference.predict \
   --model-dir tmp/route-pref-training-output \
   --candidate-set-id <candidate-set-id> \
-  --feature-schema-version route_pref_v4
+  --feature-schema-version route_pref_v5
 ```
 
 数据库连接只读取根目录 `.env` / `.env.dev` 中的 `ROUTE_PREF_DB_*` 或 `DATABASE_URL` 变量，不再支持 JSON fallback。可以使用 `ROUTE_PREF_DB_DSN` / `DATABASE_URL`，也可以使用 `ROUTE_PREF_DB_HOST`、`ROUTE_PREF_DB_PORT`、`ROUTE_PREF_DB_NAME`、`ROUTE_PREF_DB_USER`、`ROUTE_PREF_DB_PASSWORD` 和 `ROUTE_PREF_DB_CONNECT_TIMEOUT`。缺少数据库环境变量时直接报错。

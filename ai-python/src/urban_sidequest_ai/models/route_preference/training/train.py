@@ -28,7 +28,7 @@ from .dataset import (
     split_by_candidate_set,
 )
 from .db import connect, load_database_config
-from .eval import evaluate_model
+from .eval import evaluate_model, fit_goodness_calibration
 from .export import ExportConfig, export_training_artifacts
 from .losses import LossConfig, compute_losses
 from .model import RoutePreferenceModel, RoutePreferenceModelConfig
@@ -37,15 +37,29 @@ from .plots import append_history, render_history_plots
 from .repository import RoutePreferenceTrainingRepository
 from .schema import (
     DEFAULT_BATCH_CANDIDATE_SETS,
+    DEFAULT_BEST_METRIC,
     DEFAULT_DROPOUT,
+    DEFAULT_EPOCHS,
+    DEFAULT_FEATURE_SCHEMA_VERSION,
+    DEFAULT_GOODNESS_POS_WEIGHT_CAP,
     DEFAULT_GRAD_CLIP_NORM,
     DEFAULT_HIDDEN_DIM,
     DEFAULT_LAMBDA_GOODNESS,
     DEFAULT_LAMBDA_REASON,
     DEFAULT_LR,
+    DEFAULT_LR_MIN,
+    DEFAULT_LR_PLATEAU_FACTOR,
+    DEFAULT_LR_PLATEAU_PATIENCE,
+    DEFAULT_LR_SCHEDULER,
+    DEFAULT_MIN_DELTA,
+    DEFAULT_PATIENCE,
     DEFAULT_RANDOM_SEED,
     DEFAULT_RANKING_BETA,
     DEFAULT_REASON_HIDDEN_DIM,
+    DEFAULT_REASON_POS_WEIGHT_CAP,
+    DEFAULT_REASON_POS_WEIGHT_MIN_SUPPORT,
+    DEFAULT_TRAIN_SEED,
+    DEFAULT_WARMUP_EPOCHS,
     DEFAULT_WEIGHT_DECAY,
     InvalidJudgmentPolicy,
     REASON_CODES,
@@ -100,48 +114,49 @@ RUN_MODE = "train"
 
 # 真实训练配置。这里只放训练执行参数，不改变模型输入 X、监督 Y、输出口径或 reason code 契约。
 TRAIN_CONFIG = TrainingRuntimeConfig(
-    feature_schema_version="route_pref_v5",
+    feature_schema_version=DEFAULT_FEATURE_SCHEMA_VERSION,
     output_dir=PROJECT_ROOT / "tmp" / "route-pref-training-output",
     # 缩短训练上限并配合 early stopping，避免后段 train loss 继续下降但验证排序回落。
-    epochs=12,
+    epochs=DEFAULT_EPOCHS,
     # batch 单位是 candidate_set_id，不是单条 route。
-    batch_candidate_sets=12,
-    lr=8e-4,
-    weight_decay=1e-3,
+    batch_candidate_sets=DEFAULT_BATCH_CANDIDATE_SETS,
+    lr=DEFAULT_LR,
+    weight_decay=DEFAULT_WEIGHT_DECAY,
     grad_clip_norm=DEFAULT_GRAD_CLIP_NORM,
     hidden_dim=DEFAULT_HIDDEN_DIM,
     reason_hidden_dim=DEFAULT_REASON_HIDDEN_DIM,
-    dropout=0.3,
+    # v5 2560-set 定稿沿用 0.30；0.25 是待复验项，不在当前基线内。
+    dropout=DEFAULT_DROPOUT,
     beta=DEFAULT_RANKING_BETA,
-    # 排序是主任务；goodness 辅助头略降权，避免后期牵引共享 encoder 过拟合。
-    lambda_goodness=0.60,
-    # 1919-set 聚合数据上扫 λreason：0.025/0.05/0.10/0.15 中 0.10 是膝点——
+    # 排序是主任务；λ=0.3 vs 0.6 已按 9 次 seed benchmark 对照，0.3 保留排序收益。
+    lambda_goodness=DEFAULT_LAMBDA_GOODNESS,
+    # 聚合数据上扫 λ reason：0.025/0.05/0.10/0.15 中 0.10 是膝点——
     # 0.10 reason macro/topHit 最好且 test 排序几乎无损；0.15 起训练失稳，排序和 reason 同时回落。
-    lambda_reason=0.10,
+    lambda_reason=DEFAULT_LAMBDA_REASON,
     # 训练 seed 控制模型初始化和 batch shuffle；split_seed=None 表示每次运行随机切分 train/valid/test。
-    seed=23,
+    seed=DEFAULT_TRAIN_SEED,
     split_seed=None,
     skip_invalid_judgments=False,
     skip_onnx=False,
     device="cpu",
     # 头部排序实验：选轮口径改用 ndcg@3（对头部更敏感且比 wPA 稳），权重不动；
     # wPA 退为护栏，对比 top1/top2/ndcg 是否白捡头部精度。
-    best_metric="valid/ndcg@3",
+    best_metric=DEFAULT_BEST_METRIC,
     # 连续 3 轮验证主排序指标不改善则提前停止，减少后段过拟合训练。
-    patience=3,
-    min_delta=0.0,
-    # 学习率调度默认关闭；可选 "none"、"cosine"、"plateau"。
-    lr_scheduler="cosine",
-    warmup_epochs=0,
-    lr_min=1e-4,
-    lr_plateau_factor=0.5,
-    lr_plateau_patience=2,
+    patience=DEFAULT_PATIENCE,
+    # min_delta=0.0 是当前 v5 定稿；1e-3 只是待复验降噪项。
+    min_delta=DEFAULT_MIN_DELTA,
+    lr_scheduler=DEFAULT_LR_SCHEDULER,
+    warmup_epochs=DEFAULT_WARMUP_EPOCHS,
+    lr_min=DEFAULT_LR_MIN,
+    lr_plateau_factor=DEFAULT_LR_PLATEAU_FACTOR,
+    lr_plateau_patience=DEFAULT_LR_PLATEAU_PATIENCE,
     # 只用训练集统计 reason 正样本权重；cap 限制极端不平衡 code 的放大倍数。
-    reason_pos_weight_cap=6.0,
+    reason_pos_weight_cap=DEFAULT_REASON_POS_WEIGHT_CAP,
     # 正样本太少的 reason code 不放大，避免 HIGH_ROUTE_RISK 这类低支持度噪声被高权重牵引。
-    reason_pos_weight_min_support=40,
-    # goodness 先不加正样本权重；若 accepted/rejected 明显失衡，再改为 3.0 试。
-    goodness_pos_weight_cap=0.0,
+    reason_pos_weight_min_support=DEFAULT_REASON_POS_WEIGHT_MIN_SUPPORT,
+    # acc:rej≈0.95，无需 goodness pos_weight。
+    goodness_pos_weight_cap=DEFAULT_GOODNESS_POS_WEIGHT_CAP,
 )
 
 # 自检配置：用于 PyCharm 里快速确认训练流程能跑通，不依赖数据库。
@@ -466,6 +481,13 @@ def train_and_export(
         LOGGER.info("导出最优轮权重: %s=%.4f @epoch %s", best_metric_key, best_score, best_epoch)
         model.load_state_dict(best_state)
 
+    goodness_calibration = fit_goodness_calibration(
+        model,
+        splits.valid,
+        config.batch_candidate_sets,
+        device,
+        config.seed,
+    )
     final_metrics = {}
     final_metrics.update(
         evaluate_model(
@@ -476,6 +498,7 @@ def train_and_export(
             device,
             config.seed,
             "valid",
+            goodness_calibration,
         )
     )
     final_metrics.update(
@@ -487,6 +510,7 @@ def train_and_export(
             device,
             config.seed,
             "test",
+            goodness_calibration,
         )
     )
     export_training_artifacts(

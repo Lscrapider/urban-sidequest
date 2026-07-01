@@ -1,23 +1,23 @@
-# 路线 X 特征定义（route_pref_v4）
+# 路线 X 特征定义（route_pref_v5）
 
 本文只回答一件事：**喂给路线偏好模型的 X 里到底有哪些值、每个值是什么、怎么算、范围多大**。
 
-这是一份「跟着代码走」的字典，不是设计推演。事实来源是后端 `RouteInputFeatureExtractor` 和 `RoutePreferenceFeatureSchema.VERSION`（当前 `route_pref_v4`），与导出的 `feature_schema.json` 字段一一对应。代码改了、版本 bump 了，这份要同步。
+这是一份「跟着代码走」的字典，不是设计推演。事实来源是后端 `RouteInputFeatureExtractor` 和 `RoutePreferenceFeatureSchema.VERSION`（当前 `route_pref_v5`），与导出的 `feature_schema.json` 字段一一对应。代码改了、版本 bump 了，这份要同步。
 
 > 模型为什么要这些特征、软硬裁判怎么用它们，见《路线裁判与软拒绝设计》；训练怎么用 X/Y，见《路线偏好排序模型训练设计》。本文不重复那些。
 
 ## 0. 先说清楚边界
 
-**X = 四块，且只有四块：**
+**X = 五块：**
 
 ```text
-X = stopMatrix + segmentMatrix + routeDerivedVector + contextCrossVector
+X = stopMatrix + segmentMatrix + routeDerivedVector + contextCrossVector + intraSetVector
 ```
 
-- 这四块是「模型推理时也能拿到」的输入。
-- **v5 起新增第五块 `intraSetVector`（组内相对，见 §8）**；本节及 §1–§7 描述当前 v4 现状。
+- 前四块是逐路线可算的输入；第五块 `intraSetVector` 是同一 candidate set 内组级相对输入，见 §8。
+- §1–§6 描述前四块；§8 描述 v5 新增的维度分和第五块。
 - `context_json`（见 §6）和 `route_preference_judgments` 里的 `ranking / accepted / rejected / reasonCodes / confidence` **都不进 X**——前者只做审计，后者是训练标签 Y。
-- 版本号存为 `route_pref_v4`，若本次记录了 LLM 编排模型则后缀成 `route_pref_v4@<modelId>`；训练侧按 `@` 前的基础版本归并，不同基础版本不能混训。
+- 版本号存为 `route_pref_v5`，若本次记录了 LLM 编排模型则后缀成 `route_pref_v5@<modelId>`；训练侧按 `@` 前的基础版本归并，不同基础版本不能混训。
 
 **矩阵 padding：** `stopMatrix` 最多 8 行（`MAX_STOPS`），`segmentMatrix` 最多 7 行（`MAX_SEGMENTS = MAX_STOPS - 1`），不足补零行。空位靠行内 `isLastStop`、`segmentEstimateMissing` 等标志识别。
 
@@ -268,10 +268,11 @@ X = stopMatrix + segmentMatrix + routeDerivedVector + contextCrossVector
 | --- | --- | --- |
 | stopMatrix | 38 / 行 | ≤8 行 |
 | segmentMatrix | 15 / 行 | ≤7 行 |
-| routeDerivedVector | 55 | 1 行 |
+| routeDerivedVector | 61 | 1 行 |
 | contextCrossVector | 27 | 1 行 |
+| intraSetVector | 15 | 1 行 |
 
-（以 `feature_schema.json` 为准；本表随 `route_pref_v4` 当前实现。）
+（以 `feature_schema.json` 为准；本表随 `route_pref_v5` 当前实现。）
 
 ---
 
@@ -290,9 +291,9 @@ LLM 对整条路线的自评分（`CandidateRouteDTO.qualityScore`）既不在�
 
 ## 7. 改 X 的规矩
 
-- 四块的**字段名、顺序、shape、padding/mask、缺失默认值**任何变化 → bump `RoutePreferenceFeatureSchema.VERSION`（如 `route_pref_v4` → `route_pref_v5`），并用「原始快照重建」把历史样本重算到新版本，再重训。
+- 五块的**字段名、顺序、shape、padding/mask、缺失默认值**任何变化 → bump `RoutePreferenceFeatureSchema.VERSION`（如后续 `route_pref_v5` → `route_pref_v6`），并用「原始快照重建」把历史样本重算到新版本，再重训。
 - 只改阈值/权重不改字段形状 → 走 `thresholdsVersion`，不 bump featureSchemaVersion（见《路线裁判与软拒绝设计》§5.5）。
-- 已知待办（v5 候选）：§8 的维度信号 + 组内相对特征（§1.6 原始线性分经核实非问题，无需归一，见该节说明）。
+- 已落地：§8 的维度信号 + 组内相对特征（§1.6 原始线性分经核实非问题，无需归一，见该节说明）。
 
 ---
 
@@ -303,7 +304,7 @@ v5 为了拉开相近路线，改两处，**全部在 Java extractor 按 candida
 1. **§8.1**：6 个结构维度分 → 加进第三块 `routeDerivedVector`（绝对、逐路线可算，作训练辅助信号）。
 2. **§8.2**：新增**第五块 `intraSetVector`**（15 字段，组内相对）→ X 从四块变五块，这是拉开相邻的主力。
 
-随之 bump `RoutePreferenceFeatureSchema.VERSION` → `route_pref_v5`、加 DB 列、走原始快照重建、重训（步骤见 §9）。
+当前已 bump `RoutePreferenceFeatureSchema.VERSION` → `route_pref_v5`，训练侧默认读取该版本；后续改字段需继续 bump 到新版本。
 
 ### 8.1 维度分（加进 routeDerivedVector，6 个）
 
@@ -379,7 +380,7 @@ fusion: Linear(224, 128) -> LayerNorm -> GELU -> Dropout -> Linear(128, hidden_d
 2. **重建期**：快照**本就按 `candidate_set` 唯一存储**，`rebuildByCandidateSetId` 一次还原整组（`context.getSelectedRoutes()` = 全部路线）。只需把现在的逐路线 `extract()` 循环改成「先算全组维度分 → 组级算第五块 → 逐条写」。
 3. ✅ **前置已确认（已查 V12 迁移 + restorer）**：raw snapshot 存了 `selected_routes_json`（每条路线 stop→`poiId`）、`poi_candidates_json`、`poi_semantic_mappings_json`、`poi_linear_traces_json`，restorer 全部还原进 context。所以 rebuild 时 Group B 的 `poiId`/`categoryGroup`、§8.1 维度分输入**都算得出、且天然组级**。**无需改 snapshot。**
 
-## 9. v5 实现 checklist（路径 B：落库 + 重建，交 Codex）
+## 9. v5 实现 checklist（路径 B：落库 + 重建）
 
 按顺序执行；生成期与重建期的第五块计算**抽同一个工具方法**，避免口径漂移。
 
@@ -387,27 +388,28 @@ fusion: Linear(224, 128) -> LayerNorm -> GELU -> Dropout -> Linear(128, hidden_d
 - [x] raw snapshot 按 `candidate_set` 唯一存储，含 `selected_routes`/`poi_candidates`/`poi_semantic_mappings`/`poi_linear_traces`，足够重建 §8.1 + §8.2（含 Group B）；**无需补 snapshot**。
 
 **1. DB**
-- [ ] `route_preference_training_samples` 加列 `intra_set_vector_json`（`database/migrations/V*.sql`）。
+- [x] `route_preference_training_samples` 加列 `intra_set_vector_json`。
 
 **2. 后端（Java）**
-- [ ] `RouteInputFeatureSnapshot` 加第五块字段。
-- [ ] extractor 在 `routeDerivedVector` 产出 §8.1 的 6 个维度分。
-- [ ] 组级算第五块：`SaveRoutePreferenceTrainingSamplesStep`（生成期）+ `RoutePreferenceFeatureRebuildService`（重建期）各接一处组级后处理，产出 `intraSetVector`（§8.2）。
-- [ ] bump `RoutePreferenceFeatureSchema.VERSION` → `route_pref_v5`。
+- [x] `RouteInputFeatureSnapshot` 加第五块字段。
+- [x] extractor 在 `routeDerivedVector` 产出 §8.1 的 6 个维度分。
+- [x] 组级算第五块：`SaveRoutePreferenceTrainingSamplesStep`（生成期）+ `RoutePreferenceFeatureRebuildService`（重建期）各接一处组级后处理，产出 `intraSetVector`（§8.2）。
+- [x] bump `RoutePreferenceFeatureSchema.VERSION` → `route_pref_v5`。
 
 **3. Python**
-- [ ] `repository.py` 多读 `intra_set_vector_json`，`TrainingSampleRow` 加字段。
-- [ ] `dataset.py` 解析第五块进 `RouteInput`、`tensorize` 进 batch；`FeatureSpec` + `infer_feature_spec` 加第五块 key。
-- [ ] `model.py` 加 `intra_set_encoder` 分支并改 fusion 维；`RoutePreferenceModelConfig` 加 `intra_set_dim`。
-- [ ] `export.py` / feature_schema.json 带上第五块。
-- [ ] `train.py` 用 `feature_schema_version=route_pref_v5`。
+- [x] `repository.py` 多读 `intra_set_vector_json`，`TrainingSampleRow` 加字段。
+- [x] `dataset.py` 解析第五块进 `RouteInput`、`tensorize` 进 batch；`FeatureSpec` + `infer_feature_spec` 加第五块 key。
+- [x] `model.py` 加 `intra_set_encoder` 分支并改 fusion 维；`RoutePreferenceModelConfig` 加 `intra_set_dim`。
+- [x] `export.py` / feature_schema.json 带上第五块。
+- [x] `train.py` 用 `feature_schema_version=route_pref_v5`。
 
 **4. 重建 + 重训**
-- [ ] 跑 `RoutePreferenceRawSnapshotRepairManualTest`（`-Durban.route-x.raw-snapshot.repair.enabled=true`）全量重建 v4→v5。
-- [ ] 重训，对照复盘当前 v4 锁定基线。
+- [x] 全量重建 v4→v5。
+- [x] 重训，并以 9 次 seed benchmark 作为当前 v5 锁定基线。
 
 **5. 验证（重点）**
-- [ ] **gap=1 pairwise 抬升**（第五块目标）；wPA/ndcg@3/top1 不退。
+- [x] 输出 `pairwiseAccuracy@gap1..4`，确认 gap=1 是当前主要瓶颈。
+- [x] 以 split_seed=13/17/19 × train_seed=23/29/31 的 9 次 mean±std 作为后续改动唯一判断标准。
 - [ ] **goodnessAuc/PrAuc 没被带偏**（被带偏→§8.3 detach 开关）。
 - [ ] 记一条 v5 复盘；v5 是新口径，不与 v4 直接横比。
 

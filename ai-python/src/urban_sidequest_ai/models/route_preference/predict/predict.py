@@ -20,6 +20,7 @@ from ..training.model import RoutePreferenceModel, RoutePreferenceModelConfig
 from ..training.repository import RoutePreferenceTrainingRepository, TrainingSampleRow
 from ..training.schema import (
     DEFAULT_GOOD_ROUTE_THRESHOLD,
+    DEFAULT_GOODNESS_TEMPERATURE,
     DEFAULT_HIGH_ISSUE_THRESHOLD,
     DEFAULT_ISSUE_THRESHOLD,
     HIGH_ISSUE_THRESHOLD_NAME,
@@ -78,6 +79,9 @@ def load_predictor(
     thresholds = {
         "goodRouteThreshold": float(
             model_card.get("thresholds", {}).get("GOOD_ROUTE_THRESHOLD", DEFAULT_GOOD_ROUTE_THRESHOLD)
+        ),
+        "goodnessTemperature": float(
+            model_card.get("calibration", {}).get("goodnessTemperature", DEFAULT_GOODNESS_TEMPERATURE)
         ),
         "highIssueThreshold": float(
             model_card.get("thresholds", {}).get(HIGH_ISSUE_THRESHOLD_NAME, DEFAULT_HIGH_ISSUE_THRESHOLD)
@@ -201,7 +205,10 @@ def predict_routes(
     with torch.no_grad():
         output = model(stop_matrix, segment_matrix, route_derived_vector, context_cross_vector, intra_set_vector)
         scores = output.route_preference_score.detach().cpu().tolist()
-        goodness_probs = torch.sigmoid(output.route_goodness_logit).detach().cpu().tolist()
+        goodness_logits = output.route_goodness_logit.detach().cpu()
+        raw_goodness_probs = torch.sigmoid(goodness_logits).tolist()
+        goodness_temperature = max(float(thresholds.get("goodnessTemperature", DEFAULT_GOODNESS_TEMPERATURE)), 1e-6)
+        goodness_probs = torch.sigmoid(goodness_logits / goodness_temperature).tolist()
         reason_probs = torch.sigmoid(output.reason_code_logits).detach().cpu().tolist()
     results = []
     for index, item in enumerate(route_inputs):
@@ -213,6 +220,7 @@ def predict_routes(
                 "routeCode": item.get("routeCode") or item.get("route_code") or f"route-{index}",
                 "routePreferenceScore": float(scores[index]),
                 "routeGoodnessProb": float(goodness_probs[index]),
+                "routeGoodnessRawProb": float(raw_goodness_probs[index]),
                 "reasonCodeScores": reason_score_map,
                 "issues": _issues(goodness_probs[index], reason_score_map, thresholds),
             }

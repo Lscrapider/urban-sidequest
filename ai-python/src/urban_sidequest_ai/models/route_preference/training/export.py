@@ -10,6 +10,7 @@ import torch
 from .model import RoutePreferenceModel, RoutePreferenceModelConfig
 from .schema import (
     DEFAULT_GOOD_ROUTE_THRESHOLD,
+    DEFAULT_GOODNESS_TEMPERATURE,
     DEFAULT_HIGH_ISSUE_THRESHOLD,
     DEFAULT_ISSUE_THRESHOLD,
     GOOD_ROUTE_THRESHOLD_NAME,
@@ -42,6 +43,8 @@ def export_training_artifacts(
     export_config: ExportConfig,
 ) -> None:
     export_config.output_dir.mkdir(parents=True, exist_ok=True)
+    good_route_threshold = DEFAULT_GOOD_ROUTE_THRESHOLD
+    goodness_temperature = DEFAULT_GOODNESS_TEMPERATURE
     torch.save(
         {
             "stateDict": model.state_dict(),
@@ -68,13 +71,22 @@ def export_training_artifacts(
             "featureSchemaVersion": feature_spec.feature_schema_version,
             "reasonCodesVersion": REASON_CODES_VERSION,
             "thresholds": {
-                GOOD_ROUTE_THRESHOLD_NAME: DEFAULT_GOOD_ROUTE_THRESHOLD,
+                GOOD_ROUTE_THRESHOLD_NAME: good_route_threshold,
                 HIGH_ISSUE_THRESHOLD_NAME: DEFAULT_HIGH_ISSUE_THRESHOLD,
                 ISSUE_THRESHOLD_NAME: DEFAULT_ISSUE_THRESHOLD,
             },
+            "calibration": {
+                "goodnessTemperature": goodness_temperature,
+                "goodnessThresholdSource": "fixed calibrated probability default; tune by business false-reject tolerance",
+                "validFittedGoodnessThreshold": metrics.get("valid/goodnessBestThreshold"),
+                "validFittedGoodnessTemperature": metrics.get("valid/goodnessCalibrationTemperature"),
+                "reasonThresholdSource": "default; reason threshold calibration is a future follow-up",
+            },
             "metrics": metrics,
             "notes": [
-                "阈值当前使用默认值；后续应基于验证集 goodness_prob 与 reason_prob 分布标定。",
+                "线上 goodness 概率使用 sigmoid(routeGoodnessLogit / goodnessTemperature)，GOOD_ROUTE_THRESHOLD=0.5 是校准后概率上的默认业务阈值。",
+                "valid 拟合出的 goodness 阈值只作为诊断记录，单次训练抖动较大，不作为线上自动阈值。",
+                "reason 阈值当前使用默认值；后续可复用同样 valid-only 流程标定 ISSUE_THRESHOLD。",
                 "reason 指标只在带 reasonCodes 的 rejected route 子集上计算。",
             ],
         },

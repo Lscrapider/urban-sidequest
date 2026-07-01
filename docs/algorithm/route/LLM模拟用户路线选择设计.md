@@ -461,7 +461,7 @@ ranking = [C, A, B, E, D]
                           profileTagAffinityJaccard / profileTopTagHitRatio
    旧 persona 的 classicAffinity/photoAffinity/pacePreference/riskTolerance 等一个都不读，是死字段。
 2. 生成 route X 时的原始用户画像会冻结在 `context_json.userPreferenceProfile`，并派生进 `context_cross_vector_json`。
-   模型实际读取的是四块 routeInput，`context_json` 只作审计/重建；打标签的 persona 必须与生成路线时的画像一致，X 与 Y 才同一个人。
+   模型实际读取的是五块 routeInput，`context_json` 只作审计/重建；打标签的 persona 必须与生成路线时的画像一致，X 与 Y 才同一个人。
 ```
 
 persona 字段（= `UserPreferenceProfileDTO`）：
