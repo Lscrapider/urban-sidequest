@@ -16,4 +16,6 @@ public interface RouteHistoryService {
     RouteGenerationVO getActiveRoute(AuthenticatedUser authenticatedUser);
 
     RouteGenerationVO activateRoute(AuthenticatedUser authenticatedUser, UUID requestId, RouteActiveParam param);
+
+    RouteGenerationVO completeActiveRoute(AuthenticatedUser authenticatedUser, UUID requestId, RouteActiveParam param);
 }

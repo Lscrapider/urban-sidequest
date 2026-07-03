@@ -73,4 +73,13 @@ public class RouteGenerationController {
     ) {
         return this.routeHistoryService.activateRoute(authenticatedUser, requestId, param);
     }
+
+    @PostMapping("/history/{requestId}/active-route/complete")
+    public RouteGenerationVO completeActiveRoute(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID requestId,
+            @Valid @RequestBody RouteActiveParam param
+    ) {
+        return this.routeHistoryService.completeActiveRoute(authenticatedUser, requestId, param);
+    }
 }

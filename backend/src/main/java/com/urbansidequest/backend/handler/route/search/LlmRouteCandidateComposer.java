@@ -79,8 +79,20 @@ public class LlmRouteCandidateComposer implements RouteCandidateComposer {
             - 避免远距离片区之间来回折返；若必须折返，在 backendReviewHints 说明。WALK_TAXI 可跨区域，但顺序须符合城市移动常识。
             - nearestTransit 仅作可达性参考，不是已算好的交通耗时。
 
+            片区选点密度：
+            - district 表示一组短步行距离内的近邻 POI，同一 district 内的多个 POI 通常属于同一微片区，不应被当作多个主要行程节点堆叠。
+            - 每条路线中，同一 district 原则上最多选择 1 个主体验 stop；只有满足以下条件之一才允许选择第 2 个：用户必去点、正餐 MEAL、必要休息 REST，或两个 POI 的 primaryCategoryGroup / routeRole 明显不同。
+            - 同一 district 禁止选择 3 个及以上 stop，除非其中包含多个 request.mustVisitPoiIds；若必须这样做，必须在 warnings 说明“必去点导致同片区密集停留”。
+            - 不要为了凑满 stop 数量，在同一 district 内加入多个功能重复、体验相似或距离很近的 POI。
+
+            空间推进自检：
+            - 生成每条路线前，先按 districtOrder 选择片区，再在每个片区内只选最能代表该片区的 POI。
+            - stops 的 district 序列应整体单调推进，不允许出现 A -> B -> A 这种回到已离开的 district；除非 A 是必去点或饭点无法替代。
+            - 若某个 stop 会让路线明显绕回、形成小范围打转、或让地图节点在同一区域密集重叠，应删除该 stop 或替换为下一个 district 的高价值 POI。
+            - 若删除密集点后 stop 数不足，也优先返回较短但顺路的路线，不要用近邻低价值 POI 补数。
+
             时间与停留：
-            - 每条路线所有 stops.stayMinutes 之和不得超过 request.durationMinutes 的 85%%（需预留交通时间，跨区域路线留更多余量，不要为贴近时长吃满上限）。
+            - 每条路线所有 stops.stayMinutes 之和不得超过 request.durationMinutes 的 85%% 但不得低于百分之70（需预留交通时间，跨区域路线留更多余量，不要为贴近时长吃满上限）。
             - estimatedStayMinutes 必须等于该路线所有 stops.stayMinutes 之和。
             - 每个 stop 的 stayMinutes 须符合下方「停留时间参考」；确需超出时在 warnings 说明原因。
 

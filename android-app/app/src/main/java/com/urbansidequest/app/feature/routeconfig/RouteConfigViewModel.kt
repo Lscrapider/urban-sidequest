@@ -1,15 +1,14 @@
 package com.urbansidequest.app.feature.routeconfig
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
+import com.amap.api.maps.model.LatLng
 import com.urbansidequest.app.data.api.MustVisitPointRequest
-import com.urbansidequest.app.data.api.RouteApiException
 import com.urbansidequest.app.data.api.RouteGenerateRequest
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
 import com.urbansidequest.app.data.map.RouteCityInfo
-import com.urbansidequest.app.data.route.RouteRepository
+import com.urbansidequest.app.data.map.searchAmapInputTips
 import com.urbansidequest.app.domain.model.GeoPoint
-import com.urbansidequest.app.domain.model.RouteGeneration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -22,7 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class RouteConfigViewModel : ViewModel() {
 
@@ -37,11 +36,15 @@ class RouteConfigViewModel : ViewModel() {
     }
 
     fun selectDeparture(option: DepartureOption) {
-        mutableUiState.update { it.copy(selectedDeparture = option) }
+        mutableUiState.update { state ->
+            state.copy(selectedDeparture = option).normalizedForMealAvailability()
+        }
     }
 
     fun selectDuration(option: DurationOption) {
-        mutableUiState.update { it.copy(selectedDuration = option) }
+        mutableUiState.update { state ->
+            state.copy(selectedDuration = option).normalizedForMealAvailability()
+        }
     }
 
     fun selectTransport(option: CodeOption) {
@@ -58,40 +61,59 @@ class RouteConfigViewModel : ViewModel() {
 
     fun toggleMealWindow(code: String) {
         mutableUiState.update { state ->
-            state.copy(
-                selectedMealWindows = if (state.selectedMealWindows.contains(code)) {
+            if (code !in state.feasibleMealWindowCodes()) {
+                state
+            } else {
+                val selectedMealWindows = if (state.selectedMealWindows.contains(code)) {
                     state.selectedMealWindows - code
                 } else {
                     state.selectedMealWindows + code
                 }
-            )
+                val nextState = state.copy(selectedMealWindows = selectedMealWindows)
+                if (selectedMealWindows.isEmpty()) {
+                    nextState.withoutFoodInterestTags()
+                } else {
+                    nextState
+                }
+            }
         }
     }
 
     fun toggleInterestTag(code: String) {
         mutableUiState.update { state ->
             state.copy(
-                selectedInterestTags = if (state.selectedInterestTags.contains(code)) {
-                    state.selectedInterestTags - code
-                } else {
-                    state.selectedInterestTags + code
-                }
+                selectedInterestTags = state.selectedInterestTags.toggledInterestTag(code)
             )
         }
     }
 
     fun onMustVisitSearchTextChange(value: String) {
+        val keyword = value.trim()
         mutableUiState.update {
             it.copy(
                 mustVisitSearchText = value,
-                mustVisitSuggestions = if (value.isBlank()) emptyList() else it.mustVisitSuggestions,
-                isMustVisitSearching = value.trim().length >= MIN_SEARCH_KEYWORD_LENGTH
+                mustVisitSuggestions = if (keyword.length < MIN_SEARCH_KEYWORD_LENGTH) emptyList() else it.mustVisitSuggestions,
+                isMustVisitSearching = keyword.length >= MIN_SEARCH_KEYWORD_LENGTH
             )
         }
     }
 
-    fun onMustVisitSearchStarted() {
+    suspend fun searchMustVisitSuggestions(context: Context, selectedCenter: GeoPoint?) {
+        val keyword = mutableUiState.value.mustVisitSearchText.trim()
+        if (keyword.length < MIN_SEARCH_KEYWORD_LENGTH) {
+            mutableUiState.update { it.copy(isMustVisitSearching = false, mustVisitSuggestions = emptyList()) }
+            return
+        }
         mutableUiState.update { it.copy(isMustVisitSearching = true) }
+        delay(SEARCH_DEBOUNCE_MILLIS)
+        searchAmapInputTips(
+            context = context.applicationContext,
+            keyword = keyword,
+            location = selectedCenter?.toLatLng() ?: DEFAULT_SEARCH_CENTER,
+            onResult = { resultKeyword, suggestions ->
+                this@RouteConfigViewModel.onMustVisitSuggestionsLoaded(resultKeyword, suggestions)
+            }
+        )
     }
 
     fun onMustVisitSuggestionsLoaded(keyword: String, suggestions: List<PlaceSearchSuggestion>) {
@@ -117,56 +139,34 @@ class RouteConfigViewModel : ViewModel() {
         }
     }
 
-    fun removeMustVisitPoint(point: MustVisitPointRequest) {
+    fun removeMustVisitPoint(point: RouteMustVisitPoint) {
         mutableUiState.update { state ->
             state.copy(mustVisitPoints = state.mustVisitPoints.filterNot { it.isSamePlace(point) })
         }
     }
 
-    fun generateRoute(
-        routeRepository: RouteRepository?,
-        selectedCenter: GeoPoint?,
-        resolveRouteCityInfo: suspend (GeoPoint) -> RouteCityInfo?
+    suspend fun submitRouteGeneration(
+        routeRepositoryAvailable: Boolean,
+        selectedCenter: GeoPoint?
     ) {
         val state = mutableUiState.value
-        if (state.isGenerating) {
-            return
-        }
         val validationMessage = state.validateForRouteRequest(
             selectedCenter = selectedCenter,
-            routeRepositoryAvailable = routeRepository != null
+            routeRepositoryAvailable = routeRepositoryAvailable
         )
         if (validationMessage != null) {
             mutableUiState.update { it.copy(errorMessage = validationMessage) }
             return
         }
-        val repository = routeRepository ?: return
         val center = selectedCenter ?: return
-        viewModelScope.launch {
-            mutableUiState.update { it.copy(isGenerating = true, errorMessage = null) }
-            runCatching {
-                repository.generateRoute(
-                    state.buildRequest(
-                        center = center,
-                        routeCityInfo = resolveRouteCityInfo(center)
-                    )
-                )
-            }.onSuccess { routeGeneration ->
-                mutableEvents.emit(RouteConfigEvent.RouteGenerated(routeGeneration))
-            }.onFailure { throwable ->
-                mutableUiState.update {
-                    it.copy(errorMessage = throwable.message ?: "路线生成失败，请稍后重试")
-                }
-                if (throwable is RouteApiException && throwable.isAuthenticationError) {
-                    mutableEvents.emit(RouteConfigEvent.AuthExpired)
-                }
-            }
-            mutableUiState.update { it.copy(isGenerating = false) }
-        }
+        mutableUiState.update { it.copy(errorMessage = null) }
+        mutableEvents.emit(RouteConfigEvent.RouteGenerationSubmitted(state.buildRequest(center = center, routeCityInfo = null)))
     }
 
     private companion object {
         private const val MIN_SEARCH_KEYWORD_LENGTH = 2
+        private const val SEARCH_DEBOUNCE_MILLIS = 250L
+        private val DEFAULT_SEARCH_CENTER = LatLng(39.908722, 116.397499)
     }
 }
 
@@ -181,14 +181,13 @@ data class RouteConfigUiState(
     val mustVisitSearchText: String = "",
     val mustVisitSuggestions: List<PlaceSearchSuggestion> = emptyList(),
     val isMustVisitSearching: Boolean = false,
-    val mustVisitPoints: List<MustVisitPointRequest> = emptyList(),
+    val mustVisitPoints: List<RouteMustVisitPoint> = emptyList(),
     val isGenerating: Boolean = false,
     val errorMessage: String? = null
 )
 
 sealed interface RouteConfigEvent {
-    data class RouteGenerated(val routeGeneration: RouteGeneration?) : RouteConfigEvent
-    data object AuthExpired : RouteConfigEvent
+    data class RouteGenerationSubmitted(val request: RouteGenerateRequest) : RouteConfigEvent
 }
 
 data class DepartureOption(val label: String, val time: LocalTime)
@@ -197,11 +196,25 @@ data class DurationOption(val label: String, val minutes: Int)
 
 data class CodeOption(val label: String, val code: String)
 
-val RouteZone: ZoneId = ZoneId.of("Asia/Shanghai")
+data class InterestTagOption(
+    val label: String,
+    val code: String,
+    val parentCode: String? = null,
+    val maxSiblingSelected: Int? = null
+)
 
-const val ROUTE_AUTO_RADIUS_METERS = 3_000
-const val ROUTE_MIN_RADIUS_METERS = 500
-const val ROUTE_MAX_RADIUS_METERS = 15_000
+data class FoodInterestGroup(
+    val option: InterestTagOption,
+    val children: List<InterestTagOption>
+)
+
+data class RouteMustVisitPoint(
+    val name: String,
+    val amapPoiId: String?,
+    val location: GeoPoint
+)
+
+val RouteZone: ZoneId = ZoneId.of("Asia/Shanghai")
 
 val DepartureOptions = listOf(
     DepartureOption("上午 10:00", LocalTime.of(10, 0)),
@@ -245,15 +258,86 @@ val MealWindowOptions = listOf(
     CodeOption("晚餐", "DINNER")
 )
 
-val InterestTagOptions = listOf(
-    CodeOption("美食", "FOOD"),
-    CodeOption("咖啡休息", "COFFEE"),
-    CodeOption("展馆", "MUSEUM"),
-    CodeOption("景点", "SCENIC"),
-    CodeOption("拍照", "PHOTO"),
-    CodeOption("购物", "SHOPPING"),
-    CodeOption("夜游", "NIGHT")
+val NonFoodInterestTagOptions = listOf(
+    InterestTagOption("景点", "SCENIC"),
+    InterestTagOption("文化", "CULTURE"),
+    InterestTagOption("博物馆/展馆", "MUSEUM", parentCode = "CULTURE"),
+    InterestTagOption("咖啡/茶饮/甜品", "COFFEE"),
+    InterestTagOption("购物", "SHOPPING"),
+    InterestTagOption("本地生活", "LOCAL"),
+    InterestTagOption("夜游", "NIGHT"),
+    InterestTagOption("拍照", "PHOTO"),
+    InterestTagOption("娱乐", "ENTERTAINMENT"),
+    InterestTagOption("活动/演出", "EVENT")
 )
+
+val FoodInterestGroups = listOf(
+    FoodInterestGroup(
+        option = InterestTagOption("中餐", "FOOD_CHINESE", parentCode = FOOD_ROOT_TAG, maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+        children = listOf(
+            InterestTagOption("川菜", "FOOD_SICHUAN", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("粤菜", "FOOD_CANTONESE", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("鲁菜", "FOOD_SHANDONG", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("苏菜/淮扬", "FOOD_JIANGSU", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("浙菜", "FOOD_ZHEJIANG", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("湘菜", "FOOD_HUNAN", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("东北菜", "FOOD_DONG_BEI", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("老字号", "FOOD_OLD_BRAND", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("火锅", "FOOD_HOT_POT", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("地方风味/小吃", "FOOD_LOCAL_FLAVOR", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("清真菜", "FOOD_HALAL", parentCode = "FOOD_CHINESE", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT)
+        )
+    ),
+    FoodInterestGroup(
+        option = InterestTagOption("外国餐厅", "FOOD_FOREIGN", parentCode = FOOD_ROOT_TAG, maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+        children = listOf(
+            InterestTagOption("西餐", "FOOD_WESTERN", parentCode = "FOOD_FOREIGN", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("美式", "FOOD_AMERICAN", parentCode = "FOOD_FOREIGN", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("印度菜", "FOOD_INDIAN", parentCode = "FOOD_FOREIGN", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+            InterestTagOption("墨西哥菜", "FOOD_MEXICAN", parentCode = "FOOD_FOREIGN", maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT)
+        )
+    ),
+    FoodInterestGroup(
+        option = InterestTagOption("快餐", "FOOD_FAST_FOOD", parentCode = FOOD_ROOT_TAG, maxSiblingSelected = MAX_FOOD_INTEREST_TAG_COUNT),
+        children = emptyList()
+    )
+)
+
+val InterestTagOptions = NonFoodInterestTagOptions + FoodInterestGroups.flatMap { group ->
+    listOf(group.option) + group.children
+}
+
+private val InterestTagOptionByCode: Map<String, InterestTagOption> = InterestTagOptions.associateBy { it.code }
+
+private val FoodChildCodesByParent: Map<String, Set<String>> = FoodInterestGroups.associate { group ->
+    group.option.code to group.children.map { it.code }.toSet()
+}
+
+private val FoodParentByTagCode: Map<String, String> = FoodInterestGroups
+    .flatMap { group -> group.children.map { child -> child.code to group.option.code } }
+    .toMap()
+
+private val FoodInterestTagCodes: Set<String> = FoodInterestGroups
+    .flatMap { group -> listOf(group.option.code) + group.children.map { it.code } }
+    .toSet()
+
+private val TopLevelInterestBucketByCode: Map<String, String> = InterestTagOptions.associate { option ->
+    option.code to when {
+        option.code in FoodInterestTagCodes -> FOOD_ROOT_TAG
+        else -> option.code
+    }
+}
+
+private val FoodAncestorCodesByTagCode: Map<String, Set<String>> = InterestTagOptions.associate { option ->
+    val ancestors = buildSet {
+        var parent = option.parentCode
+        while (parent != null) {
+            add(parent)
+            parent = InterestTagOptionByCode[parent]?.parentCode
+        }
+    }
+    option.code to ancestors
+}
 
 fun RouteConfigUiState.validateForRouteRequest(
     selectedCenter: GeoPoint?,
@@ -266,9 +350,6 @@ fun RouteConfigUiState.validateForRouteRequest(
         return "自动范围需要中心点，请先从地图页确认区域"
     }
     selectedCenter.coordinateValidationError()?.let { return it }
-    if (ROUTE_AUTO_RADIUS_METERS !in ROUTE_MIN_RADIUS_METERS..ROUTE_MAX_RADIUS_METERS) {
-        return "自动范围半径需在 ${ROUTE_MIN_RADIUS_METERS} 到 ${ROUTE_MAX_RADIUS_METERS} 米之间"
-    }
     if (selectedDuration.minutes !in MIN_ROUTE_DURATION_MINUTES..MAX_ROUTE_DURATION_MINUTES) {
         return "路线时长需在 ${MIN_ROUTE_DURATION_MINUTES} 到 ${MAX_ROUTE_DURATION_MINUTES} 分钟之间"
     }
@@ -276,17 +357,17 @@ fun RouteConfigUiState.validateForRouteRequest(
         return "请选择交通组合"
     }
     if (selectedGoal.code == DEPRECATED_LOW_BUDGET_ROUTE_GOAL) {
-        return "LOW_BUDGET 已退出路线目标，请使用预算偏好"
+        return "低预算已经改为预算偏好，请在预算里选择"
     }
     if (selectedBudget.code.isBlank()) {
         return "请选择预算偏好"
     }
 
     selectedMealWindows.validationError(
-        allowedOptions = MealWindowOptions,
-        duplicateMessage = "mealWindows 不能重复",
-        blankMessage = "mealWindows 不能包含空饭点",
-        unknownMessage = "mealWindows 包含不支持的饭点"
+        allowedCodes = MealWindowOptions.map { it.code }.toSet(),
+        duplicateMessage = "饭点不能重复选择",
+        blankMessage = "饭点不能为空",
+        unknownMessage = "包含暂不支持的饭点"
     )?.let { return it }
     val feasibleMealWindows = feasibleMealWindowCodes()
     val infeasibleMealWindows = selectedMealWindows - feasibleMealWindows
@@ -295,31 +376,27 @@ fun RouteConfigUiState.validateForRouteRequest(
     }
 
     selectedInterestTags.validationError(
-        allowedOptions = InterestTagOptions,
-        duplicateMessage = "interestTags 不能重复",
-        blankMessage = "interestTags 不能包含空标签",
-        unknownMessage = "interestTags 包含不支持的标签"
+        allowedCodes = InterestTagOptions.map { it.code }.toSet(),
+        duplicateMessage = "兴趣偏好不能重复选择",
+        blankMessage = "兴趣偏好不能为空",
+        unknownMessage = "包含暂不支持的兴趣偏好"
     )?.let { return it }
     if (selectedInterestTags.interestBucketCount() > MAX_GLOBAL_INTEREST_BUCKET_COUNT) {
         return "兴趣大类最多选择 ${MAX_GLOBAL_INTEREST_BUCKET_COUNT} 个"
     }
-    val selectedFoodTags = selectedInterestTags.intersect(FoodInterestTags)
+    val selectedFoodTags = selectedInterestTags.intersect(FoodInterestTagCodes)
     if (selectedFoodTags.size > MAX_FOOD_INTEREST_TAG_COUNT) {
         return "餐饮偏好最多选择 ${MAX_FOOD_INTEREST_TAG_COUNT} 个"
     }
-    if (selectedFoodTags.contains(FOOD_ROOT_TAG) && selectedFoodTags.size > 1) {
-        return "美食大类和具体餐饮偏好不能同时选择"
-    }
+    selectedInterestTags.foodParentChildConflictMessage()?.let { return it }
+    selectedInterestTags.maxSiblingConflictMessage()?.let { return it }
     if (selectedFoodTags.isNotEmpty() && selectedMealWindows.isEmpty()) {
-        return "选择餐饮或咖啡偏好时，请至少选择午餐或晚餐饭点"
+        return "选择餐饮偏好时，请至少选择午餐或晚餐饭点"
     }
 
     mustVisitPoints.forEach { point ->
         if (point.name.isBlank()) {
             return "必去点名称不能为空"
-        }
-        if (point.priority.isBlank()) {
-            return "必去点优先级不能为空"
         }
         point.location.coordinateValidationError()?.let {
             return "必去点 ${point.name} 坐标异常"
@@ -345,7 +422,18 @@ fun RouteConfigUiState.feasibleMealWindowCodes(): Set<String> {
 }
 
 fun RouteConfigUiState.hasFoodInterest(): Boolean {
-    return selectedInterestTags.any { it in FoodInterestTags }
+    return selectedInterestTags.any { it in FoodInterestTagCodes }
+}
+
+private fun RouteConfigUiState.normalizedForMealAvailability(): RouteConfigUiState {
+    val feasibleMealWindows = feasibleMealWindowCodes()
+    val availableMealWindows = selectedMealWindows.intersect(feasibleMealWindows)
+    val nextState = copy(selectedMealWindows = availableMealWindows)
+    return if (availableMealWindows.isEmpty()) {
+        nextState.withoutFoodInterestTags()
+    } else {
+        nextState
+    }
 }
 
 private fun RouteConfigUiState.buildRequest(
@@ -353,10 +441,10 @@ private fun RouteConfigUiState.buildRequest(
     routeCityInfo: RouteCityInfo?
 ): RouteGenerateRequest {
     return RouteGenerateRequest(
-        areaMode = "AUTO_RADIUS",
+        areaMode = AREA_MODE_AUTO_RADIUS,
         areaLabel = "地图选区",
         center = center,
-        radiusMeters = ROUTE_AUTO_RADIUS_METERS,
+        radiusMeters = null,
         areaPolygonGcj02 = emptyList(),
         adminAdcodes = emptyList(),
         routeCityName = routeCityInfo?.cityName,
@@ -366,31 +454,43 @@ private fun RouteConfigUiState.buildRequest(
         transportProfile = selectedTransport.code,
         routeGoal = selectedGoal.code,
         budgetLevel = selectedBudget.code,
-        interestTags = selectedInterestTags.orderedBy(InterestTagOptions),
+        interestTags = selectedInterestTags.orderedByInterestOptions(),
         mealWindows = selectedMealWindows.orderedBy(MealWindowOptions),
-        mustVisitPoints = mustVisitPoints
+        mustVisitPoints = mustVisitPoints.map(RouteMustVisitPoint::toMustVisitPointRequest)
     )
 }
 
-private fun PlaceSearchSuggestion.toMustVisitPoint(): MustVisitPointRequest {
-    return MustVisitPointRequest(
+private fun PlaceSearchSuggestion.toMustVisitPoint(): RouteMustVisitPoint {
+    return RouteMustVisitPoint(
         name = name,
         amapPoiId = amapPoiId,
         location = GeoPoint(
             longitudeGcj02 = location.longitude,
             latitudeGcj02 = location.latitude
-        ),
-        priority = "MUST"
+        )
     )
 }
 
-fun MustVisitPointRequest.isSamePlace(other: MustVisitPointRequest): Boolean {
+private fun RouteMustVisitPoint.toMustVisitPointRequest(): MustVisitPointRequest {
+    return MustVisitPointRequest(
+        name = name,
+        amapPoiId = amapPoiId,
+        location = location,
+        priority = MUST_VISIT_PRIORITY
+    )
+}
+
+fun RouteMustVisitPoint.isSamePlace(other: RouteMustVisitPoint): Boolean {
     if (amapPoiId != null && other.amapPoiId != null) {
         return amapPoiId == other.amapPoiId
     }
     return name == other.name &&
         location.longitudeGcj02 == other.location.longitudeGcj02 &&
         location.latitudeGcj02 == other.location.latitudeGcj02
+}
+
+private fun GeoPoint.toLatLng(): LatLng {
+    return LatLng(latitudeGcj02, longitudeGcj02)
 }
 
 private val beijingLocalDateTimeFormatter: DateTimeFormatter =
@@ -412,7 +512,7 @@ private fun GeoPoint.coordinateValidationError(): String? {
 }
 
 private fun Set<String>.validationError(
-    allowedOptions: List<CodeOption>,
+    allowedCodes: Set<String>,
     duplicateMessage: String,
     blankMessage: String,
     unknownMessage: String
@@ -424,21 +524,70 @@ private fun Set<String>.validationError(
     if (values.distinct().size != values.size) {
         return duplicateMessage
     }
-    val allowedCodes = allowedOptions.map { it.code }.toSet()
     if (values.any { it !in allowedCodes }) {
         return unknownMessage
     }
     return null
 }
 
+private fun Set<String>.toggledInterestTag(code: String): Set<String> {
+    if (contains(code)) {
+        return this - code
+    }
+    val option = InterestTagOptionByCode[code] ?: return this
+    var next = this + code
+    FoodChildCodesByParent[option.code]?.let { childCodes ->
+        next -= childCodes
+    }
+    FoodParentByTagCode[option.code]?.let { parentCode ->
+        next -= parentCode
+    }
+    return next
+}
+
+private fun RouteConfigUiState.withoutFoodInterestTags(): RouteConfigUiState {
+    return copy(selectedInterestTags = selectedInterestTags - FoodInterestTagCodes)
+}
+
 private fun Set<String>.orderedBy(options: List<CodeOption>): List<String> {
     return options.filter { contains(it.code) }.map { it.code }
 }
 
+private fun Set<String>.orderedByInterestOptions(): List<String> {
+    return InterestTagOptions.filter { contains(it.code) }.map { it.code }
+}
+
 private fun Set<String>.interestBucketCount(): Int {
-    return map { code -> if (code in FoodInterestTags) FOOD_ROOT_TAG else code }
+    return map { code -> TopLevelInterestBucketByCode[code] ?: code }
         .distinct()
         .size
+}
+
+private fun Set<String>.foodParentChildConflictMessage(): String? {
+    val selectedFoodTags = intersect(FoodInterestTagCodes)
+    val hasParentChildConflict = selectedFoodTags.any { tagCode ->
+        FoodAncestorCodesByTagCode[tagCode].orEmpty().any { ancestorCode -> ancestorCode in selectedFoodTags }
+    }
+    return if (hasParentChildConflict) {
+        "餐饮偏好同一分支不能同时选择大类和细分口味"
+    } else {
+        null
+    }
+}
+
+private fun Set<String>.maxSiblingConflictMessage(): String? {
+    val selectedOptionsByParent = mapNotNull { InterestTagOptionByCode[it] }
+        .filter { it.parentCode != null }
+        .groupBy { it.parentCode }
+    val hasConflict = selectedOptionsByParent.values.any { siblingOptions ->
+        val limit = siblingOptions.mapNotNull { it.maxSiblingSelected }.firstOrNull() ?: 0
+        limit > 0 && siblingOptions.size > limit
+    }
+    return if (hasConflict) {
+        "同一餐饮分支最多选择 ${MAX_FOOD_INTEREST_TAG_COUNT} 个"
+    } else {
+        null
+    }
 }
 
 private fun Set<String>.toMealWindowLabels(): String {
@@ -476,14 +625,14 @@ private val MealWindowDefinitions = listOf(
     MealWindowDefinition("DINNER", LocalTime.of(17, 30), LocalTime.of(20, 0))
 )
 
-private val FoodInterestTags = setOf("FOOD", "COFFEE")
-
 private const val FOOD_ROOT_TAG = "FOOD"
+private const val AREA_MODE_AUTO_RADIUS = "AUTO_RADIUS"
 private const val DEPRECATED_LOW_BUDGET_ROUTE_GOAL = "LOW_BUDGET"
 private const val MIN_ROUTE_DURATION_MINUTES = 60
 private const val MAX_ROUTE_DURATION_MINUTES = 720
 private const val MAX_GLOBAL_INTEREST_BUCKET_COUNT = 5
 private const val MAX_FOOD_INTEREST_TAG_COUNT = 3
+private const val MUST_VISIT_PRIORITY = "MUST"
 private const val MIN_LONGITUDE = -180.0
 private const val MAX_LONGITUDE = 180.0
 private const val MIN_LATITUDE = -90.0

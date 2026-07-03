@@ -50,4 +50,14 @@ class RouteRepository(
             authorizationHeader = authorizationHeader
         )
     }
+
+    suspend fun completeActiveRoute(requestId: String, routeCode: String): RouteGeneration {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return routeApi.completeActiveRoute(
+            requestId = requestId,
+            routeCode = routeCode,
+            authorizationHeader = authorizationHeader
+        )
+    }
 }

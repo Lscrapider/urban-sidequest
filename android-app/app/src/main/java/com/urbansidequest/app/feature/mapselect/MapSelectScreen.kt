@@ -37,6 +37,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -129,6 +131,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 import java.net.URL
 
 private val DefaultMapCenter = LatLng(39.908722, 116.397499)
@@ -150,12 +156,17 @@ private const val ROUTE_SHEET_HIDE_DRAG_RANGE_PX = 220f
 private const val ROUTE_SHEET_SNAP_THRESHOLD = 0.5f
 private const val ROUTE_SHEET_COLLAPSE_DRAG_PX = 32f
 private const val ROUTE_SHEET_PEEK_HANDLE_HEIGHT_PX = 48f
+private const val CHECK_IN_RADIUS_METERS = 200
+private const val EARTH_RADIUS_METERS = 6_371_000.0
+private const val ROUTE_LOCATION_REFRESH_MILLIS = 15_000L
 private const val IMAGE_CONNECT_TIMEOUT_MILLIS = 3_000
 private const val IMAGE_READ_TIMEOUT_MILLIS = 8_000
 private val RouteSwitcherShape = RoundedCornerShape(14.dp)
 private val RouteSwitcherSegmentShape = RoundedCornerShape(12.dp)
 private val RouteSwitcherSegmentWidth = 42.dp
 private val RouteSwitcherSegmentHeight = 24.dp
+private val RouteExecutionRailWidth = 40.dp
+private val RouteExecutionRailItemSize = 30.dp
 
 private data class RouteStopMarkerPayload(
     val routeIndex: Int,
@@ -178,6 +189,7 @@ fun MapSelectScreen(
     initialVisibleRouteCode: String? = null,
     onOpenRouteConfig: (GeoPoint) -> Unit = {},
     onStartRoute: (String, String) -> Unit = { _, _ -> },
+    onCompleteRoute: (String, String) -> Unit = { _, _ -> },
     onOpenDiscover: () -> Unit = {},
     onOpenRoutes: () -> Unit = {},
     onOpenProfile: () -> Unit = {}
@@ -197,10 +209,33 @@ fun MapSelectScreen(
     var routeSheetDragOffset by remember { mutableStateOf(0f) }
     var selectedStopPayload by remember { mutableStateOf<RouteStopMarkerPayload?>(null) }
     var selectedSegmentPayload by remember { mutableStateOf<RouteSegmentPolylinePayload?>(null) }
+    var completedStopIds by remember(routeGeneration?.requestId, routeGeneration?.activeRouteCode) {
+        mutableStateOf<Set<String>>(emptySet())
+    }
+    var dismissedCheckInStopId by remember(routeGeneration?.requestId, routeGeneration?.activeRouteCode) {
+        mutableStateOf<String?>(null)
+    }
     val focusManager = LocalFocusManager.current
     val routes = routeGeneration?.routes.orEmpty()
-    val selectedRoutePosition = selectedRouteIndex
+    val activeRouteIndex = routeGeneration?.activeRouteCode
+        ?.let { activeRouteCode -> routes.indexOfFirst { route -> route.routeCode == activeRouteCode } }
+        ?.takeIf { it >= 0 }
+    val isRouteExecutionMode = routeGeneration?.executionStatus == "IN_PROGRESS" && activeRouteIndex != null
+    val selectedRoutePosition = if (isRouteExecutionMode) activeRouteIndex else selectedRouteIndex
     val selectedRoute = selectedRoutePosition?.let { routes.getOrNull(it) }
+    val selectedRouteStops = selectedRoute?.stops.orEmpty().sortedBy(RouteStop::order)
+    val currentTargetStop = if (isRouteExecutionMode) {
+        selectedRouteStops.firstOrNull { stop -> stop.id !in completedStopIds }
+    } else {
+        null
+    }
+    val distanceToTargetMeters = currentTargetStop?.let { stop ->
+        distanceMeters(currentLocation, stop.location.toLatLng())
+    }
+    val shouldShowCheckInPrompt = currentTargetStop != null &&
+        distanceToTargetMeters != null &&
+        distanceToTargetMeters <= CHECK_IN_RADIUS_METERS &&
+        dismissedCheckInStopId != currentTargetStop.id
 
     fun resetRouteSheet() {
         routeSheetProgress = 0f
@@ -273,6 +308,25 @@ fun MapSelectScreen(
         moveToLocation(stop.location.toLatLng(), 17f)
     }
 
+    fun checkInStop(stop: RouteStop) {
+        completedStopIds = completedStopIds + stop.id
+        dismissedCheckInStopId = null
+        if (selectedRouteStops.lastOrNull()?.id == stop.id) {
+            routeGeneration?.requestId?.let { requestId ->
+                selectedRoute?.routeCode?.let { routeCode ->
+                    onCompleteRoute(requestId, routeCode)
+                }
+            }
+        } else {
+            val nextStop = selectedRouteStops.firstOrNull { routeStop ->
+                routeStop.id != stop.id && routeStop.id !in completedStopIds
+            }
+            if (nextStop != null && selectedRoutePosition != null) {
+                focusStop(selectedRoutePosition, nextStop)
+            }
+        }
+    }
+
     fun requestCurrentLocation() {
         startSingleAmapLocation(
             context = context,
@@ -303,16 +357,30 @@ fun MapSelectScreen(
         }
     }
 
-    LaunchedEffect(routeGeneration?.requestId) {
-        if (routeGeneration == null) {
+    LaunchedEffect(routeGeneration?.requestId, isRouteExecutionMode) {
+        if (routeGeneration == null || isRouteExecutionMode) {
             locateWithPermission()
         }
     }
 
-    LaunchedEffect(routeGeneration?.requestId, routes.size, initialVisibleRouteCode) {
+    LaunchedEffect(isRouteExecutionMode, currentTargetStop?.id) {
+        if (!isRouteExecutionMode || currentTargetStop == null) {
+            return@LaunchedEffect
+        }
+        // 开发期间不启用
+        while (false) {
+            if (context.hasLocationPermission()) {
+                requestCurrentLocation()
+            }
+            delay(ROUTE_LOCATION_REFRESH_MILLIS)
+        }
+    }
+
+    LaunchedEffect(routeGeneration?.requestId, routes.size, initialVisibleRouteCode, activeRouteIndex, isRouteExecutionMode) {
         val initialRouteIndex = initialVisibleRouteCode
             ?.let { routeCode -> routes.indexOfFirst { route -> route.routeCode == routeCode } }
             ?.takeIf { it >= 0 }
+            ?: activeRouteIndex
             ?: DEFAULT_VISIBLE_ROUTE_INDEX
         selectedRouteIndex = if (routes.isNotEmpty()) initialRouteIndex else null
         visibleRouteIndexes = if (routes.isNotEmpty()) setOf(initialRouteIndex) else emptySet()
@@ -397,7 +465,7 @@ fun MapSelectScreen(
             }
         )
 
-        if (routes.isNotEmpty() && !isSearchActive) {
+        if (routes.isNotEmpty() && !isSearchActive && !isRouteExecutionMode) {
             RouteSwitcher(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -418,6 +486,20 @@ fun MapSelectScreen(
                     selectedStopPayload = null
                     selectedSegmentPayload = null
                 }
+            )
+        }
+
+        if (isRouteExecutionMode && selectedRoute != null && !isSearchActive) {
+            val executionRouteIndex = activeRouteIndex ?: DEFAULT_VISIBLE_ROUTE_INDEX
+            RouteExecutionPoiRail(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 10.dp),
+                route = selectedRoute,
+                currentStopId = currentTargetStop?.id,
+                completedStopIds = completedStopIds,
+                routeColor = routeColor(executionRouteIndex).toComposeColor(),
+                onSelectStop = { stop -> focusStop(executionRouteIndex, stop) }
             )
         }
 
@@ -456,7 +538,22 @@ fun MapSelectScreen(
                         onClose = { selectedStopPayload = null }
                     )
                 }
-                if (routeSheetHiddenProgress >= 0.99f) {
+                if (isRouteExecutionMode) {
+                    if (currentTargetStop != null) {
+                        RouteCheckInPrompt(
+                            route = selectedRoute,
+                            stop = currentTargetStop,
+                            completedCount = completedStopIds.size,
+                            totalCount = selectedRouteStops.size,
+                            distanceMeters = distanceToTargetMeters,
+                            canCheckIn = shouldShowCheckInPrompt,
+                            onCheckIn = { checkInStop(currentTargetStop) },
+                            onDismiss = { dismissedCheckInStopId = currentTargetStop.id }
+                        )
+                    } else {
+                        RouteCompletionPendingPanel(route = selectedRoute)
+                    }
+                } else if (routeSheetHiddenProgress >= 0.99f) {
                     RouteDetailPeekHandle(
                         onDrag = { drag -> dragRouteSheet(drag) },
                         onDragEnd = { settleRouteSheet() }
@@ -466,6 +563,7 @@ fun MapSelectScreen(
                         route = selectedRoute,
                         routeIndex = selectedRoutePosition,
                         routeCount = routes.size,
+                        isRouteCompleted = routeGeneration?.executionStatus == "COMPLETED",
                         sheetProgress = routeSheetProgress,
                         hiddenProgress = routeSheetHiddenProgress,
                         onDrag = { drag -> dragRouteSheet(drag) },
@@ -1450,6 +1548,7 @@ private fun RouteDetailSheet(
     route: GeneratedRoute,
     routeIndex: Int,
     routeCount: Int,
+    isRouteCompleted: Boolean,
     sheetProgress: Float,
     hiddenProgress: Float,
     onDrag: (Float) -> Unit,
@@ -1561,8 +1660,9 @@ private fun RouteDetailSheet(
 
             UrbanPrimaryButton(
                 modifier = Modifier.fillMaxWidth(),
-                text = "开始路线 ${route.routeCode}",
-                onClick = onStartRoute
+                text = if (isRouteCompleted) "路线 ${route.routeCode} 已完成" else "开始路线 ${route.routeCode}",
+                onClick = onStartRoute,
+                enabled = !isRouteCompleted
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 UrbanSecondaryButton(
@@ -1750,6 +1850,202 @@ private fun RouteStopDetailRow(
 }
 
 @Composable
+private fun RouteExecutionPoiRail(
+    modifier: Modifier = Modifier,
+    route: GeneratedRoute,
+    currentStopId: String?,
+    completedStopIds: Set<String>,
+    routeColor: Color,
+    onSelectStop: (RouteStop) -> Unit
+) {
+    val stops = route.stops.sortedBy(RouteStop::order)
+    Surface(
+        modifier = modifier.width(RouteExecutionRailWidth),
+        shape = RoundedCornerShape(14.dp),
+        color = AppSurface.copy(alpha = 0.78f),
+        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.48f))
+    ) {
+        LazyColumn(
+            modifier = Modifier.padding(vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            item {
+                Text(
+                    text = route.routeCode,
+                    color = routeColor,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            items(
+                items = stops,
+                key = { stop -> stop.id }
+            ) { stop ->
+                RouteExecutionPoiRailItem(
+                    stop = stop,
+                    isCurrent = stop.id == currentStopId,
+                    isCompleted = stop.id in completedStopIds,
+                    routeColor = routeColor,
+                    onClick = { onSelectStop(stop) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteExecutionPoiRailItem(
+    stop: RouteStop,
+    isCurrent: Boolean,
+    isCompleted: Boolean,
+    routeColor: Color,
+    onClick: () -> Unit
+) {
+    val backgroundColor = when {
+        isCurrent -> routeColor
+        isCompleted -> routeColor.copy(alpha = 0.14f)
+        else -> AppSurfaceMuted
+    }
+    val textColor = when {
+        isCurrent -> Color.White
+        isCompleted -> routeColor
+        else -> AppTextMuted
+    }
+    Surface(
+        modifier = Modifier
+            .size(RouteExecutionRailItemSize)
+            .semantics {
+                role = Role.Button
+                selected = isCurrent
+            }
+            .clickable(onClick = onClick),
+        shape = CircleShape,
+        color = backgroundColor,
+        border = BorderStroke(1.dp, if (isCurrent || isCompleted) routeColor else AppBorder)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = if (isCompleted) "✓" else stop.order.toString(),
+                color = textColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun RouteCheckInPrompt(
+    route: GeneratedRoute,
+    stop: RouteStop,
+    completedCount: Int,
+    totalCount: Int,
+    distanceMeters: Int?,
+    canCheckIn: Boolean,
+    onCheckIn: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HorizontalScreenPadding, vertical = 12.dp)
+            .shadow(8.dp, RoundedCornerShape(14.dp), clip = false),
+        shape = RoundedCornerShape(14.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, if (canCheckIn) RouteTeal else AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "路线 ${route.routeCode} · 第 ${completedCount + 1}/${totalCount} 站",
+                        color = RouteTeal,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = stop.name,
+                        color = AppText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = buildCheckInDistanceText(distanceMeters, canCheckIn),
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (canCheckIn) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "稍后打卡",
+                            tint = AppTextMuted
+                        )
+                    }
+                }
+            }
+            if (canCheckIn) {
+                UrbanPrimaryButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    text = "确认打卡",
+                    onClick = onCheckIn
+                )
+            } else {
+                Text(
+                    text = "到达目标点 ${CHECK_IN_RADIUS_METERS} 米内后可以主动打卡。",
+                    color = RouteTeal,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteCompletionPendingPanel(route: GeneratedRoute) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HorizontalScreenPadding, vertical = 12.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, RouteTeal.copy(alpha = 0.7f))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "路线 ${route.routeCode} 已打完",
+                color = AppText,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "正在保存这次路线完成状态。",
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
 private fun MapHomeActionSheet(onGenerateRoute: () -> Unit) {
     Surface(
         modifier = Modifier
@@ -1809,16 +2105,15 @@ private fun MapSelectionSheet(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "中心点 + 3 公里范围，下一步配置时间、交通和偏好。",
+                    text = "已确认路线中心点，下一步配置时间、交通和偏好。",
                     color = AppTextMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MapChip(text = "3 公里")
                 MapChip(text = "自动范围")
-                MapChip(text = "路线 A")
+                MapChip(text = "按时长计算")
             }
 
             UrbanPrimaryButton(text = "下一步配置路线", onClick = onNext)
@@ -1855,6 +2150,18 @@ private fun List<RouteStop>.toLatLngBounds(): LatLngBounds? {
     val builder = LatLngBounds.builder()
     forEach { stop -> builder.include(stop.location.toLatLng()) }
     return builder.build()
+}
+
+private fun distanceMeters(origin: LatLng, destination: LatLng): Int {
+    val originLatitude = Math.toRadians(origin.latitude)
+    val destinationLatitude = Math.toRadians(destination.latitude)
+    val latitudeDelta = destinationLatitude - originLatitude
+    val longitudeDelta = Math.toRadians(destination.longitude - origin.longitude)
+    val haversine = (sin(latitudeDelta / 2) * sin(latitudeDelta / 2) +
+        cos(originLatitude) * cos(destinationLatitude) *
+        sin(longitudeDelta / 2) * sin(longitudeDelta / 2)).coerceIn(0.0, 1.0)
+    val centralAngle = 2 * atan2(sqrt(haversine), sqrt(1 - haversine))
+    return (EARTH_RADIUS_METERS * centralAngle).roundToInt()
 }
 
 private fun buildEstimatedSegmentPath(
@@ -1983,4 +2290,15 @@ private fun formatCategory(category: String?): String {
 
 private fun formatStopLabel(stop: RouteStop): String {
     return stop.slotLabel ?: formatCategory(stop.category)
+}
+
+private fun buildCheckInDistanceText(distanceMeters: Int?, canCheckIn: Boolean): String {
+    if (distanceMeters == null) {
+        return "正在获取当前位置，靠近后可确认打卡。"
+    }
+    return if (canCheckIn) {
+        "你已进入 ${CHECK_IN_RADIUS_METERS} 米范围，确认后记录这一站。"
+    } else {
+        "距离目标点约 ${formatDistance(distanceMeters)}。"
+    }
 }

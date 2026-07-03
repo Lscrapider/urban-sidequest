@@ -156,6 +156,48 @@ class RouteApi {
         }
     }
 
+    suspend fun completeActiveRoute(
+        requestId: String,
+        routeCode: String,
+        authorizationHeader: String
+    ): RouteGeneration = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history/$requestId/active-route/complete")
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+            connection.doOutput = true
+
+            val requestBody = JSONObject()
+                .put("routeCode", routeCode)
+                .toString()
+                .toByteArray(StandardCharsets.UTF_8)
+            connection.outputStream.use { outputStream ->
+                outputStream.write(requestBody)
+            }
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                parseRouteGeneration(JSONObject(responseBody))
+            }.getOrElse { throwable ->
+                throw IllegalStateException("路线完成响应解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
+        }
+    }
+
     suspend fun generateRoute(
         request: RouteGenerateRequest,
         authorizationHeader: String
@@ -165,7 +207,7 @@ class RouteApi {
             val connection = endpoint.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
-            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.readTimeout = ROUTE_GENERATION_READ_TIMEOUT_MILLIS
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Authorization", authorizationHeader)
@@ -201,6 +243,7 @@ class RouteApi {
             area = parseRouteArea(json.getJSONObject("area")),
             routes = json.getJSONArray("routes").mapObjects(::parseGeneratedRoute),
             warnings = json.optJSONArray("warnings").orEmptyStringList(),
+            generationStage = json.optNullableString("generationStage"),
             activeRouteCode = json.optNullableString("activeRouteCode"),
             executionStatus = json.optString("executionStatus").ifBlank { "GENERATED" }
         )
@@ -212,6 +255,8 @@ class RouteApi {
             candidateSetId = json.getString("candidateSetId"),
             areaLabel = json.getString("areaLabel"),
             createdAt = json.optString("createdAt"),
+            generationStatus = json.optString("generationStatus").ifBlank { "SUCCESS" },
+            generationStage = json.optNullableString("generationStage"),
             activeRouteCode = json.optNullableString("activeRouteCode"),
             executionStatus = json.optString("executionStatus").ifBlank { "GENERATED" },
             routes = json.getJSONArray("routes").mapObjects(::parseRouteHistoryRouteSummary)
@@ -335,6 +380,7 @@ class RouteApi {
     private companion object {
         private const val CONNECT_TIMEOUT_MILLIS = 10_000
         private const val READ_TIMEOUT_MILLIS = 20_000
+        private const val ROUTE_GENERATION_READ_TIMEOUT_MILLIS = 5 * 60 * 1000
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_FORBIDDEN = 403
         private val HTTP_SUCCESS_RANGE = 200..299

@@ -13,6 +13,7 @@ public record RouteGenerationVO(
         RouteAreaVO area,
         List<GeneratedRouteVO> routes,
         List<String> warnings,
+        String generationStage,
         String activeRouteCode,
         RouteExecutionStatus executionStatus
 ) {

@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.domain.enums.RouteExecutionStatus;
+import com.urbansidequest.backend.domain.enums.RouteRequestStatus;
 import com.urbansidequest.backend.domain.vo.RouteGenerationVO;
 import java.time.Instant;
 import java.util.UUID;
@@ -32,11 +33,11 @@ public class RouteGenerationHistoryPO {
     @TableField("route_count")
     private Integer routeCount;
 
-    @TableField("active_route_code")
-    private String activeRouteCode;
+    @TableField("generation_status")
+    private RouteRequestStatus generationStatus;
 
-    @TableField("execution_status")
-    private RouteExecutionStatus executionStatus;
+    @TableField("generation_stage")
+    private String generationStage;
 
     @TableField("generation_json")
     private String generationJson;
@@ -54,8 +55,8 @@ public class RouteGenerationHistoryPO {
         po.setUserId(routeGeneration.userId());
         po.setAreaLabel(routeGeneration.area().areaLabel());
         po.setRouteCount(routeGeneration.routes().size());
-        po.setActiveRouteCode(routeGeneration.activeRouteCode());
-        po.setExecutionStatus(routeGeneration.executionStatus());
+        po.setGenerationStatus(routeGeneration.status());
+        po.setGenerationStage(routeGeneration.generationStage());
         po.setGenerationJson(writeJson(objectMapper, routeGeneration));
         return po;
     }
@@ -66,12 +67,13 @@ public class RouteGenerationHistoryPO {
                 routeGeneration.requestId(),
                 routeGeneration.candidateSetId(),
                 routeGeneration.userId(),
-                routeGeneration.status(),
+                this.generationStatus == null ? routeGeneration.status() : this.generationStatus,
                 routeGeneration.area(),
                 routeGeneration.routes(),
                 routeGeneration.warnings(),
-                this.activeRouteCode,
-                this.executionStatus
+                this.generationStage == null ? routeGeneration.generationStage() : this.generationStage,
+                null,
+                RouteExecutionStatus.GENERATED
         );
     }
 
@@ -139,20 +141,20 @@ public class RouteGenerationHistoryPO {
         this.routeCount = routeCount;
     }
 
-    public String getActiveRouteCode() {
-        return this.activeRouteCode;
+    public RouteRequestStatus getGenerationStatus() {
+        return this.generationStatus;
     }
 
-    public void setActiveRouteCode(String activeRouteCode) {
-        this.activeRouteCode = activeRouteCode;
+    public void setGenerationStatus(RouteRequestStatus generationStatus) {
+        this.generationStatus = generationStatus == null ? RouteRequestStatus.SUCCESS : generationStatus;
     }
 
-    public RouteExecutionStatus getExecutionStatus() {
-        return this.executionStatus;
+    public String getGenerationStage() {
+        return this.generationStage;
     }
 
-    public void setExecutionStatus(RouteExecutionStatus executionStatus) {
-        this.executionStatus = executionStatus == null ? RouteExecutionStatus.GENERATED : executionStatus;
+    public void setGenerationStage(String generationStage) {
+        this.generationStage = generationStage;
     }
 
     public String getGenerationJson() {

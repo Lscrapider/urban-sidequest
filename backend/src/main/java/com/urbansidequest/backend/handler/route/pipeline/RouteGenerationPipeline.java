@@ -1,5 +1,7 @@
 package com.urbansidequest.backend.handler.route.pipeline;
 
+import com.urbansidequest.backend.converter.route.RouteGenerationConverter;
+import com.urbansidequest.backend.domain.enums.RouteRequestStatus;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.step.BuildCandidateRoutesStep;
 import com.urbansidequest.backend.handler.route.step.CalibrateSelectedRouteSegmentsStep;
@@ -16,6 +18,7 @@ import com.urbansidequest.backend.handler.route.step.ScoreAndSelectRoutesStep;
 import com.urbansidequest.backend.handler.route.step.SelectPoiPoolStep;
 import com.urbansidequest.backend.handler.route.step.RouteGenerationStep;
 import com.urbansidequest.backend.handler.route.step.ValidateRouteRequestStep;
+import com.urbansidequest.backend.manage.RouteGenerationHistoryManage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -53,6 +56,10 @@ public class RouteGenerationPipeline {
 
     private final FilterCalibratedRoutesStep filterCalibratedRoutesStep;
 
+    private final RouteGenerationHistoryManage routeGenerationHistoryManage;
+
+    private final RouteGenerationConverter routeGenerationConverter;
+
     public RouteGenerationPipeline(
             ValidateRouteRequestStep validateRouteRequestStep,
             ResolveAreaStep resolveAreaStep,
@@ -67,7 +74,9 @@ public class RouteGenerationPipeline {
             SaveRoutePreferenceTrainingSamplesStep saveRoutePreferenceTrainingSamplesStep,
             ScoreAndSelectRoutesStep scoreAndSelectRoutesStep,
             CalibrateSelectedRouteSegmentsStep calibrateSelectedRouteSegmentsStep,
-            FilterCalibratedRoutesStep filterCalibratedRoutesStep
+            FilterCalibratedRoutesStep filterCalibratedRoutesStep,
+            RouteGenerationHistoryManage routeGenerationHistoryManage,
+            RouteGenerationConverter routeGenerationConverter
     ) {
         this.validateRouteRequestStep = validateRouteRequestStep;
         this.resolveAreaStep = resolveAreaStep;
@@ -83,6 +92,8 @@ public class RouteGenerationPipeline {
         this.scoreAndSelectRoutesStep = scoreAndSelectRoutesStep;
         this.calibrateSelectedRouteSegmentsStep = calibrateSelectedRouteSegmentsStep;
         this.filterCalibratedRoutesStep = filterCalibratedRoutesStep;
+        this.routeGenerationHistoryManage = routeGenerationHistoryManage;
+        this.routeGenerationConverter = routeGenerationConverter;
     }
 
     public void execute(RouteGenerationContext context) {
@@ -96,6 +107,7 @@ public class RouteGenerationPipeline {
                 context.getGenerateParam().getTransportProfile(),
                 context.getGenerateParam().getDurationMinutes()
         );
+        this.upsertGenerationState(context, RouteRequestStatus.GENERATING, "queued");
 
         // 校验请求基础结构，避免后续 POI 查询和模型编排处理无效输入。
         this.executeStep("validateRouteRequest", context, this.validateRouteRequestStep);
@@ -138,6 +150,10 @@ public class RouteGenerationPipeline {
 
         // 保存最终返回路线的训练特征快照，确保 X 与后续 LLM judgment 看到的路线一致。
         this.executeStep("saveRoutePreferenceTrainingSamples", context, this.saveRoutePreferenceTrainingSamplesStep);
+        RouteRequestStatus finalStatus = context.getSelectedRoutes().isEmpty()
+                ? RouteRequestStatus.FAILED
+                : RouteRequestStatus.SUCCESS;
+        this.upsertGenerationState(context, finalStatus, "completed");
 
         LOGGER.info(
                 "路线生成 pipeline 完成，requestId={}，candidateSetId={}，elapsedMs={}，poiCandidates={}，candidateRoutes={}，selectedRoutes={}，segmentCosts={}，warnings={}",
@@ -153,10 +169,31 @@ public class RouteGenerationPipeline {
     }
 
     private void executeStep(String stepName, RouteGenerationContext context, RouteGenerationStep step) {
-        long startedAt = System.nanoTime();
         try {
+            this.upsertGenerationState(context, RouteRequestStatus.GENERATING, stepName);
             step.execute(context);
-        } finally {
+        } catch (RuntimeException exception) {
+            this.upsertFailedGenerationState(context, stepName);
+            throw exception;
+        }
+    }
+
+    private void upsertGenerationState(RouteGenerationContext context, RouteRequestStatus status, String stage) {
+        this.routeGenerationHistoryManage.upsertHistory(
+                this.routeGenerationConverter.toRouteGenerationVO(context, status, stage)
+        );
+    }
+
+    private void upsertFailedGenerationState(RouteGenerationContext context, String stage) {
+        try {
+            this.upsertGenerationState(context, RouteRequestStatus.FAILED, stage);
+        } catch (RuntimeException exception) {
+            LOGGER.warn(
+                    "路线生成失败状态入库失败，requestId={}，stage={}",
+                    context.getRequestId(),
+                    stage,
+                    exception
+            );
         }
     }
 

@@ -31,20 +31,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.amap.api.maps.model.LatLng
-import com.urbansidequest.app.data.api.MustVisitPointRequest
+import com.urbansidequest.app.data.api.RouteGenerateRequest
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
-import com.urbansidequest.app.data.map.resolveRouteCityInfo
-import com.urbansidequest.app.data.map.searchAmapInputTips
 import com.urbansidequest.app.data.route.RouteRepository
 import com.urbansidequest.app.domain.model.GeoPoint
-import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.ui.components.RouteMapPreview
 import com.urbansidequest.app.ui.components.UrbanChip
 import com.urbansidequest.app.ui.components.UrbanBadge
@@ -66,8 +63,8 @@ import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.DeepTeal
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -75,12 +72,12 @@ fun RouteConfigScreen(
     routeRepository: RouteRepository? = null,
     selectedCenter: GeoPoint? = null,
     onBack: () -> Unit = {},
-    onAuthExpired: () -> Unit = {},
-    onGenerateRoute: (RouteGeneration?) -> Unit = {},
+    onSubmitRouteGeneration: (RouteGenerateRequest) -> Unit = {},
     routeConfigViewModel: RouteConfigViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
+    val submitScope = rememberCoroutineScope()
     val uiState by routeConfigViewModel.uiState.collectAsStateWithLifecycle()
     val validationMessage = uiState.validateForRouteRequest(
         selectedCenter = selectedCenter,
@@ -88,12 +85,15 @@ fun RouteConfigScreen(
     )
     val canGenerate = validationMessage == null && !uiState.isGenerating
     val feasibleMealWindows = uiState.feasibleMealWindowCodes()
+    val feasibleMealWindowOptions = MealWindowOptions.filter { option -> option.code in feasibleMealWindows }
 
     LaunchedEffect(routeConfigViewModel) {
         routeConfigViewModel.events.collectLatest { event ->
             when (event) {
-                RouteConfigEvent.AuthExpired -> onAuthExpired()
-                is RouteConfigEvent.RouteGenerated -> onGenerateRoute(event.routeGeneration)
+                is RouteConfigEvent.RouteGenerationSubmitted -> {
+                    onSubmitRouteGeneration(event.request)
+                    onBack()
+                }
             }
         }
     }
@@ -103,19 +103,9 @@ fun RouteConfigScreen(
     }
 
     LaunchedEffect(uiState.mustVisitSearchText, selectedCenter) {
-        val keyword = uiState.mustVisitSearchText.trim()
-        if (keyword.length < 2) {
-            return@LaunchedEffect
-        }
-        routeConfigViewModel.onMustVisitSearchStarted()
-        delay(250)
-        searchAmapInputTips(
+        routeConfigViewModel.searchMustVisitSuggestions(
             context = context,
-            keyword = keyword,
-            location = selectedCenter?.toLatLng() ?: DefaultSearchCenter,
-            onResult = { resultKeyword, suggestions ->
-                routeConfigViewModel.onMustVisitSuggestionsLoaded(resultKeyword, suggestions)
-            }
+            selectedCenter = selectedCenter
         )
     }
 
@@ -137,7 +127,7 @@ fun RouteConfigScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             UrbanScreenTitle(
-                eyebrow = "ROUTE REQUEST",
+                eyebrow = "路线生成",
                 title = "生成路线条件",
                 trailing = {
                     UrbanBadge(
@@ -174,7 +164,7 @@ fun RouteConfigScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "按后端 AUTO_RADIUS 提交，半径 ${ROUTE_AUTO_RADIUS_METERS / 1000} 公里。",
+                            text = "系统会按出发时间、可用时长和交通组合自动确定搜索范围。",
                             color = AppTextMuted,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -182,8 +172,8 @@ fun RouteConfigScreen(
                 }
                 UrbanMetricGrid(
                     items = listOf(
-                        "${ROUTE_AUTO_RADIUS_METERS / 1000} km" to "自动半径",
                         uiState.selectedDuration.label to "可用时长",
+                        uiState.selectedTransport.label to "交通组合",
                         uiState.selectedBudget.label to "预算偏好"
                     )
                 )
@@ -211,15 +201,16 @@ fun RouteConfigScreen(
                         )
                     }
                 }
-                FieldLabel(text = "饭点安排")
-                OptionFlow {
-                    MealWindowOptions.forEach { option ->
-                        val feasible = feasibleMealWindows.contains(option.code)
-                        SelectableChip(
-                            text = if (feasible) option.label else "${option.label}不可排",
-                            selected = uiState.selectedMealWindows.contains(option.code),
-                            onClick = { routeConfigViewModel.toggleMealWindow(option.code) }
-                        )
+                if (feasibleMealWindowOptions.isNotEmpty()) {
+                    FieldLabel(text = "饭点安排")
+                    OptionFlow {
+                        feasibleMealWindowOptions.forEach { option ->
+                            SelectableChip(
+                                text = option.label,
+                                selected = uiState.selectedMealWindows.contains(option.code),
+                                onClick = { routeConfigViewModel.toggleMealWindow(option.code) }
+                            )
+                        }
                     }
                 }
                 Text(
@@ -230,7 +221,7 @@ fun RouteConfigScreen(
             }
 
             UrbanSection {
-                SectionTitle(title = "路线策略", subtitle = "选项和后端 TransportProfile、RouteGoal、BudgetLevel 对齐")
+                SectionTitle(title = "路线策略", subtitle = "按出行方式、路线目标和预算控制生成结果")
                 FieldLabel(text = "交通组合")
                 OptionFlow {
                     TransportOptions.forEach { option ->
@@ -265,8 +256,9 @@ fun RouteConfigScreen(
 
             UrbanSection {
                 SectionTitle(title = "兴趣偏好", subtitle = "最多 5 个兴趣大类；餐饮偏好需要选择午餐或晚餐")
+                FieldLabel(text = "路线兴趣")
                 OptionFlow {
-                    InterestTagOptions.forEach { option ->
+                    NonFoodInterestTagOptions.forEach { option ->
                         SelectableChip(
                             text = option.label,
                             selected = uiState.selectedInterestTags.contains(option.code),
@@ -274,13 +266,25 @@ fun RouteConfigScreen(
                         )
                     }
                 }
+                if (uiState.selectedMealWindows.isNotEmpty()) {
+                    FieldLabel(text = "餐饮偏好")
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        FoodInterestGroups.forEach { group ->
+                            FoodInterestGroupPicker(
+                                group = group,
+                                selectedTags = uiState.selectedInterestTags,
+                                onToggleTag = routeConfigViewModel::toggleInterestTag
+                            )
+                        }
+                    }
+                }
                 if (uiState.hasFoodInterest() && uiState.selectedMealWindows.isEmpty()) {
-                    WarningBanner(text = "选择美食或咖啡时，需要同时选择午餐或晚餐饭点。")
+                    WarningBanner(text = "选择餐饮偏好时，需要同时选择午餐或晚餐饭点。")
                 }
             }
 
             UrbanSection {
-                SectionTitle(title = "必去点", subtitle = "搜索地点加入路线硬约束")
+                SectionTitle(title = "必去点", subtitle = "搜索地点加入本次路线")
                 MustVisitPicker(
                     searchText = uiState.mustVisitSearchText,
                     suggestions = uiState.mustVisitSuggestions,
@@ -316,24 +320,20 @@ fun RouteConfigScreen(
                 UrbanPrimaryButton(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = canGenerate,
-                    text = if (uiState.isGenerating) "正在生成..." else "生成路线",
+                    text = "生成路线",
                     onClick = {
-                        routeConfigViewModel.generateRoute(
-                            routeRepository = routeRepository,
-                            selectedCenter = selectedCenter,
-                            resolveRouteCityInfo = { center ->
-                                resolveRouteCityInfo(
-                                    context = context,
-                                    location = LatLng(center.latitudeGcj02, center.longitudeGcj02)
-                                )
-                            }
-                        )
+                        submitScope.launch {
+                            routeConfigViewModel.submitRouteGeneration(
+                                routeRepositoryAvailable = routeRepository != null,
+                                selectedCenter = selectedCenter
+                            )
+                        }
                     }
                 )
                 Text(
                     text = validationMessage
                         ?: uiState.errorMessage
-                        ?: "将提交自动范围、出发窗口、饭点、策略、预算、兴趣和必去点。",
+                        ?: "会按当前范围、出发窗口、饭点、策略、预算、兴趣和必去点生成路线。",
                     color = if (validationMessage == null && uiState.errorMessage == null) {
                         AppTextMuted
                     } else {
@@ -398,14 +398,53 @@ private fun SelectableChip(
 }
 
 @Composable
+private fun FoodInterestGroupPicker(
+    group: FoodInterestGroup,
+    selectedTags: Set<String>,
+    onToggleTag: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                modifier = Modifier.weight(1f),
+                text = group.option.label,
+                color = AppText,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            SelectableChip(
+                text = "偏好${group.option.label}",
+                selected = selectedTags.contains(group.option.code),
+                onClick = { onToggleTag(group.option.code) }
+            )
+        }
+        if (group.children.isNotEmpty()) {
+            OptionFlow {
+                group.children.forEach { option ->
+                    SelectableChip(
+                        text = option.label,
+                        selected = selectedTags.contains(option.code),
+                        onClick = { onToggleTag(option.code) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun MustVisitPicker(
     searchText: String,
     suggestions: List<PlaceSearchSuggestion>,
     isSearching: Boolean,
-    selectedPoints: List<MustVisitPointRequest>,
+    selectedPoints: List<RouteMustVisitPoint>,
     onSearchTextChange: (String) -> Unit,
     onSelectSuggestion: (PlaceSearchSuggestion) -> Unit,
-    onRemovePoint: (MustVisitPointRequest) -> Unit
+    onRemovePoint: (RouteMustVisitPoint) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         MustVisitSearchField(
@@ -547,7 +586,7 @@ private fun MustVisitSuggestionRow(
 
 @Composable
 private fun MustVisitPointRow(
-    point: MustVisitPointRequest,
+    point: RouteMustVisitPoint,
     onRemove: () -> Unit
 ) {
     Surface(
@@ -590,9 +629,3 @@ private fun MustVisitPointRow(
         }
     }
 }
-
-private fun GeoPoint.toLatLng(): LatLng {
-    return LatLng(latitudeGcj02, longitudeGcj02)
-}
-
-private val DefaultSearchCenter = LatLng(39.908722, 116.397499)

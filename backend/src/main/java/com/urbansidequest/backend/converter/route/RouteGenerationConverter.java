@@ -9,6 +9,7 @@ import com.urbansidequest.backend.domain.dto.RouteStepDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
 import com.urbansidequest.backend.domain.enums.RouteExecutionStatus;
 import com.urbansidequest.backend.domain.enums.RouteRequestStatus;
+import com.urbansidequest.backend.domain.param.GeoPointParam;
 import com.urbansidequest.backend.domain.vo.GeneratedRouteVO;
 import com.urbansidequest.backend.domain.vo.GeoPointVO;
 import com.urbansidequest.backend.domain.vo.RouteAreaVO;
@@ -20,7 +21,9 @@ import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticProfile;
 import com.urbansidequest.backend.handler.route.linear.PoiSemanticResolver;
 import com.urbansidequest.backend.handler.route.support.RouteStopIdSupport;
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -34,19 +37,44 @@ public class RouteGenerationConverter {
     }
 
     public RouteGenerationVO toRouteGenerationVO(RouteGenerationContext context) {
+        return this.toRouteGenerationVO(context, RouteRequestStatus.SUCCESS, "completed");
+    }
+
+    public RouteGenerationVO toRouteGenerationVO(
+            RouteGenerationContext context,
+            RouteRequestStatus status,
+            String generationStage
+    ) {
         Map<String, PoiCandidateDTO> candidatesByPoiId = this.candidatesByPoiId(context);
         return new RouteGenerationVO(
                 context.getRequestId(),
                 context.getCandidateSetId(),
                 context.getUserId(),
-                RouteRequestStatus.SUCCESS,
-                this.toAreaVO(context.getArea(), context.getGenerateParam().getDurationMinutes()),
+                status,
+                this.toAreaVO(context),
                 context.getSelectedRoutes().stream()
                         .map(route -> this.toGeneratedRouteVO(route, context, candidatesByPoiId))
                         .toList(),
                 context.getWarnings(),
+                generationStage,
                 null,
                 RouteExecutionStatus.GENERATED
+        );
+    }
+
+    private RouteAreaVO toAreaVO(RouteGenerationContext context) {
+        RouteAreaDTO area = context.getArea();
+        if (area != null) {
+            return this.toAreaVO(area, context.getGenerateParam().getDurationMinutes());
+        }
+        GeoPointParam center = context.getGenerateParam().getCenter();
+        return new RouteAreaVO(
+                context.getGenerateParam().getAreaMode(),
+                context.getGenerateParam().getAreaLabel() == null ? "路线生成中" : context.getGenerateParam().getAreaLabel(),
+                center == null ? new GeoPointVO(BigDecimal.ZERO, BigDecimal.ZERO) : this.toGeoPointVO(center),
+                context.getGenerateParam().getRadiusMeters() == null ? 0 : context.getGenerateParam().getRadiusMeters(),
+                List.of(),
+                "正在生成路线"
         );
     }
 
@@ -152,6 +180,10 @@ public class RouteGenerationConverter {
 
     private GeoPointVO toGeoPointVO(GeoPointDTO point) {
         return new GeoPointVO(point.longitudeGcj02(), point.latitudeGcj02());
+    }
+
+    private GeoPointVO toGeoPointVO(GeoPointParam point) {
+        return new GeoPointVO(point.getLongitudeGcj02(), point.getLatitudeGcj02());
     }
 
     private Map<String, PoiCandidateDTO> candidatesByPoiId(RouteGenerationContext context) {

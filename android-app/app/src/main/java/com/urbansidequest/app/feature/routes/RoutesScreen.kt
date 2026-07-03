@@ -26,8 +26,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,6 +56,9 @@ import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.RouteTeal
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun RoutesScreen(
@@ -61,6 +72,21 @@ fun RoutesScreen(
     onOpenMap: () -> Unit = {},
     onOpenProfile: () -> Unit = {}
 ) {
+    var selectedTab by remember { mutableStateOf(RouteLibraryTab.Generated) }
+    val activeGroup = historyGroups.firstOrNull {
+        it.generationStatus == "SUCCESS" && it.executionStatus == "IN_PROGRESS" && it.activeRouteCode != null
+    }
+    val walkedGroups = historyGroups.filter { group ->
+        group.generationStatus == "SUCCESS" && group.executionStatus == "COMPLETED"
+    }
+    val generatedGroups = historyGroups.filter { group ->
+        group.requestId != activeGroup?.requestId && group.executionStatus != "COMPLETED"
+    }
+    val visibleGroups = when (selectedTab) {
+        RouteLibraryTab.Generated -> generatedGroups
+        RouteLibraryTab.Walked -> walkedGroups
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -74,8 +100,8 @@ fun RoutesScreen(
         ) {
             item {
                 UrbanScreenTitle(
-                    eyebrow = "路线记录",
-                    title = "进行中与历史路线",
+                    eyebrow = "路线库",
+                    title = "生成结果与走过路线",
                     trailing = {
                         IconButton(onClick = onRefreshHistory) {
                             Icon(
@@ -114,7 +140,6 @@ fun RoutesScreen(
                     UrbanPrimaryButton(text = "去地图选点", onClick = onOpenMap)
                 }
             } else {
-                val activeGroup = historyGroups.firstOrNull { it.executionStatus == "IN_PROGRESS" && it.activeRouteCode != null }
                 if (activeGroup != null) {
                     item(key = "active_${activeGroup.requestId}") {
                         ActiveRoutePanel(
@@ -126,17 +151,34 @@ fun RoutesScreen(
                     }
                 }
                 item {
-                    SectionHeader(title = "已生成路线", badge = "${historyGroups.size} 组")
-                }
-                items(
-                    items = historyGroups,
-                    key = { it.requestId }
-                ) { group ->
-                    RouteHistoryGroupRow(
-                        group = group,
-                        onOpenGroup = { onOpenHistoryGroup(group.requestId) },
-                        onOpenRoute = { routeCode -> onOpenHistoryRoute(group.requestId, routeCode) }
+                    RouteLibrarySwitcher(
+                        selectedTab = selectedTab,
+                        generatedCount = generatedGroups.size,
+                        walkedCount = walkedGroups.size,
+                        onSelectTab = { selectedTab = it }
                     )
+                }
+                item {
+                    SectionHeader(title = selectedTab.sectionTitle, badge = "${visibleGroups.size} 组")
+                }
+                if (visibleGroups.isEmpty()) {
+                    item(key = "empty_${selectedTab.name}") {
+                        EmptyState(
+                            title = selectedTab.emptyTitle,
+                            description = selectedTab.emptyDescription
+                        )
+                    }
+                } else {
+                    items(
+                        items = visibleGroups,
+                        key = { "${selectedTab.name}_${it.requestId}" }
+                    ) { group ->
+                        RouteHistoryGroupRow(
+                            group = group,
+                            onOpenGroup = { onOpenHistoryGroup(group.requestId) },
+                            onOpenRoute = { routeCode -> onOpenHistoryRoute(group.requestId, routeCode) }
+                        )
+                    }
                 }
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -152,6 +194,65 @@ fun RoutesScreen(
             onRoutesClick = {},
             onProfileClick = onOpenProfile
         )
+    }
+}
+
+@Composable
+private fun RouteLibrarySwitcher(
+    selectedTab: RouteLibraryTab,
+    generatedCount: Int,
+    walkedCount: Int,
+    onSelectTab: (RouteLibraryTab) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Row(
+            modifier = Modifier.padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            RouteLibraryTab.values().forEach { tab ->
+                val selected = tab == selectedTab
+                val count = when (tab) {
+                    RouteLibraryTab.Generated -> generatedCount
+                    RouteLibraryTab.Walked -> walkedCount
+                }
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics {
+                            role = Role.Tab
+                            this.selected = selected
+                        }
+                        .clickable { onSelectTab(tab) },
+                    shape = RoundedCornerShape(9.dp),
+                    color = if (selected) RouteTeal.copy(alpha = 0.12f) else AppSurface,
+                    border = BorderStroke(1.dp, if (selected) RouteTeal.copy(alpha = 0.56f) else AppSurface)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = tab.label,
+                            color = if (selected) RouteTeal else AppText,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = count.toString(),
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -213,10 +314,11 @@ private fun RouteHistoryGroupRow(
     onOpenGroup: () -> Unit,
     onOpenRoute: (String) -> Unit
 ) {
+    val canOpenRoutes = group.generationStatus == "SUCCESS" && group.routes.isNotEmpty()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpenGroup),
+            .clickable(enabled = canOpenRoutes, onClick = onOpenGroup),
         shape = RoundedCornerShape(12.dp),
         color = AppSurface,
         border = BorderStroke(1.dp, AppBorder)
@@ -243,33 +345,41 @@ private fun RouteHistoryGroupRow(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${formatCreatedAt(group.createdAt)} · ${group.routes.size} 条路线",
+                        text = formatHistorySubtitle(group),
                         color = AppTextMuted,
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
                 UrbanBadge(
-                    text = formatExecutionStatus(group.executionStatus),
-                    style = if (group.executionStatus == "IN_PROGRESS") UrbanBadgeStyle.RouteA else UrbanBadgeStyle.Default
+                    text = formatHistoryStatus(group),
+                    style = historyStatusBadgeStyle(group)
                 )
             }
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                group.routes.forEach { route ->
-                    RouteHistoryRouteChip(
-                        route = route,
-                        isActive = route.routeCode == group.activeRouteCode && group.executionStatus == "IN_PROGRESS",
-                        onClick = {
-                            if (route.routeCode == group.activeRouteCode && group.executionStatus == "IN_PROGRESS") {
-                                onOpenRoute(route.routeCode)
-                            } else {
-                                onOpenGroup()
+            if (canOpenRoutes) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    group.routes.forEach { route ->
+                        RouteHistoryRouteChip(
+                            route = route,
+                            isActive = route.routeCode == group.activeRouteCode && group.executionStatus == "IN_PROGRESS",
+                            onClick = {
+                                if (route.routeCode == group.activeRouteCode && group.executionStatus == "IN_PROGRESS") {
+                                    onOpenRoute(route.routeCode)
+                                } else {
+                                    onOpenGroup()
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
+            } else {
+                Text(
+                    text = formatHistoryProgressText(group),
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
     }
@@ -373,9 +483,98 @@ private fun formatExecutionStatus(status: String): String {
     }
 }
 
+private fun formatHistoryStatus(group: RouteHistoryGroup): String {
+    return when (group.generationStatus) {
+        "PENDING" -> "等待生成"
+        "GENERATING" -> "生成中"
+        "FAILED" -> "生成失败"
+        "PARTIAL_SUCCESS" -> "部分完成"
+        else -> formatExecutionStatus(group.executionStatus)
+    }
+}
+
+private fun historyStatusBadgeStyle(group: RouteHistoryGroup): UrbanBadgeStyle {
+    return when {
+        group.generationStatus == "GENERATING" -> UrbanBadgeStyle.Area
+        group.generationStatus == "FAILED" -> UrbanBadgeStyle.Warning
+        group.executionStatus == "IN_PROGRESS" -> UrbanBadgeStyle.RouteA
+        else -> UrbanBadgeStyle.Default
+    }
+}
+
+private fun formatHistorySubtitle(group: RouteHistoryGroup): String {
+    return when (group.generationStatus) {
+        "SUCCESS" -> "${formatCreatedAt(group.createdAt)} · ${group.routes.size} 条路线"
+        "FAILED" -> "${formatCreatedAt(group.createdAt)} · 生成失败"
+        else -> "${formatCreatedAt(group.createdAt)} · ${formatGenerationStage(group.generationStage)}"
+    }
+}
+
+private fun formatHistoryProgressText(group: RouteHistoryGroup): String {
+    return when (group.generationStatus) {
+        "FAILED" -> "路线生成失败，请稍后重试"
+        "PENDING" -> "正在等待路线生成"
+        else -> formatGenerationStage(group.generationStage)
+    }
+}
+
+private fun formatGenerationStage(stage: String?): String {
+    return when (stage) {
+        "queued" -> "正在准备路线生成"
+        "validateRouteRequest" -> "正在检查路线条件"
+        "resolveArea" -> "正在确定搜索范围"
+        "loadInterestTags" -> "正在匹配兴趣偏好"
+        "loadUserPreferenceProfile" -> "正在读取个人偏好"
+        "loadPoiSemanticMappings" -> "正在整理地点类型"
+        "loadRouteWeather" -> "正在检查天气影响"
+        "loadPoiCandidates" -> "正在寻找可用地点"
+        "enrichPoiDetails" -> "正在补充地点信息"
+        "selectPoiPool" -> "正在筛选候选地点"
+        "buildCandidateRoutes" -> "正在生成路线"
+        "scoreAndSelectRoutes" -> "正在筛选路线"
+        "calibrateSelectedRouteSegments" -> "正在校准路线"
+        "filterCalibratedRoutes" -> "正在确认路线可用性"
+        "saveRoutePreferenceTrainingSamples" -> "正在保存路线结果"
+        "completed" -> "路线生成已结束"
+        else -> "正在更新路线状态"
+    }
+}
+
 private fun formatCreatedAt(createdAt: String): String {
-    return createdAt
-        .substringBefore(".")
-        .replace("T", " ")
-        .ifBlank { "刚刚生成" }
+    if (createdAt.isBlank()) {
+        return "刚刚生成"
+    }
+    return runCatching {
+        DateTimeFormatter
+            .ofPattern("yyyy-MM-dd HH:mm:ss")
+            .format(Instant.parse(createdAt).atZone(ROUTE_HISTORY_ZONE))
+    }.getOrElse {
+        createdAt
+            .substringBefore(".")
+            .replace("T", " ")
+            .removeSuffix("Z")
+            .ifBlank { "刚刚生成" }
+    }
+}
+
+private val ROUTE_HISTORY_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
+
+private enum class RouteLibraryTab(
+    val label: String,
+    val sectionTitle: String,
+    val emptyTitle: String,
+    val emptyDescription: String
+) {
+    Generated(
+        label = "生成结果",
+        sectionTitle = "可查看的生成路线",
+        emptyTitle = "没有待查看的生成路线",
+        emptyDescription = "生成后的路线会先放在这里，开始并完成后会进入走过路线。"
+    ),
+    Walked(
+        label = "走过路线",
+        sectionTitle = "已经走完的路线",
+        emptyTitle = "还没有走完路线",
+        emptyDescription = "完成最后一个打卡点后，路线会沉淀到这里。"
+    )
 }

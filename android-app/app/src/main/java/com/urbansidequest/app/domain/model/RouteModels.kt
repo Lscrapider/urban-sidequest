@@ -79,6 +79,7 @@ data class RouteGeneration(
     val area: RouteArea,
     val routes: List<GeneratedRoute>,
     val warnings: List<String>,
+    val generationStage: String? = null,
     val activeRouteCode: String? = null,
     val executionStatus: String = "GENERATED"
 )
@@ -88,6 +89,8 @@ data class RouteHistoryGroup(
     val candidateSetId: String,
     val areaLabel: String,
     val createdAt: String,
+    val generationStatus: String,
+    val generationStage: String?,
     val activeRouteCode: String?,
     val executionStatus: String,
     val routes: List<RouteHistoryRouteSummary>
