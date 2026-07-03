@@ -165,8 +165,8 @@ private val RouteSwitcherShape = RoundedCornerShape(14.dp)
 private val RouteSwitcherSegmentShape = RoundedCornerShape(12.dp)
 private val RouteSwitcherSegmentWidth = 42.dp
 private val RouteSwitcherSegmentHeight = 24.dp
-private val RouteExecutionRailWidth = 40.dp
-private val RouteExecutionRailItemSize = 30.dp
+private val RoutePoiRailWidth = 40.dp
+private val RoutePoiRailItemSize = 30.dp
 
 private data class RouteStopMarkerPayload(
     val routeIndex: Int,
@@ -301,7 +301,7 @@ fun MapSelectScreen(
 
     fun focusStop(routeIndex: Int, stop: RouteStop) {
         selectedRouteIndex = routeIndex
-        visibleRouteIndexes = visibleRouteIndexes + routeIndex
+        visibleRouteIndexes = setOf(routeIndex)
         selectedStopPayload = RouteStopMarkerPayload(routeIndex = routeIndex, stop = stop)
         selectedSegmentPayload = null
         resetRouteSheet()
@@ -431,7 +431,7 @@ fun MapSelectScreen(
             },
             onRouteSegmentClick = { payload ->
                 selectedRouteIndex = payload.routeIndex
-                visibleRouteIndexes = visibleRouteIndexes + payload.routeIndex
+                visibleRouteIndexes = setOf(payload.routeIndex)
                 selectedSegmentPayload = payload
                 selectedStopPayload = null
                 resetRouteSheet()
@@ -474,13 +474,8 @@ fun MapSelectScreen(
                 routes = routes,
                 selectedRouteIndex = selectedRouteIndex,
                 visibleRouteIndexes = visibleRouteIndexes,
-                onToggleRoute = { routeIndex ->
-                    val nextVisibleRouteIndexes = if (routeIndex in visibleRouteIndexes) {
-                        visibleRouteIndexes - routeIndex
-                    } else {
-                        visibleRouteIndexes + routeIndex
-                    }
-                    visibleRouteIndexes = nextVisibleRouteIndexes
+                onSelectRoute = { routeIndex ->
+                    visibleRouteIndexes = setOf(routeIndex)
                     selectedRouteIndex = routeIndex
                     resetRouteSheet()
                     selectedStopPayload = null
@@ -489,17 +484,26 @@ fun MapSelectScreen(
             )
         }
 
-        if (isRouteExecutionMode && selectedRoute != null && !isSearchActive) {
-            val executionRouteIndex = activeRouteIndex ?: DEFAULT_VISIBLE_ROUTE_INDEX
-            RouteExecutionPoiRail(
+        val railRouteIndex = selectedRoutePosition
+        val railRoute = railRouteIndex?.let { routes.getOrNull(it) }
+        if (railRoute != null && !isSearchActive) {
+            val railCurrentStopId = if (isRouteExecutionMode) {
+                currentTargetStop?.id
+            } else {
+                selectedStopPayload
+                    ?.takeIf { payload -> payload.routeIndex == railRouteIndex }
+                    ?.stop
+                    ?.id
+            }
+            RoutePoiRail(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .padding(start = 10.dp),
-                route = selectedRoute,
-                currentStopId = currentTargetStop?.id,
-                completedStopIds = completedStopIds,
-                routeColor = routeColor(executionRouteIndex).toComposeColor(),
-                onSelectStop = { stop -> focusStop(executionRouteIndex, stop) }
+                route = railRoute,
+                currentStopId = railCurrentStopId,
+                completedStopIds = if (isRouteExecutionMode) completedStopIds else emptySet(),
+                routeColor = routeColor(railRouteIndex).toComposeColor(),
+                onSelectStop = { stop -> focusStop(railRouteIndex, stop) }
             )
         }
 
@@ -1082,7 +1086,7 @@ private fun RouteSwitcher(
     routes: List<GeneratedRoute>,
     selectedRouteIndex: Int?,
     visibleRouteIndexes: Set<Int>,
-    onToggleRoute: (Int) -> Unit
+    onSelectRoute: (Int) -> Unit
 ) {
     Surface(
         modifier = modifier,
@@ -1104,10 +1108,10 @@ private fun RouteSwitcher(
                         .width(RouteSwitcherSegmentWidth)
                         .height(RouteSwitcherSegmentHeight)
                         .semantics {
-                            role = Role.Checkbox
-                            this.selected = visible
+                            role = Role.Tab
+                            this.selected = selected
                         }
-                        .clickable { onToggleRoute(index) },
+                        .clickable { onSelectRoute(index) },
                     shape = RouteSwitcherSegmentShape,
                     color = when {
                         selected && visible -> color.copy(alpha = 0.18f)
@@ -1850,7 +1854,7 @@ private fun RouteStopDetailRow(
 }
 
 @Composable
-private fun RouteExecutionPoiRail(
+private fun RoutePoiRail(
     modifier: Modifier = Modifier,
     route: GeneratedRoute,
     currentStopId: String?,
@@ -1860,7 +1864,7 @@ private fun RouteExecutionPoiRail(
 ) {
     val stops = route.stops.sortedBy(RouteStop::order)
     Surface(
-        modifier = modifier.width(RouteExecutionRailWidth),
+        modifier = modifier.width(RoutePoiRailWidth),
         shape = RoundedCornerShape(14.dp),
         color = AppSurface.copy(alpha = 0.78f),
         border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.48f))
@@ -1882,7 +1886,7 @@ private fun RouteExecutionPoiRail(
                 items = stops,
                 key = { stop -> stop.id }
             ) { stop ->
-                RouteExecutionPoiRailItem(
+                RoutePoiRailItem(
                     stop = stop,
                     isCurrent = stop.id == currentStopId,
                     isCompleted = stop.id in completedStopIds,
@@ -1895,7 +1899,7 @@ private fun RouteExecutionPoiRail(
 }
 
 @Composable
-private fun RouteExecutionPoiRailItem(
+private fun RoutePoiRailItem(
     stop: RouteStop,
     isCurrent: Boolean,
     isCompleted: Boolean,
@@ -1914,7 +1918,7 @@ private fun RouteExecutionPoiRailItem(
     }
     Surface(
         modifier = Modifier
-            .size(RouteExecutionRailItemSize)
+            .size(RoutePoiRailItemSize)
             .semantics {
                 role = Role.Button
                 selected = isCurrent
