@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,6 +59,7 @@ import com.urbansidequest.app.ui.components.UrbanBadgeStyle
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
+import com.urbansidequest.app.ui.components.UrbanQuestLoadingCard
 import com.urbansidequest.app.ui.components.UrbanScreenTitle
 import com.urbansidequest.app.ui.components.UrbanSecondaryButton
 import com.urbansidequest.app.ui.components.UrbanTaskCard
@@ -121,6 +123,7 @@ fun RoutesScreen(
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
+                .statusBarsPadding()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -395,6 +398,7 @@ fun FavoriteRoutesScreen(
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
+                .statusBarsPadding()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -633,6 +637,19 @@ private fun RouteHistoryGroupRow(
     onOpenRoute: (String) -> Unit
 ) {
     val canOpenRoutes = group.generationStatus == "SUCCESS" && group.routes.isNotEmpty()
+    if (isGeneratingHistory(group)) {
+        UrbanQuestLoadingCard(
+            modifier = Modifier.fillMaxWidth(),
+            title = group.areaLabel,
+            subtitle = formatHistorySubtitle(group),
+            statusText = formatHistoryProgressText(group),
+            badgeText = formatHistoryStatus(group),
+            badgeStyle = historyStatusBadgeStyle(group),
+            accentColor = if (group.generationStatus == "PENDING") AreaGreen else RouteTeal
+        )
+        return
+    }
+
     val statusAccent = historyStatusAccentColor(group)
     Surface(
         modifier = Modifier
@@ -696,6 +713,10 @@ private fun RouteHistoryGroupRow(
             }
         }
     }
+}
+
+private fun isGeneratingHistory(group: RouteHistoryGroup): Boolean {
+    return group.generationStatus == "PENDING" || group.generationStatus == "GENERATING"
 }
 
 private data class WalkedShareTarget(

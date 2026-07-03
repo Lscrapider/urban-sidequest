@@ -13,10 +13,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -78,6 +87,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -124,9 +134,12 @@ import com.urbansidequest.app.domain.model.RouteStop
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
 import com.urbansidequest.app.ui.components.UrbanChip
+import com.urbansidequest.app.ui.components.UrbanMotion
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
 import com.urbansidequest.app.ui.components.UrbanSearchField
 import com.urbansidequest.app.ui.components.UrbanSecondaryButton
+import com.urbansidequest.app.ui.components.urbanMotionDuration
+import com.urbansidequest.app.ui.components.urbanMotionEnabled
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
@@ -513,6 +526,12 @@ fun MapSelectScreen(
             )
         }
 
+        if (routes.isEmpty() && isSelectionExpanded && !isSearchActive) {
+            MapSelectionLockPulse(
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
         val railRouteIndex = selectedRoutePosition
         val railRoute = railRouteIndex?.let { routes.getOrNull(it) }
         if (railRoute != null && !isSearchActive) {
@@ -625,7 +644,33 @@ fun MapSelectScreen(
                     )
                 }
             } else {
-                if (isSelectionExpanded) {
+                AnimatedVisibility(
+                    visible = isSelectionExpanded,
+                    enter = fadeIn(
+                        animationSpec = tween(
+                            durationMillis = urbanMotionDuration(UrbanMotion.SheetMillis),
+                            easing = FastOutSlowInEasing
+                        )
+                    ) + slideInVertically(
+                        animationSpec = tween(
+                            durationMillis = urbanMotionDuration(UrbanMotion.SheetMillis),
+                            easing = FastOutSlowInEasing
+                        ),
+                        initialOffsetY = { height -> height / 4 }
+                    ),
+                    exit = fadeOut(
+                        animationSpec = tween(
+                            durationMillis = urbanMotionDuration(UrbanMotion.SheetMillis),
+                            easing = FastOutSlowInEasing
+                        )
+                    ) + slideOutVertically(
+                        animationSpec = tween(
+                            durationMillis = urbanMotionDuration(UrbanMotion.SheetMillis),
+                            easing = FastOutSlowInEasing
+                        ),
+                        targetOffsetY = { height -> height / 4 }
+                    )
+                ) {
                     MapSelectionSheet(
                         onNext = {
                             onOpenRouteConfig(
@@ -637,7 +682,8 @@ fun MapSelectScreen(
                         },
                         onManualSelect = {}
                     )
-                } else {
+                }
+                if (!isSelectionExpanded) {
                     MapHomeActionSheet(
                         onGenerateRoute = { isSelectionExpanded = true }
                     )
@@ -2328,6 +2374,18 @@ private fun MapSelectionSheet(
     onNext: () -> Unit,
     onManualSelect: () -> Unit
 ) {
+    var scanStarted by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        scanStarted = true
+    }
+    val scanProgress by animateFloatAsState(
+        targetValue = if (scanStarted || !urbanMotionEnabled()) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = urbanMotionDuration(UrbanMotion.MapLockScanMillis),
+            easing = FastOutSlowInEasing
+        ),
+        label = "map_selection_scan"
+    )
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -2337,32 +2395,93 @@ private fun MapSelectionSheet(
         color = AppSurface,
         border = BorderStroke(1.dp, AppBorder)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "已选：当前位置附近",
-                    color = AppText,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "已确认路线中心点，下一步配置时间、交通和偏好。",
-                    color = AppTextMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
+        Box(modifier = Modifier.clipToBounds()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(scanProgress.coerceIn(0f, 1f))
+                    .height(2.dp)
+                    .align(Alignment.TopStart)
+                    .background(RouteTeal.copy(alpha = 0.32f))
+            )
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "已锁定探索范围",
+                        color = AppText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "已确认当前位置附近，下一步配置时间、交通和偏好。",
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MapChip(text = "自动范围")
-                MapChip(text = "按时长计算")
-            }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MapChip(text = "自动范围")
+                    MapChip(text = "按时长计算")
+                }
 
-            UrbanPrimaryButton(text = "下一步配置路线", onClick = onNext)
-            UrbanSecondaryButton(text = "手动框选区域", onClick = onManualSelect)
+                UrbanPrimaryButton(
+                    text = "下一步配置路线",
+                    onClick = onNext,
+                    pressedScale = true
+                )
+                UrbanSecondaryButton(text = "手动框选区域", onClick = onManualSelect)
+            }
         }
+    }
+}
+
+@Composable
+private fun MapSelectionLockPulse(modifier: Modifier = Modifier) {
+    var pulseStarted by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        pulseStarted = true
+    }
+    val motionEnabled = urbanMotionEnabled()
+    val pulseProgress by animateFloatAsState(
+        targetValue = if (pulseStarted && motionEnabled) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = urbanMotionDuration(UrbanMotion.MapLockScanMillis),
+            easing = FastOutSlowInEasing
+        ),
+        label = "map_selection_lock_pulse"
+    )
+    Canvas(
+        modifier = modifier.size(72.dp)
+    ) {
+        val centerRadius = 5.dp.toPx()
+        val ringRadius = if (motionEnabled) {
+            14.dp.toPx() + 18.dp.toPx() * pulseProgress
+        } else {
+            18.dp.toPx()
+        }
+        val ringAlpha = if (motionEnabled) {
+            (1f - pulseProgress).coerceIn(0f, 1f) * 0.44f
+        } else {
+            0.32f
+        }
+        drawCircle(
+            color = RouteTeal.copy(alpha = ringAlpha),
+            radius = ringRadius,
+            center = center,
+            style = Stroke(width = 2.dp.toPx())
+        )
+        drawCircle(
+            color = AppSurface.copy(alpha = 0.90f),
+            radius = centerRadius + 3.dp.toPx(),
+            center = center
+        )
+        drawCircle(
+            color = RouteTeal,
+            radius = centerRadius,
+            center = center
+        )
     }
 }
 

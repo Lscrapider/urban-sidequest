@@ -6,23 +6,9 @@ import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,20 +16,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.amap.api.maps.model.LatLng
 import com.urbansidequest.app.data.api.AuthApi
 import com.urbansidequest.app.data.api.AuthUserResponse
@@ -71,20 +45,9 @@ import com.urbansidequest.app.feature.profile.ProfileScreen
 import com.urbansidequest.app.feature.routeconfig.RouteConfigScreen
 import com.urbansidequest.app.feature.routes.FavoriteRoutesScreen
 import com.urbansidequest.app.feature.routes.RoutesScreen
-import com.urbansidequest.app.ui.components.UrbanPrimaryButton
-import com.urbansidequest.app.ui.components.UrbanSecondaryButton
-import com.urbansidequest.app.ui.theme.AppBorder
-import com.urbansidequest.app.ui.theme.AppSurface
-import com.urbansidequest.app.ui.theme.AppText
-import com.urbansidequest.app.ui.theme.AppTextMuted
-import com.urbansidequest.app.ui.theme.DeepTeal
-import com.urbansidequest.app.ui.theme.ErrorRed
-import com.urbansidequest.app.ui.theme.ErrorSurface
-import com.urbansidequest.app.ui.theme.InfoCyan
-import com.urbansidequest.app.ui.theme.InfoCyanSurface
-import com.urbansidequest.app.ui.theme.RouteTeal
+import com.urbansidequest.app.ui.components.UrbanQuestNoticeOverlay
+import com.urbansidequest.app.ui.components.UrbanQuestNoticeTone
 import com.urbansidequest.app.ui.theme.UrbanSidequestTheme
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.time.LocalDate
@@ -592,7 +555,8 @@ private fun UrbanSidequestApp() {
                     onOpenFavoriteRoutes = { pushScreen(AppScreen.FavoriteRoutes) },
                     onOpenDiscover = ::replaceWithDiscover,
                     onOpenMap = ::openMapWithActiveRouteFallback,
-                    onOpenRoutes = { pushScreen(AppScreen.Routes) }
+                    onOpenRoutes = { pushScreen(AppScreen.Routes) },
+                    onLogout = ::expireAuth
                 )
 
                 AppScreen.ProfileQuestionnaire -> ProfileQuestionnaireScreen(
@@ -605,7 +569,7 @@ private fun UrbanSidequestApp() {
                 )
             }
             routeGenerationNotice?.let { notice ->
-                RouteGenerationNoticeDialog(
+                RouteGenerationNoticeOverlay(
                     notice = notice,
                     onDismiss = { routeGenerationNotice = null },
                     onOpenRoutes = {
@@ -622,7 +586,7 @@ private fun UrbanSidequestApp() {
                 )
             }
             routeShareNotice?.let { notice ->
-                RouteShareNoticeToast(
+                RouteShareNoticeOverlay(
                     notice = notice,
                     onDismiss = { routeShareNotice = null }
                 )
@@ -644,294 +608,104 @@ private fun UrbanSidequestApp() {
 }
 
 @Composable
-private fun RouteGenerationNoticeDialog(
+private fun RouteGenerationNoticeOverlay(
     notice: RouteGenerationNotice,
     onDismiss: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenRoute: (RouteGeneration) -> Unit
 ) {
     val spec = notice.toNoticeSpec()
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f))
-                .padding(horizontal = 24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 360.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = AppSurface,
-                border = BorderStroke(1.dp, AppBorder),
-                shadowElevation = 10.dp
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    RouteGenerationNoticeHeader(spec = spec)
-                    Text(
-                        text = spec.message,
-                        color = AppTextMuted,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        UrbanPrimaryButton(
-                            text = spec.primaryActionText,
-                            onClick = {
-                                when (notice) {
-                                    is RouteGenerationNotice.Completed -> onOpenRoute(notice.routeGeneration)
-                                    RouteGenerationNotice.Failed -> onDismiss()
-                                    RouteGenerationNotice.Submitted -> onOpenRoutes()
-                                }
-                            }
-                        )
-                        UrbanSecondaryButton(
-                            text = spec.secondaryActionText,
-                            onClick = onDismiss
-                        )
-                    }
-                }
+    UrbanQuestNoticeOverlay(
+        visible = true,
+        title = spec.title,
+        message = spec.message,
+        tone = spec.tone,
+        actionText = spec.actionText,
+        onAction = when (notice) {
+            is RouteGenerationNotice.Completed -> {
+                { onOpenRoute(notice.routeGeneration) }
             }
-        }
-    }
+            RouteGenerationNotice.Submitted -> {
+                { onOpenRoutes() }
+            }
+            RouteGenerationNotice.Failed -> null
+        },
+        autoDismissMillis = spec.autoDismissMillis,
+        onDismiss = onDismiss
+    )
 }
 
 @Composable
-private fun RouteShareNoticeToast(
+private fun RouteShareNoticeOverlay(
     notice: RouteShareNotice,
     onDismiss: () -> Unit
 ) {
-    val spec = notice.toToastSpec()
-    LaunchedEffect(notice) {
-        if (notice != RouteShareNotice.Submitting) {
-            delay(ROUTE_SHARE_NOTICE_DISMISS_MS)
-            onDismiss()
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 24.dp),
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = 360.dp)
-                .semantics {
-                    liveRegion = LiveRegionMode.Polite
-                },
-            shape = RoundedCornerShape(18.dp),
-            color = AppSurface,
-            border = BorderStroke(1.dp, spec.accent.copy(alpha = 0.28f)),
-            shadowElevation = 10.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(14.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    modifier = Modifier.size(36.dp),
-                    shape = CircleShape,
-                    color = spec.accentSurface,
-                    border = BorderStroke(1.dp, spec.accent.copy(alpha = 0.24f))
-                ) {
-                    RouteGenerationStatusMark(
-                        tone = spec.tone,
-                        color = spec.accent,
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        text = spec.title,
-                        color = AppText,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = spec.message,
-                        color = AppTextMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-        }
-    }
+    val spec = notice.toNoticeSpec()
+    UrbanQuestNoticeOverlay(
+        visible = true,
+        title = spec.title,
+        message = spec.message,
+        tone = spec.tone,
+        autoDismissMillis = spec.autoDismissMillis,
+        onDismiss = onDismiss
+    )
 }
 
-@Composable
-private fun RouteGenerationNoticeHeader(spec: RouteGenerationNoticeSpec) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Surface(
-            modifier = Modifier.size(42.dp),
-            shape = CircleShape,
-            color = spec.accentSurface,
-            border = BorderStroke(1.dp, spec.accent.copy(alpha = 0.28f))
-        ) {
-            RouteGenerationStatusMark(
-                tone = spec.tone,
-                color = spec.accent,
-                modifier = Modifier.padding(9.dp)
-            )
-        }
-        Text(
-            text = spec.title,
-            color = AppText,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
-private fun RouteGenerationStatusMark(
-    tone: RouteGenerationNoticeTone,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier.fillMaxSize()) {
-        val strokeWidth = size.minDimension * 0.12f
-        when (tone) {
-            RouteGenerationNoticeTone.Info -> {
-                drawCircle(color = color, radius = size.minDimension * 0.26f, center = center)
-            }
-            RouteGenerationNoticeTone.Success -> {
-                drawLine(
-                    color = color,
-                    start = Offset(size.width * 0.18f, size.height * 0.52f),
-                    end = Offset(size.width * 0.42f, size.height * 0.74f),
-                    strokeWidth = strokeWidth,
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = color,
-                    start = Offset(size.width * 0.42f, size.height * 0.74f),
-                    end = Offset(size.width * 0.82f, size.height * 0.26f),
-                    strokeWidth = strokeWidth,
-                    cap = StrokeCap.Round
-                )
-            }
-            RouteGenerationNoticeTone.Error -> {
-                drawLine(
-                    color = color,
-                    start = Offset(size.width * 0.28f, size.height * 0.28f),
-                    end = Offset(size.width * 0.72f, size.height * 0.72f),
-                    strokeWidth = strokeWidth,
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = color,
-                    start = Offset(size.width * 0.72f, size.height * 0.28f),
-                    end = Offset(size.width * 0.28f, size.height * 0.72f),
-                    strokeWidth = strokeWidth,
-                    cap = StrokeCap.Round
-                )
-            }
-        }
-        drawCircle(
-            color = color,
-            radius = size.minDimension * 0.44f,
-            center = center,
-            style = Stroke(width = strokeWidth)
-        )
-    }
-}
-
-private fun RouteShareNotice.toToastSpec(): RouteShareToastSpec {
+private fun RouteShareNotice.toNoticeSpec(): RouteNoticeSpec {
     return when (this) {
-        RouteShareNotice.Submitting -> RouteShareToastSpec(
+        RouteShareNotice.Submitting -> RouteNoticeSpec(
             title = "正在生成分享图",
-            message = "分享完成后会自动同步到发现页。",
-            tone = RouteGenerationNoticeTone.Info,
-            accent = InfoCyan,
-            accentSurface = InfoCyanSurface
+            message = "完成后会同步到发现页。",
+            tone = UrbanQuestNoticeTone.Info,
+            autoDismissMillis = null
         )
-        RouteShareNotice.Completed -> RouteShareToastSpec(
+        RouteShareNotice.Completed -> RouteNoticeSpec(
             title = "路线已分享",
             message = "图片和文字已保存到发现页。",
-            tone = RouteGenerationNoticeTone.Success,
-            accent = RouteTeal,
-            accentSurface = DeepTeal.copy(alpha = 0.08f)
+            tone = UrbanQuestNoticeTone.Success,
+            autoDismissMillis = ROUTE_NOTICE_DISMISS_MS
         )
-        RouteShareNotice.Failed -> RouteShareToastSpec(
+        RouteShareNotice.Failed -> RouteNoticeSpec(
             title = "路线分享失败",
             message = "分享图没有生成成功，请稍后重试。",
-            tone = RouteGenerationNoticeTone.Error,
-            accent = ErrorRed,
-            accentSurface = ErrorSurface
+            tone = UrbanQuestNoticeTone.Error,
+            autoDismissMillis = ROUTE_NOTICE_DISMISS_MS
         )
     }
 }
 
-@Composable
-private fun RouteGenerationNotice.toNoticeSpec(): RouteGenerationNoticeSpec {
+private fun RouteGenerationNotice.toNoticeSpec(): RouteNoticeSpec {
     return when (this) {
-        RouteGenerationNotice.Submitted -> RouteGenerationNoticeSpec(
+        RouteGenerationNotice.Submitted -> RouteNoticeSpec(
             title = "路线生成已提交",
-            message = "路线会在后台生成，完成后会通知你。也可以稍后到路线记录查看生成进度。",
-            primaryActionText = "查看路线记录",
-            secondaryActionText = "知道了",
-            tone = RouteGenerationNoticeTone.Info,
-            accent = InfoCyan,
-            accentSurface = InfoCyanSurface
+            message = "正在装载路线，也可以去路线库查看进度。",
+            actionText = "路线库",
+            tone = UrbanQuestNoticeTone.Info,
+            autoDismissMillis = null
         )
-        is RouteGenerationNotice.Completed -> RouteGenerationNoticeSpec(
-            title = "路线已生成",
-            message = "新的路线已经保存到历史路线，也可以现在打开地图查看。",
-            primaryActionText = "查看路线",
-            secondaryActionText = "稍后查看",
-            tone = RouteGenerationNoticeTone.Success,
-            accent = RouteTeal,
-            accentSurface = DeepTeal.copy(alpha = 0.08f)
+        is RouteGenerationNotice.Completed -> RouteNoticeSpec(
+            title = "今日路线已生成",
+            message = "已保存到路线库，可直接打开地图查看。",
+            actionText = "查看",
+            tone = UrbanQuestNoticeTone.Success,
+            autoDismissMillis = ROUTE_NOTICE_DISMISS_MS
         )
-        RouteGenerationNotice.Failed -> RouteGenerationNoticeSpec(
+        RouteGenerationNotice.Failed -> RouteNoticeSpec(
             title = "路线生成失败",
             message = RouteErrorMapper.ROUTE_GENERATION_FAILED_MESSAGE,
-            primaryActionText = "知道了",
-            secondaryActionText = "关闭",
-            tone = RouteGenerationNoticeTone.Error,
-            accent = ErrorRed,
-            accentSurface = ErrorSurface
+            tone = UrbanQuestNoticeTone.Error,
+            autoDismissMillis = ROUTE_NOTICE_DISMISS_MS
         )
     }
 }
 
-private data class RouteGenerationNoticeSpec(
+private data class RouteNoticeSpec(
     val title: String,
     val message: String,
-    val primaryActionText: String,
-    val secondaryActionText: String,
-    val tone: RouteGenerationNoticeTone,
-    val accent: Color,
-    val accentSurface: Color
+    val tone: UrbanQuestNoticeTone,
+    val actionText: String? = null,
+    val autoDismissMillis: Long? = ROUTE_NOTICE_DISMISS_MS
 )
-
-private data class RouteShareToastSpec(
-    val title: String,
-    val message: String,
-    val tone: RouteGenerationNoticeTone,
-    val accent: Color,
-    val accentSurface: Color
-)
-
-private enum class RouteGenerationNoticeTone {
-    Info,
-    Success,
-    Error
-}
 
 private sealed interface RouteGenerationNotice {
     data object Submitted : RouteGenerationNotice
@@ -981,4 +755,4 @@ private fun compressRouteShareImage(imageBytes: ByteArray): ByteArray {
 }
 
 private const val ROUTE_SHARE_JPEG_QUALITY = 86
-private const val ROUTE_SHARE_NOTICE_DISMISS_MS = 2400L
+private const val ROUTE_NOTICE_DISMISS_MS = 2400L

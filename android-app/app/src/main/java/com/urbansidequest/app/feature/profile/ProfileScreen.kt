@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -129,7 +130,8 @@ fun ProfileScreen(
     onOpenFavoriteRoutes: () -> Unit = {},
     onOpenDiscover: () -> Unit = {},
     onOpenMap: () -> Unit = {},
-    onOpenRoutes: () -> Unit = {}
+    onOpenRoutes: () -> Unit = {},
+    onLogout: () -> Unit = {}
 ) {
     val stats = remember(completedRouteCount, travelDistanceMeters, routeInteractions, explorationStreakDays, preferenceAnswers) {
         buildProfileStats(
@@ -153,6 +155,7 @@ fun ProfileScreen(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -237,6 +240,11 @@ fun ProfileScreen(
                     onClick = onOpenQuestionnaire
                 )
             }
+
+            UrbanSecondaryButton(
+                text = "退出登录",
+                onClick = onLogout
+            )
             Spacer(modifier = Modifier.height(4.dp))
         }
 
