@@ -10,7 +10,7 @@ AI_SRC_ROOT = BASE_DIR.parents[2]
 if str(AI_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SRC_ROOT))
 
-from urban_sidequest_ai.models.route_preference.training.db import load_database_config
+from urban_sidequest_ai.models.route_preference.training.object_storage import load_object_storage_config
 from urban_sidequest_ai.route_preference_judge.config import load_config
 from urban_sidequest_ai.route_preference_judge.judge_missing.runner import run_missing_judgments
 
@@ -55,10 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     candidate_set_ids = [item.strip() for item in args.candidate_set_ids.split(",") if item.strip()]
     app_config = load_config(Path(args.config), require_api_key=not args.dry_run)
-    database_config = load_database_config()
+    object_storage_config = load_object_storage_config()
     stats = run_missing_judgments(
         app_config=app_config,
-        database_config=database_config,
+        object_storage_config=object_storage_config,
         limit=None if args.limit == 0 else args.limit,
         judge_concurrency=args.judge_concurrency,
         dry_run=args.dry_run,

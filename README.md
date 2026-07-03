@@ -22,9 +22,9 @@ POI 层的训练 / 校准重点不是一开始就上黑盒模型，而是先把�
 
 路线集层解决的是“同一批候选路线里，哪一条更适合当前用户和当前请求”的问题。LLM 可以基于 POI 池生成多条路线，但路线好坏不等于单个 POI 分数相加：它还取决于节奏、顺路程度、交通负担、饭点完整性、类别变化、时间预算、用户偏好和整条路线的叙事连贯性。因此路线集层关注的是候选路线之间的相对优劣，以及第一名是否真的值得推荐。
 
-它的输入是每条候选路线的 `routeInput`。`RouteInputFeatureExtractor` 会把路线拆成四块：`stopMatrixJson` 描述停靠点序列和 POI Linear 摘要；`segmentMatrixJson` 描述点到点之间的距离、耗时、交通方式和 fallback 来源；`routeDerivedVectorJson` 汇总路线级节奏、覆盖度、多样性、饭点完整性、换乘压力和校准质量；`contextCrossVectorJson` 表达用户画像、出行方式、预算、时间和路线目标之间的交叉关系。当前 schema 为 `route_pref_v3`，核心目标是让每条路线都能被稳定地数值化、比较和回放。
+它的输入是每条候选路线的 `routeInput`。`RouteInputFeatureExtractor` 会把路线拆成五块：`stopMatrixJson` 描述停靠点序列和 POI Linear 摘要；`segmentMatrixJson` 描述点到点之间的距离、耗时、交通方式和 fallback 来源；`routeDerivedVectorJson` 汇总路线级节奏、覆盖度、多样性、饭点完整性、换乘压力和校准质量；`contextCrossVectorJson` 表达用户画像、出行方式、预算、时间和路线目标之间的交叉关系；`intraSetVectorJson` 表达同一候选集内的相对排名、差距和分布位置。当前 schema 为 `route_pref_v5`，核心目标是让每条路线都能被稳定地数值化、比较和回放。
 
-路线集层的训练以 `candidateSetId` 为边界：一次生成得到一组候选路线，每条路线保存一条 X，即 `route_preference_training_samples` 中的四块 `routeInput`；LLM 模拟用户和后续真实用户反馈提供 Y，即 `route_preference_judgments` 中的排序、接受 / 拒绝和原因码。离线训练时只在同一个候选集内构造 chosen / rejected route pair，训练 `RoutePreferenceModel` 学习“哪条路线更应该排在前面”。MLP 结构上可以用 stop / segment 处理局部体验，用 routeDerived / contextCross 处理全局适配，最后通过 fusion MLP 输出路线偏好分。后续真实 accept/reject 数据足够后，同一套 `routeInput` 还可以继续派生 pointwise accept model 或 Route Judge，而不需要另建一套特征体系。
+路线集层的训练以 `candidateSetId` 为边界：一次生成得到一组候选路线，后端把 raw snapshot 和每条路线的 X 发布到 MinIO `ingest/` 区；LLM 模拟用户和后续真实用户反馈提供 Y，后端同样以 judgment 对象写入 MinIO `ingest/` 区。Python 离线任务把完整 ingest 合并为版本化 `datasets/{datasetVersion}`，写出 Parquet 和 `manifest.json`，训练时只读取指定版本的数据集，不再从产品 PostgreSQL 读取预热训练表。离线训练时只在同一个候选集内构造 chosen / rejected route pair，训练 `RoutePreferenceModel` 学习“哪条路线更应该排在前面”。MLP 结构上可以用 stop / segment 处理局部体验，用 routeDerived / contextCross / intraSet 处理全局适配和组内相对优劣，最后通过 fusion MLP 输出路线偏好分。后续真实 accept/reject 数据足够后，同一套 `routeInput` 还可以继续派生 pointwise accept model 或 Route Judge，而不需要另建一套特征体系。
 
 ## 文档索引
 
@@ -42,8 +42,8 @@ POI 层的训练 / 校准重点不是一开始就上黑盒模型，而是先把�
 - [推荐路径算法](docs/algorithm/推荐路径算法.md)：当前路线生成主链路、POI 预筛、LLM 编排、后端复核和高德校准。
 - [POI 线性打分矩阵取值设计](docs/algorithm/poi/POI线性打分矩阵取值设计.md)：POI Linear Ranker 的特征、权重、规约、动态增量和 trace 口径。
 - [路线裁判与软拒绝设计](docs/algorithm/route/路线裁判与软拒绝设计.md)：Route Judge、路线级可解释评分、soft reject 和后续 accept model 设计；当前未接入线上主链路。
-- [路线偏好排序模型训练设计](docs/algorithm/route/路线偏好排序模型训练设计.md)：路线级偏好模型离线训练、pair 构造、loss 和导出设计；当前只落地样本与 judgment 数据采集。
-- [LLM 模拟用户路线选择设计](docs/algorithm/route/LLM模拟用户路线选择设计.md)：冷启动 LLM 模拟用户评价、judgments 表和 synthetic 训练信号。
+- [路线偏好排序模型训练设计](docs/algorithm/route/路线偏好排序模型训练设计.md)：路线级偏好模型离线训练、MinIO dataset、pair 构造、loss 和导出设计。
+- [LLM 模拟用户路线选择设计](docs/algorithm/route/LLM模拟用户路线选择设计.md)：冷启动 LLM 模拟用户评价、MinIO judgment ingest 和 synthetic 训练信号。
 - [旧推荐路径算法 Beam Search](docs/algorithm/archive/旧-推荐路径算法-beamsearch.md)：旧 Beam Search 方案归档，用于和当前 LLM 编排主线对照。
 
 问题解决归档：
@@ -71,10 +71,11 @@ POI 层的训练 / 校准重点不是一开始就上黑盒模型，而是先把�
 ## 模块结构
 
 - `android-app/`：Android 前端，使用 Kotlin + Jetpack Compose，后续接入高德 Android SDK。
-- `backend/`：Java + Spring Boot 后端主服务，包含认证、路线生成、POI 候选、偏好训练样本、judgment 保存接口。
-- `database/`：PostgreSQL/PostGIS 初始化、迁移脚本和单独数据库调试环境。
-- `ai-python/`：Python AI 模块，包含路线偏好模拟用户批量工具和后续模型算法目录。
-- `docker-compose.yml`：项目资源初始化服务，连接通用数据库栈。
+- `backend/`：Java + Spring Boot 后端主服务，包含认证、路线生成、POI 候选、路线历史、偏好训练数据 MinIO 写入和 judgment 保存接口。
+- `database/`：PostgreSQL/PostGIS 初始化、迁移脚本和单独数据库调试环境；训练预热表已迁出产品库。
+- `ai-python/`：Python AI 模块，包含路线偏好模拟用户批量工具、MinIO dataset 构建和模型训练/预测目录。
+- `scripts/minio/`：Urban Sidequest 项目 bucket、policy 和项目用户初始化脚本。
+- `docker-compose.yml`：项目资源初始化服务，连接通用数据库栈和通用 MinIO。
 
 本地依赖默认配置：
 
@@ -82,6 +83,8 @@ POI 层的训练 / 校准重点不是一开始就上黑盒模型，而是先把�
 - 通用数据库栈：`/Users/qinzeyu/study/docker-database-common`
 - PostgreSQL host：`common-postgres:5432`
 - Redis host：`common-redis:6379`
+- MinIO endpoint：`http://common-minio:9000`；本地宿主机通常使用 `http://localhost:9000`
+- MinIO training bucket：`urban-sidequest-training`
 - database：`urban_sidequest`
 - user：`urban_sidequest`
 - 本地后端运行时可通过通用栈端口映射访问 `localhost:5432` 和 `localhost:6379`

@@ -1,15 +1,17 @@
 package com.urbansidequest.backend.handler.route.step;
 
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
-import com.urbansidequest.backend.config.RoutePreferenceTrainingProperties;
 import com.urbansidequest.backend.converter.route.RouteGenerationConverter;
 import com.urbansidequest.backend.handler.route.context.RouteGenerationContext;
 import com.urbansidequest.backend.handler.route.training.RouteInputFeatureExtractor;
 import com.urbansidequest.backend.handler.route.training.RouteInputFeatureSnapshot;
 import com.urbansidequest.backend.handler.route.training.RoutePreferenceRawSnapshotBuilder;
+import com.urbansidequest.backend.handler.route.training.RoutePreferenceTrainingIngestPayload;
 import com.urbansidequest.backend.manage.RouteGenerationHistoryManage;
-import com.urbansidequest.backend.manage.RoutePreferenceRawSnapshotManage;
-import com.urbansidequest.backend.manage.RoutePreferenceTrainingSampleManage;
+import com.urbansidequest.backend.provider.route.training.RoutePreferenceTrainingObjectStore;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -18,34 +20,26 @@ public class SaveRoutePreferenceTrainingSamplesStep implements RouteGenerationSt
 
     private final RouteInputFeatureExtractor routeInputFeatureExtractor;
 
-    private final RoutePreferenceTrainingSampleManage routePreferenceTrainingSampleManage;
-
     private final RoutePreferenceRawSnapshotBuilder routePreferenceRawSnapshotBuilder;
-
-    private final RoutePreferenceRawSnapshotManage routePreferenceRawSnapshotManage;
 
     private final RouteGenerationConverter routeGenerationConverter;
 
     private final RouteGenerationHistoryManage routeGenerationHistoryManage;
 
-    private final RoutePreferenceTrainingProperties routePreferenceTrainingProperties;
+    private final RoutePreferenceTrainingObjectStore routePreferenceTrainingObjectStore;
 
     public SaveRoutePreferenceTrainingSamplesStep(
             RouteInputFeatureExtractor routeInputFeatureExtractor,
-            RoutePreferenceTrainingSampleManage routePreferenceTrainingSampleManage,
             RoutePreferenceRawSnapshotBuilder routePreferenceRawSnapshotBuilder,
-            RoutePreferenceRawSnapshotManage routePreferenceRawSnapshotManage,
             RouteGenerationConverter routeGenerationConverter,
             RouteGenerationHistoryManage routeGenerationHistoryManage,
-            RoutePreferenceTrainingProperties routePreferenceTrainingProperties
+            RoutePreferenceTrainingObjectStore routePreferenceTrainingObjectStore
     ) {
         this.routeInputFeatureExtractor = routeInputFeatureExtractor;
-        this.routePreferenceTrainingSampleManage = routePreferenceTrainingSampleManage;
         this.routePreferenceRawSnapshotBuilder = routePreferenceRawSnapshotBuilder;
-        this.routePreferenceRawSnapshotManage = routePreferenceRawSnapshotManage;
         this.routeGenerationConverter = routeGenerationConverter;
         this.routeGenerationHistoryManage = routeGenerationHistoryManage;
-        this.routePreferenceTrainingProperties = routePreferenceTrainingProperties;
+        this.routePreferenceTrainingObjectStore = routePreferenceTrainingObjectStore;
     }
 
     @Override
@@ -53,20 +47,26 @@ public class SaveRoutePreferenceTrainingSamplesStep implements RouteGenerationSt
         if (context.getSelectedRoutes().isEmpty()) {
             return;
         }
-        if (this.routePreferenceTrainingProperties.isRawSnapshotEnabled()) {
-            this.routePreferenceRawSnapshotManage.upsertSnapshot(this.routePreferenceRawSnapshotBuilder.build(context));
-        }
         this.routeGenerationHistoryManage.upsertHistory(this.routeGenerationConverter.toRouteGenerationVO(context));
         Map<String, RouteInputFeatureSnapshot> snapshotsByRouteCode = this.routeInputFeatureExtractor.extractCandidateSet(context);
+        List<RoutePreferenceTrainingIngestPayload.TrainingSample> trainingSamples = new ArrayList<>();
         for (CandidateRouteDTO route : context.getSelectedRoutes()) {
             RouteInputFeatureSnapshot snapshot = snapshotsByRouteCode.get(route.routeCode());
-            this.routePreferenceTrainingSampleManage.upsertGeneratedSample(
+            trainingSamples.add(RoutePreferenceTrainingIngestPayload.TrainingSample.from(
                     context.getCandidateSetId(),
                     context.getRequestId(),
                     context.getUserId(),
                     route.routeCode(),
                     snapshot
-            );
+            ));
         }
+        this.routePreferenceTrainingObjectStore.writeCandidateSet(new RoutePreferenceTrainingIngestPayload(
+                context.getCandidateSetId(),
+                context.getRequestId(),
+                context.getUserId(),
+                OffsetDateTime.now(),
+                this.routePreferenceRawSnapshotBuilder.build(context),
+                trainingSamples
+        ));
     }
 }

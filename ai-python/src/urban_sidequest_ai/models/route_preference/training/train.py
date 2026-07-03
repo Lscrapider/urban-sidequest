@@ -27,14 +27,14 @@ from .dataset import (
     iter_batches,
     split_by_candidate_set,
 )
-from .db import connect, load_database_config
+from .dataset_repository import RoutePreferenceDatasetRepository
 from .eval import evaluate_model, fit_goodness_calibration
 from .export import ExportConfig, export_training_artifacts
 from .losses import LossConfig, compute_losses
 from .model import RoutePreferenceModel, RoutePreferenceModelConfig
+from .object_storage import ObjectStorageClient, load_object_storage_config
 from .pairs import build_pairwise_samples
 from .plots import append_history, render_history_plots
-from .repository import RoutePreferenceTrainingRepository
 from .schema import (
     DEFAULT_BATCH_CANDIDATE_SETS,
     DEFAULT_BEST_METRIC,
@@ -137,7 +137,7 @@ TRAIN_CONFIG = TrainingRuntimeConfig(
     seed=DEFAULT_TRAIN_SEED,
     split_seed=None,
     skip_invalid_judgments=False,
-    skip_onnx=False,
+    skip_onnx=True,
     device="cpu",
     # 头部排序实验：选轮口径改用 ndcg@3（对头部更敏感且比 wPA 稳），权重不动；
     # wPA 退为护栏，对比 top1/top2/ndcg 是否白捡头部精度。
@@ -220,11 +220,13 @@ def _model_config_from_feature_spec(
 def run_train(config: TrainingRuntimeConfig) -> int:
     torch.manual_seed(config.seed)
     device = torch.device(config.device)
-    db_config = load_database_config()
-    with connect(db_config) as connection:
-        repository = RoutePreferenceTrainingRepository(connection)
-        sample_rows = repository.fetch_training_samples(config.feature_schema_version)
-        judgment_rows = repository.fetch_completed_judgments({row.candidate_set_id for row in sample_rows})
+    object_storage_config = load_object_storage_config()
+    repository = RoutePreferenceDatasetRepository(
+        ObjectStorageClient(object_storage_config),
+        object_storage_config,
+    )
+    sample_rows = repository.fetch_training_samples(config.feature_schema_version)
+    judgment_rows = repository.fetch_completed_judgments({row.candidate_set_id for row in sample_rows})
     policy = InvalidJudgmentPolicy.SKIP if config.skip_invalid_judgments else InvalidJudgmentPolicy.FAIL
     bundle = build_dataset_bundle(sample_rows, judgment_rows, policy)
     loss_config = LossConfig(

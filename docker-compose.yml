@@ -19,7 +19,27 @@ services:
     networks:
       - database-common-network
 
+  minio-init:
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh"]
+    environment:
+      MINIO_ENDPOINT: ${COMMON_MINIO_ENDPOINT:-http://common-minio:9000}
+      MINIO_ROOT_USER: ${COMMON_MINIO_ROOT_USER:-minio-root}
+      MINIO_ROOT_PASSWORD: ${COMMON_MINIO_ROOT_PASSWORD:-minio-root-password}
+      URBAN_MINIO_BUCKET: ${URBAN_MINIO_BUCKET:-urban-sidequest-training}
+      URBAN_MINIO_USER: ${URBAN_MINIO_USER:-urban_sidequest}
+      URBAN_MINIO_PASSWORD: ${URBAN_MINIO_PASSWORD:-urban_sidequest_dev_password}
+      URBAN_MINIO_POLICY: ${URBAN_MINIO_POLICY:-urban-sidequest-training-rw}
+    volumes:
+      - ./scripts/minio:/scripts/minio:ro
+    command: ["/scripts/minio/init_urban_sidequest_training_storage.sh"]
+    networks:
+      - minio-common-network
+
 networks:
   database-common-network:
+    external: true
+    name: docker-database-common-network
+  minio-common-network:
     external: true
     name: docker-database-common-network

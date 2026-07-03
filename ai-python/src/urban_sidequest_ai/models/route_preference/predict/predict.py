@@ -14,10 +14,11 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
     __package__ = "urban_sidequest_ai.models.route_preference.predict"
 
-from ..training.db import connect, load_database_config
+from ..training.dataset_repository import RoutePreferenceDatasetRepository
 from ..training.export import MODEL_CARD_FILENAME, MODEL_STATE_FILENAME, REASON_CODES_FILENAME
 from ..training.model import RoutePreferenceModel, RoutePreferenceModelConfig
-from ..training.repository import RoutePreferenceTrainingRepository, TrainingSampleRow
+from ..training.object_storage import ObjectStorageClient, load_object_storage_config
+from ..training.repository import TrainingSampleRow
 from ..training.schema import (
     DEFAULT_GOOD_ROUTE_THRESHOLD,
     DEFAULT_GOODNESS_TEMPERATURE,
@@ -51,8 +52,8 @@ def build_arg_parser() -> ArgumentParser:
         type=Path,
         help=f"routeInput JSON 文件；可为单条对象或数组。不传时默认读取 {DEFAULT_INPUT_PATH}。",
     )
-    parser.add_argument("--candidate-set-id", help="从数据库读取该 candidate_set_id 下的路线样本预测。")
-    parser.add_argument("--feature-schema-version", help="读取数据库样本时限定 feature_schema_version。")
+    parser.add_argument("--candidate-set-id", help="从 MinIO dataset 读取该 candidate_set_id 下的路线样本预测。")
+    parser.add_argument("--feature-schema-version", help="读取 dataset 样本时限定 feature_schema_version。")
     parser.add_argument("--device", default="cpu", help="cpu/cuda/mps。")
     parser.add_argument("--limit", type=int, help="只预测前 N 条路线，方便本地预览。")
     return parser
@@ -95,10 +96,9 @@ def load_route_inputs(args, feature_schema: dict[str, Any], model_config: RouteP
     if args.input and args.candidate_set_id:
         raise ValueError("--input 和 --candidate-set-id 只能二选一")
     if args.candidate_set_id:
-        db_config = load_database_config()
-        with connect(db_config) as connection:
-            repository = RoutePreferenceTrainingRepository(connection)
-            rows = repository.fetch_samples_for_candidate_set(args.candidate_set_id, args.feature_schema_version)
+        object_storage_config = load_object_storage_config()
+        repository = RoutePreferenceDatasetRepository(ObjectStorageClient(object_storage_config), object_storage_config)
+        rows = repository.fetch_samples_for_candidate_set(args.candidate_set_id, args.feature_schema_version)
         if not rows:
             raise ValueError(f"没有找到 candidate_set_id={args.candidate_set_id} 的路线样本")
         return _limit_route_inputs([_route_input_from_row(row) for row in rows], args.limit)

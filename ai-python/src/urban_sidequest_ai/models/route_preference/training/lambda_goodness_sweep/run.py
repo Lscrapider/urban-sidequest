@@ -25,16 +25,14 @@ from urban_sidequest_ai.models.route_preference.training.dataset import (
     split_by_candidate_set,
     tensorize_candidate_sets,
 )
-from urban_sidequest_ai.models.route_preference.training.db import connect, load_database_config
+from urban_sidequest_ai.models.route_preference.training.dataset_repository import RoutePreferenceDatasetRepository
 from urban_sidequest_ai.models.route_preference.training.eval import evaluate_model
 from urban_sidequest_ai.models.route_preference.training.losses import LossConfig, compute_losses
 from urban_sidequest_ai.models.route_preference.training.model import (
     RoutePreferenceModel,
     RoutePreferenceModelConfig,
 )
-from urban_sidequest_ai.models.route_preference.training.repository import (
-    RoutePreferenceTrainingRepository,
-)
+from urban_sidequest_ai.models.route_preference.training.object_storage import ObjectStorageClient, load_object_storage_config
 from urban_sidequest_ai.models.route_preference.training.schema import (
     FeatureSpec,
     InvalidJudgmentPolicy,
@@ -369,11 +367,10 @@ def _evaluate_pair_gap_metrics(
 
 
 def _load_bundle(config: SweepRunConfig) -> DatasetBundle:
-    db_config = load_database_config()
-    with connect(db_config) as connection:
-        repository = RoutePreferenceTrainingRepository(connection)
-        sample_rows = repository.fetch_training_samples(config.feature_schema_version)
-        judgment_rows = repository.fetch_completed_judgments({row.candidate_set_id for row in sample_rows})
+    object_storage_config = load_object_storage_config()
+    repository = RoutePreferenceDatasetRepository(ObjectStorageClient(object_storage_config), object_storage_config)
+    sample_rows = repository.fetch_training_samples(config.feature_schema_version)
+    judgment_rows = repository.fetch_completed_judgments({row.candidate_set_id for row in sample_rows})
     policy = InvalidJudgmentPolicy.SKIP if config.skip_invalid_judgments else InvalidJudgmentPolicy.FAIL
     bundle = build_dataset_bundle(sample_rows, judgment_rows, policy)
     print(f"加载完成: groups={len(bundle.groups)} skipped={len(bundle.skipped_judgments)}")

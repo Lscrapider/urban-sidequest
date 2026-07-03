@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 import json
 from typing import Any
+
+import pyarrow.parquet as pq
+
+from urban_sidequest_ai.models.route_preference.training.dataset_manifest import DatasetManifest
+from urban_sidequest_ai.models.route_preference.training.object_storage import (
+    ObjectStorageClient,
+    ObjectStorageConfig,
+    read_json_bytes,
+)
 
 
 @dataclass(frozen=True)
@@ -16,12 +26,15 @@ class RawSnapshotJudgeJob:
 
 
 def fetch_missing_raw_snapshot_jobs(
-    connection,
+    client: ObjectStorageClient,
+    config: ObjectStorageConfig,
     limit: int | None = None,
     candidate_set_ids: list[str] | None = None,
     target_k: int = 3,
     original_k: int | None = None,
 ) -> list[RawSnapshotJudgeJob]:
+    if not config.dataset_version:
+        raise ValueError("ROUTE_PREF_DATASET_VERSION 未配置")
     if limit is not None and limit < 1:
         raise ValueError("limit 必须 >= 1")
     if target_k < 1:
@@ -31,77 +44,74 @@ def fetch_missing_raw_snapshot_jobs(
     if original_k is not None and original_k >= target_k:
         raise ValueError("original_k 必须小于 target_k")
 
-    ids = [item for item in (candidate_set_ids or []) if item]
-    params: list[Any] = [len(ids), ids, original_k, original_k, target_k]
-    limit_clause = ""
-    if limit is not None:
-        limit_clause = "LIMIT %s"
-        params.append(limit)
-
-    sql = f"""
-        SELECT
-            rprs.candidate_set_id::text,
-            rprs.generate_param_json,
-            rprs.user_preference_profile_json,
-            rprs.selected_routes_json,
-            rprs.warnings_json,
-            COALESCE(judgment_counts.completed_count, 0)::int AS judgment_count
-        FROM route_preference_raw_snapshots rprs
-        LEFT JOIN (
-            SELECT candidate_set_id, COUNT(*) AS completed_count
-            FROM route_preference_judgments
-            WHERE status = 'COMPLETED'
-            GROUP BY candidate_set_id
-        ) judgment_counts
-          ON judgment_counts.candidate_set_id = rprs.candidate_set_id
-        WHERE jsonb_typeof(rprs.selected_routes_json) = 'array'
-          AND jsonb_array_length(rprs.selected_routes_json) >= 2
-          AND (%s::int = 0 OR rprs.candidate_set_id::text = ANY(%s::text[]))
-          AND (%s::int IS NULL OR COALESCE(judgment_counts.completed_count, 0)::int = %s::int)
-          AND EXISTS (
-              SELECT 1
-              FROM route_preference_training_samples rpts
-              WHERE rpts.candidate_set_id = rprs.candidate_set_id
-          )
-          AND COALESCE(judgment_counts.completed_count, 0)::int < %s::int
-        ORDER BY rprs.created_at, rprs.candidate_set_id
-        {limit_clause}
-    """
-    with connection.cursor() as cursor:
-        cursor.execute(sql, params)
-        rows = cursor.fetchall()
-
-    return [
-        RawSnapshotJudgeJob(
-            candidate_set_id=str(row[0]),
-            judgment_count=int(row[5]),
-            route_request=_dict_json(row[1], "generate_param_json"),
-            persona=_dict_json(row[2], "user_preference_profile_json"),
-            selected_routes=_list_json(row[3], "selected_routes_json"),
-            warnings=_string_list_json(row[4], "warnings_json"),
+    requested_ids = {item for item in (candidate_set_ids or []) if item}
+    manifest = _load_manifest(client, config)
+    judgment_counts = _judgment_counts(client, config, manifest)
+    raw_index_rows = _read_parquet_rows(client, config.key(
+        f"datasets/{config.dataset_version}/{manifest.files.raw_snapshot_index}"
+    ))
+    jobs: list[RawSnapshotJudgeJob] = []
+    for row in raw_index_rows:
+        candidate_set_id = str(row["candidate_set_id"])
+        if requested_ids and candidate_set_id not in requested_ids:
+            continue
+        judgment_count = judgment_counts.get(candidate_set_id, 0)
+        if original_k is not None and judgment_count != original_k:
+            continue
+        if judgment_count >= target_k:
+            continue
+        raw_snapshot = read_json_bytes(client.read_bytes(str(row["object_key"])), gzipped=True)
+        selected_routes = _list_json(raw_snapshot.get("selectedRoutes"), "selectedRoutes")
+        if len(selected_routes) < 2:
+            continue
+        jobs.append(
+            RawSnapshotJudgeJob(
+                candidate_set_id=candidate_set_id,
+                judgment_count=judgment_count,
+                route_request=_dict_json(raw_snapshot.get("generateParam"), "generateParam"),
+                persona=_dict_json(raw_snapshot.get("userPreferenceProfile"), "userPreferenceProfile"),
+                selected_routes=selected_routes,
+                warnings=_string_list_json(raw_snapshot.get("warnings"), "warnings"),
+            )
         )
-        for row in rows
-    ]
+        if limit is not None and len(jobs) >= limit:
+            break
+    return jobs
 
 
-def _json_value(value: Any, field_name: str) -> Any:
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError as exception:
-            raise ValueError(f"{field_name} 不是合法 JSON") from exception
-    return value
+def _load_manifest(client: ObjectStorageClient, config: ObjectStorageConfig) -> DatasetManifest:
+    key = config.key(f"datasets/{config.dataset_version}/manifest.json")
+    return DatasetManifest.from_json(read_json_bytes(client.read_bytes(key), gzipped=False))
+
+
+def _judgment_counts(
+    client: ObjectStorageClient,
+    config: ObjectStorageConfig,
+    manifest: DatasetManifest,
+) -> dict[str, int]:
+    rows = _read_parquet_rows(client, config.key(f"datasets/{config.dataset_version}/{manifest.files.judgments}"))
+    counts: dict[str, int] = {}
+    for row in rows:
+        if str(row.get("status") or "COMPLETED") != "COMPLETED":
+            continue
+        candidate_set_id = str(row["candidate_set_id"])
+        counts[candidate_set_id] = counts.get(candidate_set_id, 0) + 1
+    return counts
+
+
+def _read_parquet_rows(client: ObjectStorageClient, key: str) -> list[dict[str, Any]]:
+    return pq.read_table(BytesIO(client.read_bytes(key))).to_pylist()
 
 
 def _dict_json(value: Any, field_name: str) -> dict:
-    decoded = _json_value(value, field_name)
+    decoded = _json_value(value)
     if not isinstance(decoded, dict):
         raise ValueError(f"{field_name} 必须是对象")
     return decoded
 
 
 def _list_json(value: Any, field_name: str) -> list[dict]:
-    decoded = _json_value(value, field_name)
+    decoded = _json_value(value)
     if not isinstance(decoded, list):
         raise ValueError(f"{field_name} 必须是数组")
     invalid = [item for item in decoded if not isinstance(item, dict)]
@@ -111,9 +121,15 @@ def _list_json(value: Any, field_name: str) -> list[dict]:
 
 
 def _string_list_json(value: Any, field_name: str) -> list[str]:
-    decoded = _json_value(value, field_name)
+    decoded = _json_value(value)
     if decoded is None:
         return []
     if not isinstance(decoded, list):
         raise ValueError(f"{field_name} 必须是数组")
     return [str(item) for item in decoded]
+
+
+def _json_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return json.loads(value)
+    return value

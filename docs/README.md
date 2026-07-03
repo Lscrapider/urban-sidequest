@@ -34,8 +34,8 @@
 | 算法 | [推荐路径算法](algorithm/推荐路径算法.md) | 当前路线生成主链路、POI 预筛、LLM 编排、后端复核和高德校准。 |
 | 算法 | [POI 线性打分矩阵取值设计](algorithm/poi/POI线性打分矩阵取值设计.md) | POI Linear Ranker 的特征、权重、规约、动态增量和 trace 口径。 |
 | 算法 | [路线裁判与软拒绝设计](algorithm/route/路线裁判与软拒绝设计.md) | Route Judge、路线级可解释评分、soft reject 和后续 accept model 设计。 |
-| 算法 | [路线偏好排序模型训练设计](algorithm/route/路线偏好排序模型训练设计.md) | 路线级偏好模型离线训练、pair 构造、loss 和导出设计。 |
-| 算法 | [LLM 模拟用户路线选择设计](algorithm/route/LLM模拟用户路线选择设计.md) | 冷启动 LLM 模拟用户评价、judgments 表和 synthetic 训练信号。 |
+| 算法 | [路线偏好排序模型训练设计](algorithm/route/路线偏好排序模型训练设计.md) | 路线级偏好模型离线训练、MinIO dataset、pair 构造、loss 和导出设计。 |
+| 算法 | [LLM 模拟用户路线选择设计](algorithm/route/LLM模拟用户路线选择设计.md) | 冷启动 LLM 模拟用户评价、MinIO judgment ingest 和 synthetic 训练信号。 |
 | 算法归档 | [旧推荐路径算法 Beam Search](algorithm/archive/旧-推荐路径算法-beamsearch.md) | 旧 Beam Search 方案归档，用于和当前 LLM 编排主线对照。 |
 | 用户 | [用户画像问卷与画像表设计](user/用户画像问卷与画像表设计.md) | 用户画像问卷、画像表、读取流程和 POI Linear 个性化输入边界。 |
 | 问题解决 | [问题解决文档索引](problem-solving/README.md) | 按日期归档问题定位、修复方案、改动清单和落地记录。 |

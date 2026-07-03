@@ -15,6 +15,7 @@ docker compose up -d
 
 cd /Users/qinzeyu/study/mix-java-python/urban-sidequest
 docker compose run --rm postgres-init
+URBAN_MINIO_PASSWORD=urban_sidequest_dev_password docker compose run --rm minio-init
 ```
 
 再启动后端：
@@ -63,6 +64,13 @@ Controller -> Service -> Manage / API / Mapper -> Domain
 - `ROUTE_LLM_MODEL`
 - `ROUTE_LLM_TEMPERATURE`
 - `ROUTE_SCORING_CONFIG_PATH`
+- `ROUTE_PREF_MINIO_ENDPOINT`
+- `ROUTE_PREF_MINIO_BUCKET`
+- `ROUTE_PREF_MINIO_ACCESS_KEY`
+- `ROUTE_PREF_MINIO_SECRET_KEY`
+- `ROUTE_PREF_MINIO_SECURE`
+- `ROUTE_PREF_MINIO_PREFIX`
+- `ROUTE_PREF_MINIO_WRITE_ENABLED`
 - `AMAP_WEB_KEY`
 - `AMAP_WEB_KEYS`
 - `AMAP_WEB_BASE_URL`
@@ -76,7 +84,6 @@ Controller -> Service -> Manage / API / Mapper -> Domain
 - `POI_SEARCH_PROVIDER`
 - `POI_SEARCH_MIX_AMAP_WEIGHT`
 - `POI_SEARCH_MIX_BAIDU_WEIGHT`
-- `ROUTE_PREFERENCE_TRAINING_RAW_SNAPSHOT_ENABLED`
 - `AUTH_JWT_ISSUER`
 - `AUTH_JWT_SECRET`
 - `AUTH_JWT_ACCESS_TOKEN_VALIDITY_SECONDS`

@@ -58,7 +58,14 @@ route:
     config-path: ${ROUTE_SCORING_CONFIG_PATH:}
   preference:
     training:
-      raw-snapshot-enabled: ${ROUTE_PREFERENCE_TRAINING_RAW_SNAPSHOT_ENABLED}
+      storage:
+        endpoint: ${ROUTE_PREF_MINIO_ENDPOINT}
+        bucket: ${ROUTE_PREF_MINIO_BUCKET}
+        access-key: ${ROUTE_PREF_MINIO_ACCESS_KEY}
+        secret-key: ${ROUTE_PREF_MINIO_SECRET_KEY}
+        secure: ${ROUTE_PREF_MINIO_SECURE:false}
+        prefix: ${ROUTE_PREF_MINIO_PREFIX:route-preference}
+        write-enabled: ${ROUTE_PREF_MINIO_WRITE_ENABLED:true}
 auth:
   jwt:
     issuer: ${AUTH_JWT_ISSUER}

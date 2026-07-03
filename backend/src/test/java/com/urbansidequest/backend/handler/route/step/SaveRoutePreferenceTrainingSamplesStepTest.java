@@ -1,11 +1,10 @@
 package com.urbansidequest.backend.handler.route.step;
 
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.urbansidequest.backend.config.RoutePreferenceTrainingProperties;
+import com.urbansidequest.backend.converter.route.RouteGenerationConverter;
 import com.urbansidequest.backend.domain.dto.CandidateRouteDTO;
 import com.urbansidequest.backend.domain.dto.RouteWeatherDTO;
 import com.urbansidequest.backend.domain.dto.UserPreferenceProfileDTO;
@@ -20,8 +19,8 @@ import com.urbansidequest.backend.handler.route.training.RouteInputFeatureSnapsh
 import com.urbansidequest.backend.handler.route.training.RoutePreferenceRawSnapshotBuilder;
 import com.urbansidequest.backend.handler.route.training.RoutePreferenceRawSnapshotPayload;
 import com.urbansidequest.backend.handler.route.training.RoutePreferenceRawSnapshotSchema;
-import com.urbansidequest.backend.manage.RoutePreferenceRawSnapshotManage;
-import com.urbansidequest.backend.manage.RoutePreferenceTrainingSampleManage;
+import com.urbansidequest.backend.manage.RouteGenerationHistoryManage;
+import com.urbansidequest.backend.provider.route.training.RoutePreferenceTrainingObjectStore;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -31,52 +30,45 @@ import org.junit.jupiter.api.Test;
 class SaveRoutePreferenceTrainingSamplesStepTest {
 
     @Test
-    void writesRawSnapshotWhenConfigEnabled() {
-        Fixture fixture = fixture(true);
+    void writesTrainingIngestToObjectStore() {
+        Fixture fixture = fixture();
 
         fixture.step().execute(fixture.context());
 
         verify(fixture.rawSnapshotBuilder()).build(fixture.context());
-        verify(fixture.rawSnapshotManage()).upsertSnapshot(fixture.payload());
-        verify(fixture.trainingSampleManage()).upsertGeneratedSample(
-                fixture.context().getCandidateSetId(),
-                fixture.context().getRequestId(),
-                fixture.context().getUserId(),
-                "A",
-                fixture.snapshot()
-        );
+        verify(fixture.routeGenerationHistoryManage()).upsertHistory(null);
+        verify(fixture.objectStore()).writeCandidateSet(org.mockito.ArgumentMatchers.argThat(payload ->
+                payload.candidateSetId().equals(fixture.context().getCandidateSetId())
+                        && payload.requestId().equals(fixture.context().getRequestId())
+                        && payload.rawSnapshot().equals(fixture.payload())
+                        && payload.trainingSamples().size() == 1
+                        && payload.trainingSamples().get(0).routeCode().equals("A")
+                        && payload.trainingSamples().get(0).featureSchemaVersion().equals(fixture.snapshot().featureSchemaVersion())
+        ));
     }
 
     @Test
-    void skipsRawSnapshotWhenConfigDisabledButStillWritesSample() {
-        Fixture fixture = fixture(false);
+    void skipsWhenSelectedRoutesEmpty() {
+        Fixture fixture = fixture();
+        fixture.context().setSelectedRoutes(List.of());
 
         fixture.step().execute(fixture.context());
 
-        verify(fixture.rawSnapshotBuilder(), never()).build(fixture.context());
-        verify(fixture.rawSnapshotManage(), never()).upsertSnapshot(fixture.payload());
-        verify(fixture.trainingSampleManage()).upsertGeneratedSample(
-                fixture.context().getCandidateSetId(),
-                fixture.context().getRequestId(),
-                fixture.context().getUserId(),
-                "A",
-                fixture.snapshot()
-        );
+        verify(fixture.objectStore(), org.mockito.Mockito.never()).writeCandidateSet(org.mockito.ArgumentMatchers.any());
     }
 
-    private static Fixture fixture(boolean rawSnapshotEnabled) {
+    private static Fixture fixture() {
         RouteInputFeatureExtractor extractor = mock(RouteInputFeatureExtractor.class);
-        RoutePreferenceTrainingSampleManage trainingSampleManage = mock(RoutePreferenceTrainingSampleManage.class);
         RoutePreferenceRawSnapshotBuilder rawSnapshotBuilder = mock(RoutePreferenceRawSnapshotBuilder.class);
-        RoutePreferenceRawSnapshotManage rawSnapshotManage = mock(RoutePreferenceRawSnapshotManage.class);
-        RoutePreferenceTrainingProperties properties = new RoutePreferenceTrainingProperties();
-        properties.setRawSnapshotEnabled(rawSnapshotEnabled);
+        RouteGenerationConverter routeGenerationConverter = mock(RouteGenerationConverter.class);
+        RouteGenerationHistoryManage routeGenerationHistoryManage = mock(RouteGenerationHistoryManage.class);
+        RoutePreferenceTrainingObjectStore objectStore = mock(RoutePreferenceTrainingObjectStore.class);
         SaveRoutePreferenceTrainingSamplesStep step = new SaveRoutePreferenceTrainingSamplesStep(
                 extractor,
-                trainingSampleManage,
                 rawSnapshotBuilder,
-                rawSnapshotManage,
-                properties
+                routeGenerationConverter,
+                routeGenerationHistoryManage,
+                objectStore
         );
         RouteGenerationContext context = context();
         RouteInputFeatureSnapshot snapshot = new RouteInputFeatureSnapshot("v-test", "[]", "[]", "{}", "{}", "{}", "{}");
@@ -87,8 +79,8 @@ class SaveRoutePreferenceTrainingSamplesStepTest {
                 step,
                 context,
                 rawSnapshotBuilder,
-                rawSnapshotManage,
-                trainingSampleManage,
+                routeGenerationHistoryManage,
+                objectStore,
                 payload,
                 snapshot
         );
@@ -147,8 +139,8 @@ class SaveRoutePreferenceTrainingSamplesStepTest {
             SaveRoutePreferenceTrainingSamplesStep step,
             RouteGenerationContext context,
             RoutePreferenceRawSnapshotBuilder rawSnapshotBuilder,
-            RoutePreferenceRawSnapshotManage rawSnapshotManage,
-            RoutePreferenceTrainingSampleManage trainingSampleManage,
+            RouteGenerationHistoryManage routeGenerationHistoryManage,
+            RoutePreferenceTrainingObjectStore objectStore,
             RoutePreferenceRawSnapshotPayload payload,
             RouteInputFeatureSnapshot snapshot
     ) {

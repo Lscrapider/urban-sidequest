@@ -18,16 +18,15 @@ LLM 模拟用户不伪装成真实点击行为。
    路线刚生成时仍在内存（CandidateRouteDTO），直接喂给 LLM。
    LLM 不读库、不重新规划路线、不复算特征。
 
-2. 一次生成 = 一次评价批。
-   这次调用了哪几家 LLM / 哪几个 persona，就只有这几个评价。
-   之后不再让新的 LLM 回头评价这批老路线。
-   因此候选路线的"人类可读正文"不需要落库。
+2. 一次生成 = 一个 candidate set。
+   首轮评价在生成流程内完成；补 k 只能复用 MinIO raw snapshot 中冻结的候选路线。
+   不允许为了补评价重新生成路线或改写 X。
 
-3. 三张表只服务 Python 训练，不是 LLM 的输入源。
-   LLM 的输入来自流程内存，不是来自这三张表。
+3. MinIO 训练对象只服务 Python 训练，不是 LLM 的默认输入源。
+   首轮 LLM 输入来自流程内存；补 k 输入来自 frozen raw snapshot。
 ```
 
-第 2 条带来一个被接受的取舍：将来接入新的 LLM 厂家，无法回头评价历史 candidate set（内存已释放、库里也没存可读路线）。对冷启动批量造数据的用法，这个取舍可接受。
+第 2 条带来一个被接受的取舍：后续补 k 可以追评历史 candidate set，但只能评价当时冻结的候选路线，不能引入新的路线生成结果。这样保证同一组 X/Y 的边界稳定。
 
 ## 1. 这个模块解决什么问题
 
@@ -50,40 +49,49 @@ LLM 模拟用户不伪装成真实点击行为。
 
 这个模块只补"偏好判断"，不补"真实行为事件"。
 
-## 2. 三张表与各自边界
+## 2. MinIO 训练对象与各自边界
 
-路线偏好训练数据由三张表承载，1 → N → N 关系：
+路线偏好预热训练数据不再落产品 PostgreSQL。后端生成路线和保存 judgment 时只把训练对象写入 MinIO `ingest/` 区，Python 再合并为版本化 dataset：
 
 ```text
-route_preference_candidate_sets   一次路线生成一行    批次生命周期 / 评价调度
-  1 -> N route_preference_training_samples   一条候选路线一行    训练输入 X（特征）
-  1 -> N route_preference_judgments          一次评价一行        训练监督 Y（偏好）
+route-preference/
+  ingest/
+    candidate_sets/shard=xx/{candidateSetId}.json.gz       # raw snapshot + 训练输入 X
+    candidate_sets_ready/shard=xx/{candidateSetId}.json    # 完整对象 ready marker
+    judgments/shard=xx/{candidateSetId}/{judgmentId}.json.gz # 一次评价 Y
+
+  datasets/{datasetVersion}/
+    manifest.json
+    training_samples.parquet
+    judgments.parquet
+    raw_snapshot_index.parquet
+    raw_snapshots/
 ```
 
 举例：一次生成 5 条路线，3 个 LLM 评价。
 
 ```text
-candidate_sets : 1 行
-  set_001, route_count=5, status=TRAIN_READY
+candidate_sets ingest : 1 个 JSON.GZ
+  set_001, rawSnapshot, A/B/C/D/E 五条 routeInput
 
-training_samples : 5 行
-  set_001 + A / B / C / D / E，各存该路线的 stop/segment/derived + context
-
-judgments : 3 行
+judgments ingest : 3 个 JSON.GZ
   set_001 + GPT    + ranking/reasonCodes/confidence
   set_001 + Claude + ranking/reasonCodes/confidence
   set_001 + Gemini + ranking/reasonCodes/confidence
+
+dataset : 1 个版本目录
+  training_samples.parquet + judgments.parquet + manifest.json
 ```
 
 边界一句话：
 
 ```text
-candidate_sets   管"这一批数据走到哪一步了"
-training_samples 存"每条路线长什么样"（只存 X，不存 label）
-judgments        存"谁觉得哪条更好"（一次评价一行，append）
+candidate-set ingest 存"这一批候选路线长什么样"（raw snapshot + X）
+judgment ingest      存"谁觉得哪条更好"（一次评价一个对象，append）
+dataset manifest     管"这一版训练集包含哪些完整文件和统计量"
 ```
 
-LLM 模拟用户**只写** `route_preference_judgments`（`judge_type = LLM_SIM_USER`），不写另外两张表，也不写任何真实行为事件表（`route_feedback` 等）。原因：
+LLM 模拟用户**只通过 Java judgment 接口新增 judgment ingest**（`judge_type = LLM_SIM_USER`），不写任何真实行为事件表（`route_feedback` 等）。原因：
 
 - LLM 没有真实点击、收藏、开始、完成这些行为；把判断伪装成真实事件会污染真实行为分布。
 - 训练时需要按来源区分样本，并给 synthetic 样本更低权重。
@@ -97,10 +105,11 @@ judgments             : 模拟或真实的偏好判断，是后续训练的监�
 
 当前代码落地状态：
 
-- `route_preference_training_samples`：已由 `SaveRoutePreferenceTrainingSamplesStep` 在路线生成流程中写入四块 `X`。
-- `route_preference_judgments`：已由 `POST /api/route-preferences/judgments` 保存一次评价。
-- `route_preference_candidate_sets`：表设计已定义，但当前 Java 主链路尚未看到批次行插入、`current_judgment_count` 递增和 status 状态推进服务；下文涉及 candidate_sets 状态机的内容属于目标流程。
-- `RoutePreferenceTrainingServiceImpl.saveJudgment` 当前仍会整批回填 `training_samples.label_json/sample_weight`，与方案 B 的“judgments 作为唯一 Y 真源”目标口径不完全一致，后续需要停用或改为融合标签逻辑。
+- `SaveRoutePreferenceTrainingSamplesStep`：路线生成后写 MinIO candidate-set ingest，保留产品路线历史写入。
+- `POST /api/route-preferences/judgments`：保存一次评价时写 MinIO judgment ingest。
+- Python dataset builder：读取 ready marker 和 judgment ingest，写出下一版 `datasets/{datasetVersion}`，校验 manifest 后删除已处理 ingest 对象。
+- Python training：只读取指定 `ROUTE_PREF_DATASET_VERSION`，不直接读产品 PostgreSQL。
+- dataset version 不属于线上写入参数；它只属于离线冻结训练集。已有 dataset 追加 judgment 时，用 `ROUTE_PREF_BASE_DATASET_VERSION` 指向上一版，再生成新的 `ROUTE_PREF_DATASET_VERSION`。
 
 ## 2.1 LLM 调用主路径（New API）
 
@@ -177,87 +186,70 @@ highRiskStopRatio         <-> HIGH_ROUTE_RISK
 
 不建议输入：完整矩阵、大量 POI 原始详情、真实用户行为标签、历史 judgment、训练 label。后两者会造成标签泄漏。
 
-## 4. 表结构
+## 4. MinIO 对象结构
 
-### 4.1 route_preference_candidate_sets（批次 / 生命周期表）
-
-不存路线特征，也不存评价正文，只记录这一批的生命周期。已在 V8 迁移落地，列以 DDL 为准：
+预热训练数据不进入产品 PostgreSQL。一次路线生成和多次 LLM 评价在 MinIO 中形成追加式对象：
 
 ```text
-id
-request_id               -- NOT NULL（V8 暂未加 FK 到 route_requests）
-user_id                  -- FK users(id)
-generation_source        -- VARCHAR(64) DEFAULT 'ONLINE'；离线批量可用单独取值
-route_count              -- DEFAULT 0
-target_judgment_count    -- 期望评价数，可空
-current_judgment_count   -- DEFAULT 0
-status                   -- VARCHAR(32) DEFAULT 'GENERATED'
-created_at / updated_at
+route-preference/
+  ingest/
+    candidate_sets/shard=xx/{candidateSetId}.json.gz
+    candidate_sets_ready/shard=xx/{candidateSetId}.json
+    judgments/shard=xx/{candidateSetId}/{judgmentId}.json.gz
 ```
 
-用处：找哪些批次还没评价；判断某批是否够训练；区分线上 / 离线数据；避免每次 group by training_samples 扫批次。
+`candidate_sets` 对象保存 raw snapshot 和同批全部路线的 X：
 
-> 取值约定（待落库口径确认）：`status` 建议 `GENERATED / JUDGING / PARTIAL_JUDGED / TRAIN_READY / FAILED`；`generation_source` 当前默认 `ONLINE`，离线批量造数据建议用一个独立值（如 `OFFLINE_BATCH`）以便切片。若担心 `target` 永远凑不齐，可再加一个"最少评价数"阈值（V8 暂无此列），或直接用 `current_judgment_count >= target_judgment_count` 判定。
-
-### 4.2 route_preference_training_samples（路线特征表，v1 只存 X）
-
-一次生成 5 条路线写 5 行。列以 V8 DDL 为准：
-
-```text
-id
-candidate_set_id
-request_id
-user_id
-route_code               -- VARCHAR(16)，A / B / C / D / E
-generated_route_id       -- FK generated_routes(id)，可空
-feature_schema_version
-stop_matrix_json          -- 逐路线不同
-segment_matrix_json       -- 逐路线不同
-route_derived_vector_json -- 逐路线不同
-context_cross_vector_json -- 逐路线不同（路线 × 上下文）
-context_json              -- 同批相同（请求上下文 + 用户偏好原始值）
-label_source              -- 见下方语义说明
-label_json
-sample_weight             -- NUMERIC(8,4)
-sample_status            -- VARCHAR(32) DEFAULT 'GENERATED'
-created_at / updated_at
-唯一键 (candidate_set_id, route_code)
+```json
+{
+  "candidateSetId": "uuid",
+  "requestId": "uuid",
+  "userId": "uuid-or-null",
+  "createdAt": "2026-07-03T00:00:00+08:00",
+  "rawSnapshot": {
+    "rawSchemaVersion": "route_pref_raw_v1",
+    "generateParam": {},
+    "selectedRoutes": []
+  },
+  "trainingSamples": [
+    {
+      "candidateSetId": "uuid",
+      "requestId": "uuid",
+      "userId": "uuid-or-null",
+      "routeCode": "A",
+      "featureSchemaVersion": "route_pref_v5",
+      "stopMatrixJson": [],
+      "segmentMatrixJson": [],
+      "routeDerivedVectorJson": [],
+      "contextCrossVectorJson": [],
+      "intraSetVectorJson": []
+    }
+  ]
+}
 ```
 
-`context_json` 是原始上下文快照，用于审计、诊断和后续重建 route X；它不是模型 X。当前训练/预测代码只把 `stop_matrix_json`、`segment_matrix_json`、`route_derived_vector_json`、`context_cross_vector_json` 四块送入模型。
+`candidate_sets_ready` 是小 JSON marker，只在 candidate-set 对象写完后写入。Python dataset builder 只消费有 ready marker 的对象，避免读到半写入数据。
 
-label 三列的用法（v1 已定，方案 B）：
+`judgments` 对象保存一次 LLM / 用户 / 标注员评价：
 
-```text
-judgments 表   = 每个 judge 的原始评价，一次评价一行，append，互不覆盖（唯一真源）。
-本表 label 列  = v1 留空，不写。
+```json
+{
+  "judgmentId": "uuid",
+  "candidateSetId": "uuid",
+  "judgeType": "LLM_SIM_USER",
+  "judgeModel": "kimi-k2.6",
+  "judgePromptVersion": "llm-sim-user-v7-reason-audit@t0.5",
+  "rankingJson": ["C", "A", "B", "E", "D"],
+  "acceptedRouteCodesJson": ["C", "A"],
+  "rejectedRouteCodesJson": ["E", "D"],
+  "reasonCodesJson": {"D": ["BAD_SPATIAL_FLOW"], "E": ["LOW_INTEREST_COVERAGE"]},
+  "confidence": 0.65,
+  "status": "COMPLETED",
+  "completedAt": "2026-07-03T00:00:00+08:00"
+}
 ```
 
-v1 不做离线融合、不回填 label。训练时 Python 直接读 judgments 当 Y，按 `candidate_set_id` 拉同批全部 judgments、再按 `route_code` 与本表的 X 关联，pairwise 样本即可生成（见 §8.1）。这样彻底避开"多 judge 覆盖"问题，也不必现在就定融合策略。
-
-> 待修正的实现：当前 `markCandidateSetTrainReady` 按 `candidate_set_id` 整批 `UPDATE` 回填 label，会被第二个 judge 覆盖。方案 B 下应**停用这段整批回填**（改 no-op，label 列保持为空）。三列暂留作未来融合标签的预留位，不删。`context_json` 同批重复，后续可选上移到 candidate_sets。
-
-### 4.3 route_preference_judgments（评价表，一次评价一行）
-
-一个 LLM / 用户 / 标注员对同一批评价一次写一行；多家评价同一批就多行 append。
-
-```text
-id
-candidate_set_id
-judge_type               -- LLM_SIM_USER / REAL_USER / HUMAN_ANNOTATOR / HEURISTIC_JUDGE
-judge_model              -- 实际 judge 模型名；New API 下优先取响应顶层 model，如 kimi-k2.6 / qwen3.6-flash
-judge_prompt_version     -- prompt 版本，如 llm-sim-user-v1
-judge_run_key            -- 建议新增：幂等键，重试 / 区分重复运行
-ranking_json             -- ["C","A","B","E","D"]
-accepted_route_codes_json -- ["C","A"]
-rejected_route_codes_json -- ["E","D"]
-reason_codes_json        -- {"D":["BAD_SPATIAL_FLOW"], "E":["LOW_INTEREST_COVERAGE"]}
-confidence               -- LLM 自评，仅参考
-status
-created_at / completed_at / updated_at
-```
-
-> 现状与建议：`judge_type / judge_model / judge_prompt_version / ranking_json / accepted_route_codes_json / rejected_route_codes_json / reason_codes_json / confidence / status` 已在 V8 落地并与接口对齐。`judge_run_key`、可选的 `persona_id` 为建议新增；幂等建议落成 `UNIQUE(candidate_set_id, judge_type, judge_model, judge_prompt_version, judge_run_key)`，一家失败可整批安全重跑而不灌重复行。
+一个 candidate set 可以有多个 judgment 对象，互不覆盖。后端保存 judgment 时不回填 X，也不写真实行为事件表；Python 离线任务按 `candidateSetId + routeCode` 关联 X 和 Y。
 
 `judge_type` 取值：`REAL_USER / LLM_SIM_USER / HUMAN_ANNOTATOR / HEURISTIC_JUDGE`。LLM 模拟用户写 `LLM_SIM_USER`。
 
@@ -280,7 +272,7 @@ LLM 实际返回：
 约束：
 
 - 落库和训练只使用这 5 个字段，不要附带 freeText / explanation 之类非结构化训练标签。
-- 当前 `llm-sim-user-v5-personal-review` prompt 会额外要求 `personalReview` 供人工抽查和 dry-run 查看；编排层会在保存 Java judgment 前丢弃该字段，它不进入 `route_preference_judgments`，也不进入模型 X/Y。
+- 当前 `llm-sim-user-v5-personal-review` prompt 会额外要求 `personalReview` 供人工抽查和 dry-run 查看；编排层会在保存 Java judgment 前丢弃该字段，它不进入 MinIO judgment 对象，也不进入模型 X/Y。
 - `ranking` 必须是本批 `routeCode`（A/B/C/D/E）的**全排列**。
 - `acceptedRouteCodes` / `rejectedRouteCodes` 必须是本批 `routeCode` 子集。
 - 同一条路线不能同时出现在 accepted 和 rejected。
@@ -407,26 +399,21 @@ messages = [ system(6.1) , user(6.2: 请求 + 你的偏好(6.3) + 候选路线(6
 
 ## 8. 训练样本派生与读取
 
-`route_preference_judgments` 是原始偏好判断，不是最终训练样本。离线 Python 任务从它派生。
+MinIO judgment ingest 是原始偏好判断，不是最终训练样本。离线 Python 任务从它派生。
 
 ### 8.1 读取路径
 
 ```text
-目标流程：
-1. 选 status = TRAIN_READY 的 candidate_sets
-2. 用 candidate_set_id 拉 training_samples，得到每条路线的 X（按 route_code）
-3. 用 candidate_set_id 拉该批全部 judgments，得到各 judge 的 ranking / reason / confidence
-4. 用 route_code 对齐 X 与评价
-5. 展开 pairwise 训练样本
-
-当前可用流程：
-1. 直接按 candidate_set_id 聚合 training_samples
-2. 读取同 candidate_set_id 下已保存的 judgments
-3. 用 route_code 对齐 X 与评价
-4. 展开 pairwise 训练样本
+1. Spring Boot 写 candidate-set ingest 和 judgment ingest。
+2. Python dataset builder 读取 ready marker、candidate-set 对象和 judgment 对象。
+3. 写出 datasets/{datasetVersion}/training_samples.parquet。
+4. 写出 datasets/{datasetVersion}/judgments.parquet。
+5. 写出 manifest.json 并校验计数。
+6. 训练入口读取指定 ROUTE_PREF_DATASET_VERSION。
+7. 用 route_code 对齐 X 与评价，展开 pairwise 训练样本。
 ```
 
-一组路线 × N 个评价 = N 套监督信号。`training_samples` 只提供 X，监督 Y 全部来自 judgments，互不覆盖。
+一组路线 × N 个评价 = N 套监督信号。`training_samples.parquet` 只提供 X，监督 Y 全部来自 `judgments.parquet`，互不覆盖。
 
 ### 8.2 Pairwise 样本
 
@@ -604,27 +591,24 @@ Route Judge（路线级裁判 MLP，见《路线裁判与软拒绝设计》）�
 ## 15. 已确认决策
 
 ```text
-1. 三张表分工确定：candidate_sets（批次） / training_samples（X） / judgments（Y，append）。
-2. LLM 评价在生成流程内完成，读内存路线，不读库、不重新规划。
-3. 一次生成 = 一次评价批，之后不追评；候选路线可读正文不落库。
+1. MinIO 分工确定：candidate-set ingest 保存 raw snapshot + X，judgment ingest 保存 Y，dataset manifest 固化训练版本。
+2. 首轮 LLM 评价在生成流程内完成，读内存路线，不重新规划；补 k 只读 MinIO frozen raw snapshot。
+3. 一次生成 = 一个 candidate set；补评不改写候选路线和 X。
 4. 落库和训练只使用 5 个字段（ranking/accepted/rejected/reasonCodes/confidence），
    `personalReview` 仅用于人工检查和 dry-run；candidateSetId/judgeType/judgeModel/judgePromptVersion 由编排层注入。
 5. reasonCodes 固定为 9 个，落库前白名单校验；未知 code 判失败或由训练脚本显式跳过该 judgment 并记录原因。
-6. 每条评价的权重按 judge_type 决定；judgments 一次评价一行 append，互不覆盖。
-7. 三张表（candidate_sets / training_samples / judgments）是目标数据分工；当前代码已落地 training_samples 写入和 judgments 保存，candidate_sets 状态机仍待补齐。
-8. 方案 B：training_samples 的 label/weight 列 v1 目标口径是留空，Python 训练时直接读
-   judgments 当 Y、按 candidate_set_id + route_code 关联 X；当前代码仍会整批回填，后续需要停用或改为融合标签逻辑。
+6. 每条评价的权重按 judge_type 决定；judgments 一次评价一个对象 append，互不覆盖。
+7. MinIO ingest 是写入区；versioned dataset 是训练读取区。dataset builder 成功写出并校验 manifest 后，只删除已处理 ingest 对象。
+8. Python 训练时直接读 `judgments.parquet` 当 Y，按 candidate_set_id + route_code 关联 X；不再有 PG label/weight 回填路径。
 ```
 
 待定：
 
 ```text
-1. judge_run_key / persona_id 是否加入 judgments 表与接口（V8 暂无）。
-2. status / generation_source 的取值口径定稿。
-3. synthetic persona v1 的数量与覆盖范围，每批跑几个 persona。
-4. acceptedRouteCodes 的判定口径（仅前 1~2 条，还是按绝对质量自由选）。
-5. 是否需要 sim_judge_batch 记录批次模型 / prompt / persona 分布与成本，
-   或直接用 candidate_sets + judgments 派生。
+1. 是否需要在 judgment 对象中增加 judgeRunKey / personaId 以便更强幂等。
+2. synthetic persona v1 的数量与覆盖范围，每批跑几个 persona。
+3. acceptedRouteCodes 的判定口径（仅前 1~2 条，还是按绝对质量自由选）。
+4. 是否需要单独的离线 sim_judge_batch manifest 记录批次模型 / prompt / persona 分布与成本。
 ```
 
 ## 16. 相关文档

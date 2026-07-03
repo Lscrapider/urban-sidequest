@@ -15,11 +15,27 @@
 - Product PostgreSQL must not store preheat training data, preheat manifests, object keys, candidate-set training lifecycle rows, or training indexes.
 - Remove old PostgreSQL write path code for `route_preference_training_samples`, `route_preference_raw_snapshots`, and `route_preference_judgments`; do not keep dual-write compatibility.
 - Treat `route_preference_candidate_sets` as related training lifecycle state. If implementation confirms it has no product purpose, drop it together with the training tables.
+- Reuse the existing common Docker MinIO service. Do not add a project-specific MinIO server service or MinIO server container to this project.
+- It is allowed to modify `docker-compose.yml` to add a short-lived `minio-init` container that runs MinIO Client (`mc`) commands against the existing common MinIO service, then exits.
+- Initialize only Urban Sidequest-specific MinIO resources: bucket, scoped policy, and an `urban_sidequest` user or service account token.
 - Do not commit, push, or create branches without explicit user approval.
 - Do not create new unit tests without explicit user approval. Existing tests that become obsolete may be updated or removed as part of code cleanup.
 - Do not delete PostgreSQL source data operationally until export verification succeeds and the user confirms destructive cleanup.
 
 ## File Map
+
+### MinIO Initialization
+
+- Create `scripts/minio/urban-sidequest-training-policy.json`
+  - Scoped read/write policy for the route preference training bucket/prefix.
+- Create `scripts/minio/init_urban_sidequest_training_storage.sh`
+  - Initializes bucket, policy, and project credentials against the existing common MinIO service.
+  - Uses MinIO Client (`mc`) against the existing common MinIO endpoint.
+  - Does not start a MinIO server.
+- Modify `docker-compose.yml`
+  - Add a `minio-init` service using an `mc` client image.
+  - The service depends on the existing common MinIO endpoint being reachable, runs the init script, then exits.
+  - Do not add a project-specific `minio` server service.
 
 ### Spring Boot
 
@@ -87,7 +103,7 @@
 
 ## Object Layout
 
-Use one bucket, for example `urban-sidequest-training`.
+Use one bucket in the existing common MinIO service, for example `urban-sidequest-training`.
 
 ```text
 route-preference/
@@ -180,6 +196,113 @@ Manifest shape:
 }
 ```
 
+## Task 0: Initialize Common MinIO Resources
+
+**Files:**
+- Modify: `docker-compose.yml`
+- Create: `scripts/minio/urban-sidequest-training-policy.json`
+- Create: `scripts/minio/init_urban_sidequest_training_storage.sh`
+
+- [ ] Create a scoped MinIO policy for the project bucket/prefix. Policy actions should allow:
+  - `s3:GetBucketLocation`
+  - `s3:ListBucket`
+  - `s3:GetObject`
+  - `s3:PutObject`
+  - `s3:DeleteObject`
+
+- [ ] Scope resources to the project bucket:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::urban-sidequest-training"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::urban-sidequest-training/route-preference/*"
+      ]
+    }
+  ]
+}
+```
+
+- [ ] Write an init script that uses the existing common MinIO endpoint and admin credentials from environment variables:
+
+```bash
+MINIO_ENDPOINT=http://localhost:9000
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin
+URBAN_MINIO_BUCKET=urban-sidequest-training
+URBAN_MINIO_USER=urban_sidequest
+URBAN_MINIO_PASSWORD=<provided-outside-script>
+URBAN_MINIO_POLICY=urban-sidequest-training-rw
+```
+
+- [ ] The script must run these logical operations with `mc`:
+
+```bash
+mc alias set common-minio "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+mc mb --ignore-existing "common-minio/$URBAN_MINIO_BUCKET"
+mc admin user add common-minio "$URBAN_MINIO_USER" "$URBAN_MINIO_PASSWORD"
+mc admin policy create common-minio "$URBAN_MINIO_POLICY" scripts/minio/urban-sidequest-training-policy.json
+mc admin policy attach common-minio "$URBAN_MINIO_POLICY" --user "$URBAN_MINIO_USER"
+```
+
+- [ ] If the common MinIO deployment standard prefers service accounts instead of normal users, replace the user/password step with `mc admin user svcacct add` and record the generated access key and secret key outside git.
+- [ ] Do not write real MinIO secrets into repository files.
+- [ ] Add a `minio-init` service to `docker-compose.yml`. It should use a MinIO Client image, not a MinIO server image:
+
+```yaml
+  minio-init:
+    image: minio/mc:latest
+    environment:
+      MINIO_ENDPOINT: ${COMMON_MINIO_ENDPOINT:-http://common-minio:9000}
+      MINIO_ROOT_USER: ${COMMON_MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${COMMON_MINIO_ROOT_PASSWORD:-minioadmin}
+      URBAN_MINIO_BUCKET: ${URBAN_MINIO_BUCKET:-urban-sidequest-training}
+      URBAN_MINIO_USER: ${URBAN_MINIO_USER:-urban_sidequest}
+      URBAN_MINIO_PASSWORD: ${URBAN_MINIO_PASSWORD}
+      URBAN_MINIO_POLICY: ${URBAN_MINIO_POLICY:-urban-sidequest-training-rw}
+    volumes:
+      - ./scripts/minio:/scripts/minio:ro
+    command: ["/bin/sh", "/scripts/minio/init_urban_sidequest_training_storage.sh"]
+    networks:
+      - minio-common-network
+```
+
+- [ ] Add only the external network needed to reach the existing common MinIO service:
+
+```yaml
+networks:
+  minio-common-network:
+    external: true
+    name: ${COMMON_MINIO_NETWORK:-docker-minio-common-network}
+```
+
+- [ ] Do not add a project-specific `minio` server service to `docker-compose.yml`.
+- [ ] Verification command:
+
+```bash
+mc ls common-minio/urban-sidequest-training
+```
+
+Expected: bucket exists and is accessible with the initialized project credentials.
+
 ## Task 1: Add Spring MinIO Configuration
 
 **Files:**
@@ -201,6 +324,8 @@ Manifest shape:
 - [ ] Remove `route.preference.training.raw-snapshot-enabled`.
 - [ ] Implement `RoutePreferenceTrainingStorageProperties` as a `@ConfigurationProperties(prefix = "route.preference.training.storage")` bean.
 - [ ] Implement the MinIO/S3 client bean in `TrainingObjectStorageConfig`.
+- [ ] Use the `urban_sidequest` MinIO user or service account credentials created in Task 0 through environment variables only.
+- [ ] Do not add a project-specific MinIO server container configuration to this project.
 - [ ] Verify configuration binding by running:
 
 ```bash

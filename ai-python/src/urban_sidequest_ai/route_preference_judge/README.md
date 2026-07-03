@@ -5,10 +5,12 @@
 ```text
 路线请求 JSON
   -> 调 Java /api/routes/requests 生成路线
+  -> Java 将 raw snapshot 和 routeInput 写入 MinIO ingest 区
   -> 通过 New API /v1/chat/completions 调用模拟用户 judge
   -> 构造模拟用户路线选择 prompt
   -> 校验 LLM 输出 JSON
   -> 调 Java /api/route-preferences/judgments 保存 judgment
+  -> Java 将 judgment 写入 MinIO ingest 区
 ```
 
 ## 配置
@@ -26,7 +28,7 @@ Python 运行配置统一来自仓库根目录环境文件：
 Docker/CI 已注入环境变量 > .env.dev > .env
 ```
 
-`config.json` 只保留 judge 策略参数。连接地址、模型、API Key、后端鉴权和数据库配置全部放在 `.env.dev` 或运行环境变量里；缺配置时直接报错，不做本地 JSON fallback。
+`config.json` 只保留 judge 策略参数。连接地址、模型、API Key、后端鉴权和 MinIO dataset 配置全部放在 `.env.dev` 或运行环境变量里；缺配置时直接报错，不做本地 JSON fallback。
 `requests.json` 仍是默认 job 输入路径，本地文件已加入 `.gitignore`。
 
 主路径使用 New API 单入口，常用变量：
@@ -61,21 +63,15 @@ ROUTE_LLM_POOL_JSON=[
 - `BACKEND_AUTH_TOKEN`：直接填 `Bearer ...`
 - `BACKEND_LOGIN_PHONE` / `BACKEND_LOGIN_CODE`：脚本先调用 `/api/auth/login` 获取 token
 
-补跑缺失 judgment 时还会读取数据库，数据库连接同样来自 `.env.dev`。可以二选一：
+补 k 会读取 `ROUTE_PREF_DATASET_VERSION` 指向的 MinIO dataset，常用变量：
 
 ```env
-ROUTE_PREF_DB_DSN=
-```
-
-或拆分字段：
-
-```env
-ROUTE_PREF_DB_HOST=
-ROUTE_PREF_DB_PORT=
-ROUTE_PREF_DB_NAME=
-ROUTE_PREF_DB_USER=
-ROUTE_PREF_DB_PASSWORD=
-ROUTE_PREF_DB_CONNECT_TIMEOUT=
+ROUTE_PREF_MINIO_ENDPOINT=
+ROUTE_PREF_MINIO_ACCESS_KEY=
+ROUTE_PREF_MINIO_SECRET_KEY=
+ROUTE_PREF_MINIO_BUCKET=
+ROUTE_PREF_MINIO_PREFIX=route-preference
+ROUTE_PREF_DATASET_VERSION=
 ```
 
 `config.json` 示例：
@@ -146,6 +142,10 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 
 执行口径：
 
+- 路线生成接口会由 Java 后端把 candidate set 的 raw snapshot 和 training samples 写入 MinIO `ingest/candidate_sets/`，并写 ready marker。
+- judgment 保存接口会由 Java 后端把 LLM judgment 写入 MinIO `ingest/judgments/`。
+- 线上写入不需要 dataset version；version 只在离线冻结 dataset 时由 Python 脚本指定。
+- 新 ingest 数据不会自动进入当前训练 dataset；需要后续运行 dataset builder 生成新的 `ROUTE_PREF_DATASET_VERSION`。
 - 路线生成和 LLM judge 使用分离线程池；不传 `--judge-concurrency` 时与 `--concurrency` 相同。
 - 主流程会等待所有 judgment 保存成功或失败后再退出。
 - 候选路线少于 2 条时跳过 LLM judge 并记录原因。
@@ -161,7 +161,7 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge ru
 
 ## 给已有 candidate set 补 k
 
-补 k 不重新生成 route，也不写 `route_preference_training_samples` 或 raw snapshot；它只从 `route_preference_raw_snapshots.selected_routes_json` 读取已冻结的候选路线，并向 `route_preference_judgments` 新增 `LLM_SIM_USER` judgment。
+补 k 不重新生成 route，也不新写 candidate-set raw snapshot；它从 `ROUTE_PREF_DATASET_VERSION` 指向的 MinIO dataset 读取已冻结 raw snapshot 和已有 judgments，计算缺口后通过 Java judgment 接口新增 `LLM_SIM_USER` judgment。新增 judgment 会进入 MinIO ingest 区，之后需要重新构建下一版 dataset。
 
 先 dry-run 看计划：
 
@@ -210,38 +210,24 @@ PYTHONPATH=ai-python/src python3 -m urban_sidequest_ai.route_preference_judge to
   --judge-concurrency 3
 ```
 
-验收 SQL 示例：
+补 k 入口读取 `ROUTE_PREF_DATASET_VERSION` 指向的 MinIO dataset：
 
-```sql
--- count 分布
-SELECT completed_count, COUNT(*) AS candidate_sets
-FROM (
-  SELECT candidate_set_id, COUNT(*) AS completed_count
-  FROM route_preference_judgments
-  WHERE status = 'COMPLETED'
-  GROUP BY candidate_set_id
-) counted
-GROUP BY completed_count
-ORDER BY completed_count;
+- `raw_snapshot_index.parquet` 找到冻结 raw snapshot。
+- `judgments.parquet` 统计每个 candidate set 的 completed count。
+- raw snapshot 中的 `selectedRoutes` 作为补 k prompt 的候选路线真源。
 
--- 新 judgment 的 routeCode 必须仍来自 raw snapshot 冻结路线
-SELECT j.candidate_set_id, j.id
-FROM route_preference_judgments j
-JOIN route_preference_raw_snapshots r
-  ON r.candidate_set_id = j.candidate_set_id
-WHERE j.status = 'COMPLETED'
-  AND EXISTS (
-    SELECT 1
-    FROM jsonb_array_elements_text(j.ranking_json) ranked(route_code)
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements(r.selected_routes_json) route
-      WHERE route->>'routeCode' = ranked.route_code
-    )
-  );
+新增 judgment 仍通过 Java 后端 `/api/route-preferences/judgments` 保存；后端会把新增 judgment 写入 MinIO ingest 区。补 k 后需要重新运行 dataset builder，把 ingest 中的新 judgment 合入下一版 dataset，并清理已处理 ingest 对象。
+
+如果补的是已有 dataset 里的 candidate set，构建新版本时必须带上基线版本：
+
+```bash
+PYTHONPATH=ai-python/src \
+ROUTE_PREF_BASE_DATASET_VERSION=2026-07-03-v1 \
+ROUTE_PREF_DATASET_VERSION=2026-07-03-v2 \
+python3 -m urban_sidequest_ai.models.route_preference.training.dataset_builder
 ```
 
-补 k 入口每次都会按数据库实时 completed count 计算缺口，重跑时只会继续补仍小于 `target-k` 的集合；如果某次 LLM 失败导致只保存了部分新增 judgment，下一次会按新的 count 继续补剩余缺口。
+这样 `v2` 会包含 `v1` 的 samples/raw snapshots/judgments，再追加 ingest 区里的新 judgment。没有 base version 时，脚本只适合处理“新路线 + 新 judgment”都还在 ingest 区的完整 candidate set。
 
 ## 输入请求
 

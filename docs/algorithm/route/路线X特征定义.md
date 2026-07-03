@@ -16,7 +16,7 @@ X = stopMatrix + segmentMatrix + routeDerivedVector + contextCrossVector + intra
 
 - 前四块是逐路线可算的输入；第五块 `intraSetVector` 是同一 candidate set 内组级相对输入，见 §8。
 - §1–§6 描述前四块；§8 描述 v5 新增的维度分和第五块。
-- `context_json`（见 §6）和 `route_preference_judgments` 里的 `ranking / accepted / rejected / reasonCodes / confidence` **都不进 X**——前者只做审计，后者是训练标签 Y。
+- raw snapshot（见 §6）和 judgment 里的 `ranking / accepted / rejected / reasonCodes / confidence` **都不进 X**——前者只做审计和补 k，后者是训练标签 Y。
 - 版本号存为 `route_pref_v5`，若本次记录了 LLM 编排模型则后缀成 `route_pref_v5@<modelId>`；训练侧按 `@` 前的基础版本归并，不同基础版本不能混训。
 
 **矩阵 padding：** `stopMatrix` 最多 8 行（`MAX_STOPS`），`segmentMatrix` 最多 7 行（`MAX_SEGMENTS = MAX_STOPS - 1`），不足补零行。空位靠行内 `isLastStop`、`segmentEstimateMissing` 等标志识别。
@@ -276,16 +276,16 @@ X = stopMatrix + segmentMatrix + routeDerivedVector + contextCrossVector + intra
 
 ---
 
-## 6. 不进 X：context_json（审计快照）
+## 6. 不进 X：raw snapshot（审计快照）
 
-同一张 `route_preference_training_samples` 表里还存了 `context_json`，但它**不是 X**，只用于审计、诊断和按原始快照重建特征。内容：
+MinIO candidate-set ingest 和 dataset raw snapshot 里会保存原始上下文快照，但它**不是 X**，只用于审计、诊断、补 k 和按原始快照重建特征。内容：
 
 ```text
 routeGoal, transportProfile, budgetLevel, interestTags, mealWindows,
 departureTime, durationMinutes, routeTimeStructure, weather, userPreferenceProfile
 ```
 
-LLM 对整条路线的自评分（`CandidateRouteDTO.qualityScore`）既不在四块 X、也不在本快照里——它只活在路线生成阶段，不参与训练输入。
+LLM 对整条路线的自评分（`CandidateRouteDTO.qualityScore`）既不在五块 X、也不在本快照里——它只活在路线生成阶段，不参与训练输入。
 
 ---
 

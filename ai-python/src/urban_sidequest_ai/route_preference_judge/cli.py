@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 
-from urban_sidequest_ai.models.route_preference.training.db import load_database_config
+from urban_sidequest_ai.models.route_preference.training.object_storage import load_object_storage_config
 
 from .config import load_config
 from .job_factory import build_jobs
@@ -96,10 +96,10 @@ def main() -> int:
         return 0
     if args.command == "topup-judgments":
         config = load_config(Path(args.config), require_api_key=not args.dry_run)
-        database_config = load_database_config()
+        object_storage_config = load_object_storage_config()
         stats = run_missing_judgments(
             app_config=config,
-            database_config=database_config,
+            object_storage_config=object_storage_config,
             limit=None if args.limit == 0 else args.limit,
             judge_concurrency=args.judge_concurrency,
             dry_run=args.dry_run,

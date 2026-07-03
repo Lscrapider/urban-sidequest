@@ -5,7 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import random
 
-from urban_sidequest_ai.models.route_preference.training.db import DatabaseConfig, connect
+from urban_sidequest_ai.models.route_preference.training.object_storage import ObjectStorageClient, ObjectStorageConfig
 from urban_sidequest_ai.route_preference_judge.config import AppConfig
 from urban_sidequest_ai.route_preference_judge.java_client import BackendClient
 from urban_sidequest_ai.route_preference_judge.prompt import build_user_prompt
@@ -36,7 +36,7 @@ class MissingJudgmentStats:
 
 def run_missing_judgments(
     app_config: AppConfig,
-    database_config: DatabaseConfig,
+    object_storage_config: ObjectStorageConfig,
     limit: int | None = None,
     judge_concurrency: int = 1,
     dry_run: bool = False,
@@ -59,14 +59,15 @@ def run_missing_judgments(
     if not dry_run:
         backend.ensure_token()
 
-    with connect(database_config) as connection:
-        jobs = fetch_missing_raw_snapshot_jobs(
-            connection,
-            limit=limit,
-            candidate_set_ids=candidate_set_ids,
-            target_k=target_k,
-            original_k=original_k,
-        )
+    object_storage_client = ObjectStorageClient(object_storage_config)
+    jobs = fetch_missing_raw_snapshot_jobs(
+        object_storage_client,
+        object_storage_config,
+        limit=limit,
+        candidate_set_ids=candidate_set_ids,
+        target_k=target_k,
+        original_k=original_k,
+    )
 
     _print_stderr(
         f"待补评价 raw snapshot 数量：{len(jobs)} targetK={target_k} "

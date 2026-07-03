@@ -23,10 +23,10 @@ from urban_sidequest_ai.models.route_preference.training.dataset import (
     _samples_by_candidate_set,
     infer_feature_spec,
 )
-from urban_sidequest_ai.models.route_preference.training.db import connect, load_database_config
+from urban_sidequest_ai.models.route_preference.training.dataset_repository import RoutePreferenceDatasetRepository
+from urban_sidequest_ai.models.route_preference.training.object_storage import ObjectStorageClient, load_object_storage_config
 from urban_sidequest_ai.models.route_preference.training.repository import (
     JudgmentRow,
-    RoutePreferenceTrainingRepository,
     TrainingSampleRow,
 )
 from urban_sidequest_ai.models.route_preference.training.schema import InvalidJudgmentPolicy
@@ -190,11 +190,10 @@ def build_result_payload(
 
 
 def _load_rows(feature_schema_version: str | None) -> tuple[list[TrainingSampleRow], list[JudgmentRow]]:
-    db_config = load_database_config()
-    with connect(db_config) as connection:
-        repository = RoutePreferenceTrainingRepository(connection)
-        sample_rows = repository.fetch_training_samples(feature_schema_version)
-        judgment_rows = repository.fetch_completed_judgments({row.candidate_set_id for row in sample_rows})
+    object_storage_config = load_object_storage_config()
+    repository = RoutePreferenceDatasetRepository(ObjectStorageClient(object_storage_config), object_storage_config)
+    sample_rows = repository.fetch_training_samples(feature_schema_version)
+    judgment_rows = repository.fetch_completed_judgments({row.candidate_set_id for row in sample_rows})
     return sample_rows, judgment_rows
 
 
