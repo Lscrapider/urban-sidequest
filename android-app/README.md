@@ -36,11 +36,12 @@
 
 ```properties
 backend.base.url=http://10.0.2.2:8080
+minio.image.base.url=http://10.0.2.2:9000
 amap.api.key=你的高德 Android Key
 ```
 
 Gradle 读取优先级：
 
 ```text
-BACKEND_BASE_URL / AMAP_API_KEY 环境变量 > local.properties.dev > local.properties > 构建默认值
+BACKEND_BASE_URL / MINIO_IMAGE_BASE_URL / AMAP_API_KEY 环境变量 > local.properties.dev > local.properties > 构建默认值
 ```

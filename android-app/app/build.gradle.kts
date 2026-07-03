@@ -23,6 +23,7 @@ fun localValue(name: String): String? =
         ?: localProperties.getProperty(name)?.takeIf { it.isNotBlank() }
 
 val localBackendBaseUrl = localValue("backend.base.url")
+val localMinioImageBaseUrl = localValue("minio.image.base.url")
 
 android {
     namespace = "com.urbansidequest.app"
@@ -37,10 +38,14 @@ android {
         val backendBaseUrl = envValue("BACKEND_BASE_URL")
             ?: localBackendBaseUrl
             ?: "http://10.0.2.2:8080"
+        val minioImageBaseUrl = envValue("MINIO_IMAGE_BASE_URL")
+            ?: localMinioImageBaseUrl
+            ?: "http://10.0.2.2:9000"
         val amapApiKey = envValue("AMAP_API_KEY")
             ?: localValue("amap.api.key")
             ?: ""
         buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
+        buildConfigField("String", "MINIO_IMAGE_BASE_URL", "\"$minioImageBaseUrl\"")
         manifestPlaceholders["AMAP_API_KEY"] = amapApiKey
 
         ndk {

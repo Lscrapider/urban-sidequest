@@ -10,8 +10,10 @@ import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
 import com.urbansidequest.app.domain.model.RouteInteractionState
 import com.urbansidequest.app.domain.model.RouteReaction
 import com.urbansidequest.app.domain.model.RouteSegment
+import com.urbansidequest.app.domain.model.RouteShare
 import com.urbansidequest.app.domain.model.RouteStep
 import com.urbansidequest.app.domain.model.RouteStop
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -19,6 +21,7 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -50,6 +53,138 @@ class RouteApi {
             }
         } catch (exception: IOException) {
             throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
+        }
+    }
+
+    suspend fun fetchRouteShares(authorizationHeader: String): List<RouteShare> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/shares")
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                JSONArray(responseBody).mapObjects(::parseRouteShare)
+            }.getOrElse { throwable ->
+                throw IllegalStateException("路线分享响应解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线分享服务：${exception.message}", exception)
+        }
+    }
+
+    suspend fun fetchSharedRoute(
+        shareId: String,
+        authorizationHeader: String
+    ): RouteGeneration = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/shares/$shareId/route")
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                parseRouteGeneration(JSONObject(responseBody))
+            }.getOrElse { throwable ->
+                throw IllegalStateException("分享路线详情解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线分享服务：${exception.message}", exception)
+        }
+    }
+
+    suspend fun fetchRouteSharePreviewMap(
+        requestId: String,
+        routeCode: String,
+        authorizationHeader: String
+    ): ByteArray = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL(
+                "${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history/$requestId/routes/$routeCode/share-preview-map"
+            )
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Accept", "image/png")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+
+            val responseCode = connection.responseCode
+            val responseBytes = readBytes(connection)
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBytes.toString(StandardCharsets.UTF_8))
+                )
+            }
+            responseBytes
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法生成分享地图：${exception.message}", exception)
+        }
+    }
+
+    suspend fun shareCompletedRoute(
+        requestId: String,
+        routeCode: String,
+        shareText: String,
+        imageBytes: ByteArray,
+        authorizationHeader: String
+    ): RouteShare = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history/$requestId/routes/$routeCode/share")
+            val boundary = "UrbanSidequestBoundary${System.currentTimeMillis()}"
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+            connection.doOutput = true
+
+            connection.outputStream.use { outputStream ->
+                writeMultipartText(outputStream, boundary, "shareText", shareText)
+                writeMultipartFile(outputStream, boundary, "image", "route-share.jpg", "image/jpeg", imageBytes)
+                outputStream.write("--$boundary--\r\n".toByteArray(StandardCharsets.UTF_8))
+            }
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                parseRouteShare(JSONObject(responseBody))
+            }.getOrElse { throwable ->
+                throw IllegalStateException("路线分享保存响应解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线分享服务：${exception.message}", exception)
         }
     }
 
@@ -340,6 +475,19 @@ class RouteApi {
         )
     }
 
+    private fun parseRouteShare(json: JSONObject): RouteShare {
+        return RouteShare(
+            shareId = json.getString("shareId"),
+            requestId = json.getString("requestId"),
+            routeCode = json.getString("routeCode"),
+            routeTitle = json.optString("routeTitle").ifBlank { "城市路线" },
+            areaLabel = json.optString("areaLabel").ifBlank { "城市副本路线" },
+            shareText = json.optString("shareText"),
+            imageUrl = json.optString("imageUrl"),
+            createdAt = json.optString("createdAt")
+        )
+    }
+
     private fun parseRouteHistoryRouteSummary(json: JSONObject): RouteHistoryRouteSummary {
         return RouteHistoryRouteSummary(
             routeCode = json.getString("routeCode"),
@@ -446,6 +594,19 @@ class RouteApi {
         } ?: return ""
         return BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8)).use { reader ->
             reader.readText()
+        }
+    }
+
+    private fun readBytes(connection: HttpURLConnection): ByteArray {
+        val inputStream = if (connection.responseCode in HTTP_SUCCESS_RANGE) {
+            connection.inputStream
+        } else {
+            connection.errorStream
+        } ?: return ByteArray(0)
+        return inputStream.use { stream ->
+            val output = ByteArrayOutputStream()
+            stream.copyTo(output)
+            output.toByteArray()
         }
     }
 
@@ -609,4 +770,33 @@ private fun String?.toRouteReaction(): RouteReaction? {
         "DISLIKED" -> RouteReaction.Disliked
         else -> null
     }
+}
+
+private fun writeMultipartText(
+    outputStream: OutputStream,
+    boundary: String,
+    name: String,
+    value: String
+) {
+    outputStream.write("--$boundary\r\n".toByteArray(StandardCharsets.UTF_8))
+    outputStream.write("Content-Disposition: form-data; name=\"$name\"\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
+    outputStream.write(value.toByteArray(StandardCharsets.UTF_8))
+    outputStream.write("\r\n".toByteArray(StandardCharsets.UTF_8))
+}
+
+private fun writeMultipartFile(
+    outputStream: OutputStream,
+    boundary: String,
+    name: String,
+    fileName: String,
+    contentType: String,
+    bytes: ByteArray
+) {
+    outputStream.write("--$boundary\r\n".toByteArray(StandardCharsets.UTF_8))
+    outputStream.write(
+        "Content-Disposition: form-data; name=\"$name\"; filename=\"$fileName\"\r\n".toByteArray(StandardCharsets.UTF_8)
+    )
+    outputStream.write("Content-Type: $contentType\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
+    outputStream.write(bytes)
+    outputStream.write("\r\n".toByteArray(StandardCharsets.UTF_8))
 }

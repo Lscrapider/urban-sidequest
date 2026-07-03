@@ -6,6 +6,7 @@ import com.urbansidequest.app.data.auth.AuthSessionStore
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteInteractionState
+import com.urbansidequest.app.domain.model.RouteShare
 
 class RouteRepository(
     private val routeApi: RouteApi,
@@ -25,6 +26,48 @@ class RouteRepository(
         val authorizationHeader = authSessionStore.getAuthorizationHeader()
             ?: throw IllegalStateException("登录状态已失效，请重新登录")
         return routeApi.fetchRouteHistory(authorizationHeader = authorizationHeader)
+    }
+
+    suspend fun fetchRouteShares(): List<RouteShare> {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return routeApi.fetchRouteShares(authorizationHeader = authorizationHeader)
+    }
+
+    suspend fun fetchSharedRoute(shareId: String): RouteGeneration {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return routeApi.fetchSharedRoute(
+            shareId = shareId,
+            authorizationHeader = authorizationHeader
+        )
+    }
+
+    suspend fun fetchRouteSharePreviewMap(requestId: String, routeCode: String): ByteArray {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return routeApi.fetchRouteSharePreviewMap(
+            requestId = requestId,
+            routeCode = routeCode,
+            authorizationHeader = authorizationHeader
+        )
+    }
+
+    suspend fun shareCompletedRoute(
+        requestId: String,
+        routeCode: String,
+        shareText: String,
+        imageBytes: ByteArray
+    ): RouteShare {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return routeApi.shareCompletedRoute(
+            requestId = requestId,
+            routeCode = routeCode,
+            shareText = shareText,
+            imageBytes = imageBytes,
+            authorizationHeader = authorizationHeader
+        )
     }
 
     suspend fun fetchRouteInteractions(): Map<String, RouteInteractionState> {

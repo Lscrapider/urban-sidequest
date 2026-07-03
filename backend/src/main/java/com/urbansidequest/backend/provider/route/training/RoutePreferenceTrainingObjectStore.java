@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.zip.GZIPOutputStream;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -31,7 +32,7 @@ public class RoutePreferenceTrainingObjectStore {
     private final RoutePreferenceTrainingStorageProperties properties;
 
     public RoutePreferenceTrainingObjectStore(
-            MinioClient minioClient,
+            @Qualifier("routePreferenceTrainingMinioClient") MinioClient minioClient,
             ObjectMapper objectMapper,
             RoutePreferenceTrainingStorageProperties properties
     ) {

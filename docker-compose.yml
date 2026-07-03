@@ -30,6 +30,9 @@ services:
       URBAN_MINIO_USER: ${URBAN_MINIO_USER:-urban_sidequest}
       URBAN_MINIO_PASSWORD: ${URBAN_MINIO_PASSWORD:-urban_sidequest_dev_password}
       URBAN_MINIO_POLICY: ${URBAN_MINIO_POLICY:-urban-sidequest-training-rw}
+      URBAN_SHARE_MINIO_BUCKET: ${URBAN_SHARE_MINIO_BUCKET:-urban-sidequest-shares}
+      URBAN_SHARE_MINIO_PREFIX: ${URBAN_SHARE_MINIO_PREFIX:-route-share}
+      URBAN_SHARE_MINIO_POLICY: ${URBAN_SHARE_MINIO_POLICY:-urban-sidequest-share-rw}
     volumes:
       - ./scripts/minio:/scripts/minio:ro
     command: ["/scripts/minio/init_urban_sidequest_training_storage.sh"]

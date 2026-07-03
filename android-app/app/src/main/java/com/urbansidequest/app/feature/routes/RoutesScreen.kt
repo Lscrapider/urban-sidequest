@@ -15,17 +15,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +46,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
@@ -51,10 +59,12 @@ import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
 import com.urbansidequest.app.ui.components.UrbanScreenTitle
+import com.urbansidequest.app.ui.components.UrbanSecondaryButton
 import com.urbansidequest.app.ui.components.UrbanTaskCard
 import com.urbansidequest.app.ui.theme.AppBackground
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
+import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.AreaGreen
@@ -75,12 +85,15 @@ fun RoutesScreen(
     errorMessage: String? = null,
     onOpenHistoryGroup: (String) -> Unit = {},
     onOpenHistoryRoute: (String, String) -> Unit = { _, _ -> },
+    onShareWalkedRoute: (String, String, String) -> Unit = { _, _, _ -> },
     onRefreshHistory: () -> Unit = {},
     onOpenDiscover: () -> Unit = {},
     onOpenMap: () -> Unit = {},
     onOpenProfile: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(RouteLibraryTab.Generated) }
+    var shareTarget by remember { mutableStateOf<WalkedShareTarget?>(null) }
+    var shareText by remember { mutableStateOf(DEFAULT_SHARE_TEXT) }
     val activeGroup = historyGroups.firstOrNull {
         it.generationStatus == "SUCCESS" && it.executionStatus == "IN_PROGRESS" && it.activeRouteCode != null
     }
@@ -188,6 +201,27 @@ fun RoutesScreen(
                             description = selectedTab.emptyDescription
                         )
                     }
+                } else if (selectedTab == RouteLibraryTab.Walked) {
+                    itemsIndexed(
+                        items = visibleGroups,
+                        key = { _, group -> "walked_${group.requestId}" }
+                    ) { index, group ->
+                        val route = group.routes.firstOrNull()
+                        if (route != null) {
+                            WalkedRouteRow(
+                                group = group,
+                                route = route,
+                                onOpenRoute = { onOpenHistoryRoute(group.requestId, route.routeCode) },
+                                onShareRoute = {
+                                    shareTarget = WalkedShareTarget(group.requestId, route.routeCode, route.title)
+                                    shareText = DEFAULT_SHARE_TEXT
+                                }
+                            )
+                            if (index < visibleGroups.lastIndex) {
+                                HorizontalDivider(color = AppBorder.copy(alpha = 0.64f))
+                            }
+                        }
+                    }
                 } else {
                     items(
                         items = visibleGroups,
@@ -222,6 +256,108 @@ fun RoutesScreen(
             onRoutesClick = {},
             onProfileClick = onOpenProfile
         )
+    }
+
+    shareTarget?.let { target ->
+        WalkedRouteShareDialog(
+            routeTitle = target.routeTitle,
+            shareText = shareText,
+            onShareTextChange = { value -> shareText = value.take(MAX_SHARE_TEXT_LENGTH) },
+            onDismiss = { shareTarget = null },
+            onConfirm = {
+                onShareWalkedRoute(target.requestId, target.routeCode, shareText)
+                shareTarget = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun WalkedRouteShareDialog(
+    routeTitle: String,
+    shareText: String,
+    onShareTextChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f))
+                .padding(horizontal = 24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 360.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = AppSurface,
+                border = BorderStroke(1.dp, AppBorder),
+                shadowElevation = 10.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "分享走过路线",
+                            color = AppText,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = routeTitle,
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    OutlinedTextField(
+                        value = shareText,
+                        onValueChange = onShareTextChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        label = {
+                            Text(
+                                text = "分享文字",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = AppText),
+                        shape = MaterialTheme.shapes.small,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = AppText,
+                            unfocusedTextColor = AppText,
+                            focusedContainerColor = AppSurfaceMuted,
+                            unfocusedContainerColor = AppSurfaceMuted,
+                            focusedBorderColor = RouteTeal,
+                            unfocusedBorderColor = AppBorder,
+                            focusedLabelColor = RouteTeal,
+                            unfocusedLabelColor = AppTextMuted,
+                            cursorColor = RouteTeal
+                        )
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        UrbanPrimaryButton(
+                            text = "生成并分享",
+                            enabled = shareText.isNotBlank(),
+                            onClick = onConfirm
+                        )
+                        UrbanSecondaryButton(
+                            text = "取消",
+                            onClick = onDismiss
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -450,6 +586,47 @@ private fun SectionHeader(title: String, badge: String) {
 }
 
 @Composable
+private fun WalkedRouteRow(
+    group: RouteHistoryGroup,
+    route: RouteHistoryRouteSummary,
+    onOpenRoute: () -> Unit,
+    onShareRoute: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenRoute)
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = route.title,
+                color = AppText,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${group.areaLabel} · ${formatDuration(route.totalDurationMinutes)} · ${formatDistance(route.totalDistanceMeters)}",
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        TextButton(onClick = onShareRoute) {
+            Text("分享")
+        }
+    }
+}
+
+@Composable
 private fun RouteHistoryGroupRow(
     group: RouteHistoryGroup,
     onOpenGroup: () -> Unit,
@@ -520,6 +697,12 @@ private fun RouteHistoryGroupRow(
         }
     }
 }
+
+private data class WalkedShareTarget(
+    val requestId: String,
+    val routeCode: String,
+    val routeTitle: String
+)
 
 @Composable
 private fun RouteHistoryRouteChip(
@@ -734,6 +917,10 @@ private fun formatCreatedAt(createdAt: String): String {
 }
 
 private val ROUTE_HISTORY_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
+
+private const val DEFAULT_SHARE_TEXT = "这条路线走下来很顺，适合直接照着走。"
+
+private const val MAX_SHARE_TEXT_LENGTH = 240
 
 private enum class RouteLibraryTab(
     val label: String,

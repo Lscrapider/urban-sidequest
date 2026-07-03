@@ -18,7 +18,7 @@ cd /Users/qinzeyu/study/mix-java-python/urban-sidequest
 docker compose run --rm postgres-init
 ```
 
-如果需要本地路线偏好训练数据写入 MinIO，再初始化项目 bucket、policy 和项目用户：
+如果需要本地路线偏好训练数据写入 MinIO，或路线分享图片写入 MinIO，再初始化项目 bucket、policy 和项目用户：
 
 ```bash
 URBAN_MINIO_PASSWORD=urban_sidequest_dev_password docker compose run --rm minio-init
@@ -34,6 +34,7 @@ URBAN_MINIO_PASSWORD=urban_sidequest_dev_password docker compose run --rm minio-
 - Redis：`common-redis:6379`
 - MinIO：`common-minio:9000`
 - 训练数据 bucket：`urban-sidequest-training`
+- 路线分享图片 bucket：`urban-sidequest-shares`
 - 坐标字段：统一保存 GCJ-02 经度、纬度，并用 `location_gcj02` 建 PostGIS 空间索引。
 
 ## 初始化脚本

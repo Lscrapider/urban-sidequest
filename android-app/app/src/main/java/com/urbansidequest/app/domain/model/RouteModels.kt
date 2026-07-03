@@ -105,6 +105,17 @@ data class RouteHistoryRouteSummary(
     val riskLevel: String
 )
 
+data class RouteShare(
+    val shareId: String,
+    val requestId: String,
+    val routeCode: String,
+    val routeTitle: String,
+    val areaLabel: String,
+    val shareText: String,
+    val imageUrl: String,
+    val createdAt: String
+)
+
 enum class RouteReaction {
     Liked,
     Disliked

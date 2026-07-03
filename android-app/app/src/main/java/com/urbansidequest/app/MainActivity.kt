@@ -1,5 +1,7 @@
 package com.urbansidequest.app
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
@@ -10,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,6 +37,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -53,6 +59,7 @@ import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteInteractionState
 import com.urbansidequest.app.domain.model.RouteReaction
+import com.urbansidequest.app.domain.model.RouteShare
 import com.urbansidequest.app.feature.discover.DiscoverScreen
 import com.urbansidequest.app.feature.execution.RouteExecutionScreen
 import com.urbansidequest.app.feature.login.LoginRoute
@@ -77,7 +84,9 @@ import com.urbansidequest.app.ui.theme.InfoCyan
 import com.urbansidequest.app.ui.theme.InfoCyanSurface
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.UrbanSidequestTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -117,9 +126,14 @@ private fun UrbanSidequestApp() {
     var routeHistoryGroups by remember { mutableStateOf<List<RouteHistoryGroup>>(emptyList()) }
     var isRouteHistoryLoading by remember { mutableStateOf(false) }
     var routeHistoryError by remember { mutableStateOf<String?>(null) }
+    var routeShares by remember { mutableStateOf<List<RouteShare>>(emptyList()) }
+    var isRouteSharesLoading by remember { mutableStateOf(false) }
+    var routeSharesError by remember { mutableStateOf<String?>(null) }
     var selectedCenter by remember { mutableStateOf<GeoPoint?>(null) }
     var routeGenerationNotice by remember { mutableStateOf<RouteGenerationNotice?>(null) }
     var isRouteGenerationSubmitting by remember { mutableStateOf(false) }
+    var routeShareNotice by remember { mutableStateOf<RouteShareNotice?>(null) }
+    var isRouteShareSubmitting by remember { mutableStateOf(false) }
     var currentUser by remember { mutableStateOf<AuthUserResponse?>(null) }
     var routeInteractions by remember { mutableStateOf<Map<String, RouteInteractionState>>(emptyMap()) }
     var explorationPreferenceAnswers by remember { mutableStateOf<ExplorationPreferenceAnswers?>(null) }
@@ -164,6 +178,9 @@ private fun UrbanSidequestApp() {
         authRepository.clearSession()
         clearMapSelectionState()
         routeHistoryGroups = emptyList()
+        routeShares = emptyList()
+        routeSharesError = null
+        routeShareNotice = null
         currentUser = null
         routeInteractions = emptyMap()
         explorationPreferenceAnswers = null
@@ -298,6 +315,23 @@ private fun UrbanSidequestApp() {
         }
     }
 
+    suspend fun refreshRouteShares() {
+        isRouteSharesLoading = true
+        routeSharesError = null
+        runCatching {
+            routeRepository.fetchRouteShares()
+        }.onSuccess { shares ->
+            routeShares = shares
+        }.onFailure { throwable ->
+            if (RouteErrorMapper.isAuthenticationError(throwable)) {
+                expireAuth()
+            } else {
+                routeSharesError = "路线分享加载失败，请稍后重试"
+            }
+        }
+        isRouteSharesLoading = false
+    }
+
     suspend fun refreshCurrentUser() {
         runCatching {
             authRepository.fetchCurrentUser()
@@ -322,12 +356,56 @@ private fun UrbanSidequestApp() {
             runCatching {
                 routeRepository.fetchRouteHistoryDetail(requestId)
             }.onSuccess { routeGeneration ->
-                latestRouteGeneration = routeGeneration
+                latestRouteGeneration = routeGeneration.onlyRoute(routeCode)
                 mapInitialRouteCode = routeCode
                 replaceWithMap()
             }.onFailure { throwable ->
                 handleRouteFailure(throwable, RouteErrorMapper.ROUTE_LOAD_FAILED_MESSAGE)
             }
+        }
+    }
+
+    fun openSharedRouteOnMap(share: RouteShare) {
+        routeActionScope.launch {
+            routeSharesError = null
+            runCatching {
+                routeRepository.fetchSharedRoute(share.shareId)
+            }.onSuccess { routeGeneration ->
+                latestRouteGeneration = routeGeneration.onlyRoute(share.routeCode)
+                mapInitialRouteCode = share.routeCode
+                replaceWithMap()
+            }.onFailure { throwable ->
+                if (RouteErrorMapper.isAuthenticationError(throwable)) {
+                    expireAuth()
+                } else {
+                    routeSharesError = "分享路线打开失败，请稍后重试"
+                }
+            }
+        }
+    }
+
+    fun shareCompletedRoute(requestId: String, routeCode: String, shareText: String) {
+        if (isRouteShareSubmitting) {
+            return
+        }
+        routeShareNotice = RouteShareNotice.Submitting
+        routeActionScope.launch {
+            isRouteShareSubmitting = true
+            runCatching {
+                val staticMapBytes = routeRepository.fetchRouteSharePreviewMap(requestId, routeCode)
+                val jpegBytes = compressRouteShareImage(staticMapBytes)
+                routeRepository.shareCompletedRoute(requestId, routeCode, shareText, jpegBytes)
+            }.onSuccess {
+                routeShareNotice = RouteShareNotice.Completed
+                refreshRouteShares()
+            }.onFailure { throwable ->
+                if (RouteErrorMapper.isAuthenticationError(throwable)) {
+                    expireAuth()
+                } else {
+                    routeShareNotice = RouteShareNotice.Failed
+                }
+            }
+            isRouteShareSubmitting = false
         }
     }
 
@@ -402,6 +480,9 @@ private fun UrbanSidequestApp() {
                 refreshRouteInteractions()
             }
             LaunchedEffect(currentScreen) {
+                if (currentScreen == AppScreen.Discover) {
+                    refreshRouteShares()
+                }
                 if (currentScreen == AppScreen.Routes || currentScreen == AppScreen.FavoriteRoutes || currentScreen == AppScreen.Profile) {
                     refreshRouteHistory()
                     refreshRouteInteractions()
@@ -414,6 +495,13 @@ private fun UrbanSidequestApp() {
             when (currentScreen) {
                 AppScreen.Discover -> DiscoverScreen(
                     nickname = currentUser?.nickname.orEmpty(),
+                    completedRouteCount = currentUser?.completedRouteCount ?: 0,
+                    travelDistanceMeters = currentUser?.travelDistanceMeters ?: 0L,
+                    explorationStreakDays = explorationStreakDays,
+                    routeShares = routeShares,
+                    isRouteSharesLoading = isRouteSharesLoading,
+                    routeSharesError = routeSharesError,
+                    onOpenShare = ::openSharedRouteOnMap,
                     onOpenMap = ::openMapWithActiveRouteFallback,
                     onOpenRoutes = { pushScreen(AppScreen.Routes) },
                     onOpenProfile = { pushScreen(AppScreen.Profile) }
@@ -456,6 +544,7 @@ private fun UrbanSidequestApp() {
                     errorMessage = routeHistoryError,
                     onOpenHistoryGroup = { requestId -> openHistoryOnMap(requestId, null) },
                     onOpenHistoryRoute = { requestId, routeCode -> openHistoryOnMap(requestId, routeCode) },
+                    onShareWalkedRoute = ::shareCompletedRoute,
                     onRefreshHistory = ::requestRouteHistoryRefresh,
                     onOpenDiscover = ::replaceWithDiscover,
                     onOpenMap = ::openMapWithActiveRouteFallback,
@@ -532,6 +621,12 @@ private fun UrbanSidequestApp() {
                     }
                 )
             }
+            routeShareNotice?.let { notice ->
+                RouteShareNoticeToast(
+                    notice = notice,
+                    onDismiss = { routeShareNotice = null }
+                )
+            }
         } else {
             LoginRoute(
                 authRepository = authRepository,
@@ -602,6 +697,75 @@ private fun RouteGenerationNoticeDialog(
                             onClick = onDismiss
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteShareNoticeToast(
+    notice: RouteShareNotice,
+    onDismiss: () -> Unit
+) {
+    val spec = notice.toToastSpec()
+    LaunchedEffect(notice) {
+        if (notice != RouteShareNotice.Submitting) {
+            delay(ROUTE_SHARE_NOTICE_DISMISS_MS)
+            onDismiss()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 24.dp),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 360.dp)
+                .semantics {
+                    liveRegion = LiveRegionMode.Polite
+                },
+            shape = RoundedCornerShape(18.dp),
+            color = AppSurface,
+            border = BorderStroke(1.dp, spec.accent.copy(alpha = 0.28f)),
+            shadowElevation = 10.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(36.dp),
+                    shape = CircleShape,
+                    color = spec.accentSurface,
+                    border = BorderStroke(1.dp, spec.accent.copy(alpha = 0.24f))
+                ) {
+                    RouteGenerationStatusMark(
+                        tone = spec.tone,
+                        color = spec.accent,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = spec.title,
+                        color = AppText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = spec.message,
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -686,6 +850,32 @@ private fun RouteGenerationStatusMark(
     }
 }
 
+private fun RouteShareNotice.toToastSpec(): RouteShareToastSpec {
+    return when (this) {
+        RouteShareNotice.Submitting -> RouteShareToastSpec(
+            title = "正在生成分享图",
+            message = "分享完成后会自动同步到发现页。",
+            tone = RouteGenerationNoticeTone.Info,
+            accent = InfoCyan,
+            accentSurface = InfoCyanSurface
+        )
+        RouteShareNotice.Completed -> RouteShareToastSpec(
+            title = "路线已分享",
+            message = "图片和文字已保存到发现页。",
+            tone = RouteGenerationNoticeTone.Success,
+            accent = RouteTeal,
+            accentSurface = DeepTeal.copy(alpha = 0.08f)
+        )
+        RouteShareNotice.Failed -> RouteShareToastSpec(
+            title = "路线分享失败",
+            message = "分享图没有生成成功，请稍后重试。",
+            tone = RouteGenerationNoticeTone.Error,
+            accent = ErrorRed,
+            accentSurface = ErrorSurface
+        )
+    }
+}
+
 @Composable
 private fun RouteGenerationNotice.toNoticeSpec(): RouteGenerationNoticeSpec {
     return when (this) {
@@ -729,6 +919,14 @@ private data class RouteGenerationNoticeSpec(
     val accentSurface: Color
 )
 
+private data class RouteShareToastSpec(
+    val title: String,
+    val message: String,
+    val tone: RouteGenerationNoticeTone,
+    val accent: Color,
+    val accentSurface: Color
+)
+
 private enum class RouteGenerationNoticeTone {
     Info,
     Success,
@@ -739,6 +937,12 @@ private sealed interface RouteGenerationNotice {
     data object Submitted : RouteGenerationNotice
     data class Completed(val routeGeneration: RouteGeneration) : RouteGenerationNotice
     data object Failed : RouteGenerationNotice
+}
+
+private sealed interface RouteShareNotice {
+    data object Submitting : RouteShareNotice
+    data object Completed : RouteShareNotice
+    data object Failed : RouteShareNotice
 }
 
 private enum class AppScreen {
@@ -754,3 +958,27 @@ private enum class AppScreen {
 }
 
 private val PROFILE_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
+
+private fun RouteGeneration.onlyRoute(routeCode: String?): RouteGeneration {
+    if (routeCode.isNullOrBlank()) {
+        return this
+    }
+    val route = this.routes.firstOrNull { candidate -> candidate.routeCode == routeCode }
+        ?: return this
+    return this.copy(
+        routes = listOf(route),
+        activeRouteCode = routeCode
+    )
+}
+
+private fun compressRouteShareImage(imageBytes: ByteArray): ByteArray {
+    val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        ?: throw IllegalStateException("分享地图图片解析失败")
+    return ByteArrayOutputStream().use { outputStream ->
+        bitmap.compress(Bitmap.CompressFormat.JPEG, ROUTE_SHARE_JPEG_QUALITY, outputStream)
+        outputStream.toByteArray()
+    }
+}
+
+private const val ROUTE_SHARE_JPEG_QUALITY = 86
+private const val ROUTE_SHARE_NOTICE_DISMISS_MS = 2400L

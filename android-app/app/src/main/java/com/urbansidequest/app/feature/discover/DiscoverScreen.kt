@@ -1,12 +1,17 @@
 package com.urbansidequest.app.feature.discover
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,35 +23,68 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.urbansidequest.app.BuildConfig
+import com.urbansidequest.app.domain.model.ProfileStats
+import com.urbansidequest.app.domain.model.RouteShare
+import com.urbansidequest.app.domain.model.resolveProfileLevel
+import com.urbansidequest.app.ui.components.EmptyState
 import com.urbansidequest.app.ui.components.UrbanBadge
 import com.urbansidequest.app.ui.components.UrbanBadgeStyle
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
-import com.urbansidequest.app.ui.components.UrbanListContainer
-import com.urbansidequest.app.ui.components.UrbanMetricGrid
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
 import com.urbansidequest.app.ui.components.UrbanScreenTitle
 import com.urbansidequest.app.ui.components.UrbanTaskCard
 import com.urbansidequest.app.ui.theme.AppBackground
 import com.urbansidequest.app.ui.theme.AppBorder
-import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.URL
 
 @Composable
 fun DiscoverScreen(
     nickname: String = "",
+    completedRouteCount: Int = 0,
+    travelDistanceMeters: Long = 0L,
+    explorationStreakDays: Int = 0,
+    routeShares: List<RouteShare> = emptyList(),
+    isRouteSharesLoading: Boolean = false,
+    routeSharesError: String? = null,
+    onOpenShare: (RouteShare) -> Unit = {},
     onOpenMap: () -> Unit = {},
     onOpenRoutes: () -> Unit = {},
     onOpenProfile: () -> Unit = {}
 ) {
     val displayNickname = nickname.ifBlank { "城市探索者" }
+    val level = remember(completedRouteCount, travelDistanceMeters) {
+        resolveProfileLevel(
+            ProfileStats(
+                completedRoutes = completedRouteCount,
+                travelDistanceMeters = travelDistanceMeters,
+                favoriteRoutes = 0,
+                likedRoutes = 0,
+                dislikedRoutes = 0,
+                explorationStreakDays = explorationStreakDays,
+                profileConfidence = 0.0
+            )
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -75,9 +113,22 @@ fun DiscoverScreen(
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Lv.7 城市漫游者", color = AppText, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    Text("连续 6 天", color = AppTextMuted, style = MaterialTheme.typography.labelSmall)
-                    Text("18 条路线", color = AppTextMuted, style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        text = "Lv.${level.number} ${level.title}",
+                        color = AppText,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "连续 ${explorationStreakDays} 天",
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Text(
+                        text = "$completedRouteCount 条路线",
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
             }
 
@@ -103,23 +154,6 @@ fun DiscoverScreen(
                 UrbanPrimaryButton(text = "去地图选点", onClick = onOpenMap)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                QuickEntryCard(
-                    modifier = Modifier.weight(1f),
-                    title = "继续上次副本",
-                    description = "苏州河半日走法 · 第 3 站",
-                    style = UrbanBadgeStyle.Warning,
-                    onClick = onOpenRoutes
-                )
-                QuickEntryCard(
-                    modifier = Modifier.weight(1f),
-                    title = "查看已生成路线",
-                    description = "路线 A、备选路线和风险提醒",
-                    style = UrbanBadgeStyle.Reward,
-                    onClick = onOpenRoutes
-                )
-            }
-
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -127,50 +161,31 @@ fun DiscoverScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "可继续的城市副本",
+                        text = "路线分享",
                         color = AppText,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    UrbanBadge(text = "最近更新", style = UrbanBadgeStyle.Reward)
+                    UrbanBadge(text = "真实地图", style = UrbanBadgeStyle.Reward)
                 }
-                UrbanListContainer {
-                    CopyRow(
-                        title = "苏州河半日走法",
-                        meta = "路线 A 已生成 · 当前第 3 站 · 还剩 2 个检查点",
-                        action = "继续",
-                        onClick = onOpenRoutes
+                when {
+                    isRouteSharesLoading -> EmptyState(
+                        title = "正在加载路线分享",
+                        description = "正在同步大家走完后分享的城市路线。"
                     )
-                    CopyRow(
-                        title = "老城地标短线",
-                        meta = "昨天完成 · 收藏 1 个私房地点 · 可复走",
-                        action = "回看",
-                        onClick = onOpenRoutes
+                    routeSharesError != null -> EmptyState(
+                        title = "路线分享加载失败",
+                        description = routeSharesError
                     )
-                    CopyRow(
-                        title = "霓虹巷口夜游",
-                        meta = "已保存 · 适合傍晚 18:00 后重新生成",
-                        action = "查看",
-                        onClick = onOpenRoutes
+                    routeShares.isEmpty() -> EmptyState(
+                        title = "还没有分享路线",
+                        description = "走完路线后可以从走过路线里分享，发现页会展示真实地图缩略图和分享文字。"
+                    )
+                    else -> RouteShareWaterfall(
+                        shares = routeShares,
+                        onOpenShare = onOpenShare
                     )
                 }
-            }
-
-            UrbanTaskCard {
-                Text(
-                    text = "本周资产",
-                    color = AppText,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                UrbanMetricGrid(
-                    items = listOf(
-                        "18" to "完成任务",
-                        "42.6" to "步行公里",
-                        "9" to "收藏路线",
-                        "6" to "连续天数"
-                    )
-                )
             }
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -187,45 +202,154 @@ fun DiscoverScreen(
 }
 
 @Composable
-private fun QuickEntryCard(
-    title: String,
-    description: String,
-    style: UrbanBadgeStyle,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun RouteShareWaterfall(
+    shares: List<RouteShare>,
+    onOpenShare: (RouteShare) -> Unit
 ) {
-    UrbanTaskCard(
-        modifier = modifier.clickable(onClick = onClick),
-        highlighted = style != UrbanBadgeStyle.Default
+    val columns = remember(shares) {
+        listOf(
+            shares.filterIndexed { index, _ -> index % 2 == 0 },
+            shares.filterIndexed { index, _ -> index % 2 == 1 }
+        )
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        UrbanBadge(text = if (style == UrbanBadgeStyle.Warning) "继续" else "回看", style = style)
-        Text(text = title, color = AppText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-        Text(text = description, color = AppTextMuted, style = MaterialTheme.typography.bodySmall)
+        columns.forEach { columnShares ->
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                columnShares.forEach { share ->
+                    RouteShareTile(
+                        share = share,
+                        onClick = { onOpenShare(share) }
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun CopyRow(
-    title: String,
-    meta: String,
-    action: String,
+private fun RouteShareTile(
+    share: RouteShare,
     onClick: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            Text(text = title, color = AppText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text(text = meta, color = AppTextMuted, style = MaterialTheme.typography.bodySmall)
+        RouteShareImage(
+            imageUrl = share.imageUrl,
+            contentDescription = "${share.routeTitle} 路线地图缩略图"
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                text = share.routeTitle,
+                color = AppText,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2
+            )
+            Text(
+                text = share.shareText,
+                color = AppText,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
-        UrbanBadge(text = action, style = UrbanBadgeStyle.Default)
     }
 }
+
+@Composable
+private fun RouteShareImage(
+    imageUrl: String,
+    contentDescription: String
+) {
+    val resolvedImageUrl = remember(imageUrl) { resolveRouteShareImageUrl(imageUrl) }
+    var bitmap by remember(resolvedImageUrl) { mutableStateOf<Bitmap?>(null) }
+    var isLoadFinished by remember(resolvedImageUrl) { mutableStateOf(false) }
+    val imageAspectRatio = remember(bitmap, resolvedImageUrl) {
+        routeShareImageAspectRatio(bitmap, resolvedImageUrl)
+    }
+    LaunchedEffect(resolvedImageUrl) {
+        bitmap = null
+        isLoadFinished = false
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = URL(resolvedImageUrl).openConnection().apply {
+                    connectTimeout = 6_000
+                    readTimeout = 10_000
+                }
+                connection.getInputStream().use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream)
+                }
+            }.getOrNull()
+        }
+        isLoadFinished = true
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(imageAspectRatio)
+            .clip(MaterialTheme.shapes.medium)
+            .background(AppSurfaceMuted),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = contentDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        } else {
+            Text(
+                text = if (isLoadFinished) "地图缩略图暂不可用" else "正在加载地图缩略图",
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+private fun resolveRouteShareImageUrl(imageUrl: String): String {
+    val baseUrl = BuildConfig.MINIO_IMAGE_BASE_URL.trimEnd('/')
+    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+        val existingPath = runCatching { URL(imageUrl).path }.getOrNull()
+        if (!existingPath.isNullOrBlank() && existingPath.startsWith("/urban-sidequest-shares/")) {
+            return "$baseUrl$existingPath"
+        }
+        return imageUrl
+    }
+    val imagePath = if (imageUrl.startsWith("/")) imageUrl else "/$imageUrl"
+    return "$baseUrl$imagePath"
+}
+
+private fun routeShareImageAspectRatio(bitmap: Bitmap?, imageUrl: String): Float {
+    val rawAspectRatio = if (bitmap != null && bitmap.height > 0) {
+        bitmap.width.toFloat() / bitmap.height.toFloat()
+    } else {
+        fallbackRouteShareImageAspectRatio(imageUrl)
+    }
+    return rawAspectRatio.coerceIn(
+        MIN_ROUTE_SHARE_IMAGE_ASPECT_RATIO,
+        MAX_ROUTE_SHARE_IMAGE_ASPECT_RATIO
+    )
+}
+
+private fun fallbackRouteShareImageAspectRatio(imageUrl: String): Float {
+    return when (imageUrl.hashCode().ushr(1) % 4) {
+        0 -> 1.06f
+        1 -> 1.22f
+        2 -> 1.38f
+        else -> 1.55f
+    }
+}
+
+private const val MIN_ROUTE_SHARE_IMAGE_ASPECT_RATIO = 0.86f
+private const val MAX_ROUTE_SHARE_IMAGE_ASPECT_RATIO = 1.62f

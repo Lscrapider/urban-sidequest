@@ -66,6 +66,11 @@ route:
         secure: ${ROUTE_PREF_MINIO_SECURE:false}
         prefix: ${ROUTE_PREF_MINIO_PREFIX:route-preference}
         write-enabled: ${ROUTE_PREF_MINIO_WRITE_ENABLED:true}
+  share:
+    storage:
+      bucket: ${ROUTE_SHARE_MINIO_BUCKET:urban-sidequest-shares}
+      prefix: ${ROUTE_SHARE_MINIO_PREFIX:route-share}
+      max-image-size: ${ROUTE_SHARE_MAX_IMAGE_SIZE:2MB}
 auth:
   jwt:
     issuer: ${AUTH_JWT_ISSUER}

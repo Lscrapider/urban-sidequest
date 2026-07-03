@@ -85,6 +85,7 @@ POI 层的训练 / 校准重点不是一开始就上黑盒模型，而是先把�
 - Redis host：`common-redis:6379`
 - MinIO endpoint：`http://common-minio:9000`；本地宿主机通常使用 `http://localhost:9000`
 - MinIO training bucket：`urban-sidequest-training`
+- MinIO share bucket：`urban-sidequest-shares`
 - database：`urban_sidequest`
 - user：`urban_sidequest`
 - 本地后端运行时可通过通用栈端口映射访问 `localhost:5432` 和 `localhost:6379`
