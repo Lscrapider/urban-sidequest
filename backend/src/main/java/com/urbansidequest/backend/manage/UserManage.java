@@ -24,4 +24,12 @@ public class UserManage extends ServiceImpl<UserMapper, UserPO> {
         this.baseMapper.insertByPhone(phone, DEFAULT_NICKNAME);
         return this.findByPhone(phone).orElseThrow();
     }
+
+    public void incrementRouteAssetStats(UUID userId, long distanceMeters) {
+        long normalizedDistanceMeters = Math.max(distanceMeters, 0L);
+        int updatedCount = this.baseMapper.incrementRouteAssetStats(userId, normalizedDistanceMeters);
+        if (updatedCount != 1) {
+            throw new IllegalStateException("用户路线资产更新失败");
+        }
+    }
 }

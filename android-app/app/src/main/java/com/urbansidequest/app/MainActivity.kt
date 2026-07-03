@@ -40,6 +40,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.amap.api.maps.model.LatLng
 import com.urbansidequest.app.data.api.AuthApi
+import com.urbansidequest.app.data.api.AuthUserResponse
 import com.urbansidequest.app.data.api.RouteApi
 import com.urbansidequest.app.data.api.RouteGenerateRequest
 import com.urbansidequest.app.data.auth.AuthRepository
@@ -50,13 +51,18 @@ import com.urbansidequest.app.data.route.RouteRepository
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
+import com.urbansidequest.app.domain.model.RouteInteractionState
+import com.urbansidequest.app.domain.model.RouteReaction
 import com.urbansidequest.app.feature.discover.DiscoverScreen
 import com.urbansidequest.app.feature.execution.RouteExecutionScreen
 import com.urbansidequest.app.feature.login.LoginRoute
 import com.urbansidequest.app.feature.mapselect.MapSelectScreen
 import com.urbansidequest.app.feature.poi.PoiExplanationScreen
+import com.urbansidequest.app.feature.profile.ExplorationPreferenceAnswers
+import com.urbansidequest.app.feature.profile.ProfileQuestionnaireScreen
 import com.urbansidequest.app.feature.profile.ProfileScreen
 import com.urbansidequest.app.feature.routeconfig.RouteConfigScreen
+import com.urbansidequest.app.feature.routes.FavoriteRoutesScreen
 import com.urbansidequest.app.feature.routes.RoutesScreen
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
 import com.urbansidequest.app.ui.components.UrbanSecondaryButton
@@ -72,6 +78,8 @@ import com.urbansidequest.app.ui.theme.InfoCyanSurface
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.UrbanSidequestTheme
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
 
 class MainActivity : ComponentActivity() {
 
@@ -112,6 +120,11 @@ private fun UrbanSidequestApp() {
     var selectedCenter by remember { mutableStateOf<GeoPoint?>(null) }
     var routeGenerationNotice by remember { mutableStateOf<RouteGenerationNotice?>(null) }
     var isRouteGenerationSubmitting by remember { mutableStateOf(false) }
+    var currentUser by remember { mutableStateOf<AuthUserResponse?>(null) }
+    var routeInteractions by remember { mutableStateOf<Map<String, RouteInteractionState>>(emptyMap()) }
+    var explorationPreferenceAnswers by remember { mutableStateOf<ExplorationPreferenceAnswers?>(null) }
+    var explorationStreakDays by remember { mutableStateOf(0) }
+    var lastProfileVisitDate by remember { mutableStateOf<LocalDate?>(null) }
 
     fun pushScreen(screen: AppScreen) {
         screenStack = if (screenStack.lastOrNull() == screen) {
@@ -151,8 +164,71 @@ private fun UrbanSidequestApp() {
         authRepository.clearSession()
         clearMapSelectionState()
         routeHistoryGroups = emptyList()
+        currentUser = null
+        routeInteractions = emptyMap()
+        explorationPreferenceAnswers = null
+        explorationStreakDays = 0
+        lastProfileVisitDate = null
         screenStack = listOf(AppScreen.Discover)
         isLoggedIn = false
+    }
+
+    fun routeInteractionKey(candidateSetId: String, routeCode: String): String {
+        return "$candidateSetId:$routeCode"
+    }
+
+    fun saveRouteInteraction(requestId: String, candidateSetId: String, routeCode: String, interaction: RouteInteractionState) {
+        val key = routeInteractionKey(candidateSetId, routeCode)
+        routeActionScope.launch {
+            runCatching {
+                routeRepository.saveRouteInteraction(requestId, routeCode, interaction)
+            }.onSuccess { savedInteraction ->
+                routeInteractions = routeInteractions + (key to savedInteraction)
+            }.onFailure { throwable ->
+                if (RouteErrorMapper.isAuthenticationError(throwable)) {
+                    expireAuth()
+                } else {
+                    routeHistoryError = "路线互动状态保存失败，请稍后重试"
+                }
+            }
+        }
+    }
+
+    fun toggleRouteFavorite(requestId: String, candidateSetId: String, routeCode: String) {
+        val key = routeInteractionKey(candidateSetId, routeCode)
+        val current = routeInteractions[key] ?: RouteInteractionState()
+        val nextFavorite = !current.isFavorite
+        val next = current.copy(
+            isFavorite = nextFavorite,
+            reaction = if (nextFavorite && current.reaction == RouteReaction.Disliked) null else current.reaction
+        )
+        routeInteractions = routeInteractions + (key to next)
+        saveRouteInteraction(requestId, candidateSetId, routeCode, next)
+    }
+
+    fun reactToRoute(requestId: String, candidateSetId: String, routeCode: String, reaction: RouteReaction) {
+        val key = routeInteractionKey(candidateSetId, routeCode)
+        val current = routeInteractions[key] ?: RouteInteractionState()
+        val nextReaction = if (current.reaction == reaction) null else reaction
+        val next = current.copy(
+            isFavorite = if (nextReaction == RouteReaction.Disliked) false else current.isFavorite,
+            reaction = nextReaction
+        )
+        routeInteractions = routeInteractions + (key to next)
+        saveRouteInteraction(requestId, candidateSetId, routeCode, next)
+    }
+
+    fun markProfileVisited() {
+        val today = LocalDate.now(PROFILE_ZONE)
+        if (lastProfileVisitDate == today) {
+            return
+        }
+        explorationStreakDays = if (lastProfileVisitDate == today.minusDays(1)) {
+            explorationStreakDays + 1
+        } else {
+            1
+        }
+        lastProfileVisitDate = today
     }
 
     fun openMapWithActiveRouteFallback() {
@@ -210,6 +286,30 @@ private fun UrbanSidequestApp() {
         isRouteHistoryLoading = false
     }
 
+    suspend fun refreshRouteInteractions() {
+        runCatching {
+            routeRepository.fetchRouteInteractions()
+        }.onSuccess { interactions ->
+            routeInteractions = interactions
+        }.onFailure { throwable ->
+            if (RouteErrorMapper.isAuthenticationError(throwable)) {
+                expireAuth()
+            }
+        }
+    }
+
+    suspend fun refreshCurrentUser() {
+        runCatching {
+            authRepository.fetchCurrentUser()
+        }.onSuccess { user ->
+            currentUser = user
+        }.onFailure { throwable ->
+            if (RouteErrorMapper.isAuthenticationError(throwable)) {
+                expireAuth()
+            }
+        }
+    }
+
     fun requestRouteHistoryRefresh() {
         routeActionScope.launch {
             refreshRouteHistory()
@@ -256,6 +356,7 @@ private fun UrbanSidequestApp() {
                 latestRouteGeneration = routeGeneration
                 mapInitialRouteCode = routeCode
                 refreshRouteHistory()
+                refreshCurrentUser()
             }.onFailure { throwable ->
                 handleRouteFailure(throwable, RouteErrorMapper.ROUTE_LOAD_FAILED_MESSAGE)
             }
@@ -296,13 +397,23 @@ private fun UrbanSidequestApp() {
                 popScreen()
             }
             val currentScreen = screenStack.last()
+            LaunchedEffect(isLoggedIn) {
+                refreshCurrentUser()
+                refreshRouteInteractions()
+            }
             LaunchedEffect(currentScreen) {
-                if (currentScreen == AppScreen.Routes) {
+                if (currentScreen == AppScreen.Routes || currentScreen == AppScreen.FavoriteRoutes || currentScreen == AppScreen.Profile) {
                     refreshRouteHistory()
+                    refreshRouteInteractions()
+                }
+                if (currentScreen == AppScreen.Profile) {
+                    refreshCurrentUser()
+                    markProfileVisited()
                 }
             }
             when (currentScreen) {
                 AppScreen.Discover -> DiscoverScreen(
+                    nickname = currentUser?.nickname.orEmpty(),
                     onOpenMap = ::openMapWithActiveRouteFallback,
                     onOpenRoutes = { pushScreen(AppScreen.Routes) },
                     onOpenProfile = { pushScreen(AppScreen.Profile) }
@@ -311,6 +422,10 @@ private fun UrbanSidequestApp() {
                 AppScreen.Map -> MapSelectScreen(
                     routeGeneration = latestRouteGeneration,
                     initialVisibleRouteCode = mapInitialRouteCode,
+                    routeInteractions = routeInteractions,
+                    routeInteractionKey = ::routeInteractionKey,
+                    onToggleRouteFavorite = ::toggleRouteFavorite,
+                    onReactToRoute = ::reactToRoute,
                     onOpenRouteConfig = { center ->
                         selectedCenter = center
                         pushScreen(AppScreen.RouteConfig)
@@ -347,6 +462,20 @@ private fun UrbanSidequestApp() {
                     onOpenProfile = { pushScreen(AppScreen.Profile) }
                 )
 
+                AppScreen.FavoriteRoutes -> FavoriteRoutesScreen(
+                    historyGroups = routeHistoryGroups,
+                    routeInteractions = routeInteractions,
+                    routeInteractionKey = ::routeInteractionKey,
+                    isLoading = isRouteHistoryLoading,
+                    errorMessage = routeHistoryError,
+                    onOpenFavoriteRoute = { requestId, routeCode -> openHistoryOnMap(requestId, routeCode) },
+                    onRefreshHistory = ::requestRouteHistoryRefresh,
+                    onOpenDiscover = ::replaceWithDiscover,
+                    onOpenMap = ::openMapWithActiveRouteFallback,
+                    onOpenRoutes = { pushScreen(AppScreen.Routes) },
+                    onOpenProfile = { pushScreen(AppScreen.Profile) }
+                )
+
                 AppScreen.RouteExecution -> RouteExecutionScreen(
                     onBackToRoutes = ::popScreen,
                     onOpenPoi = { pushScreen(AppScreen.PoiExplanation) },
@@ -364,9 +493,26 @@ private fun UrbanSidequestApp() {
                 )
 
                 AppScreen.Profile -> ProfileScreen(
+                    nickname = currentUser?.nickname.orEmpty(),
+                    completedRouteCount = currentUser?.completedRouteCount ?: 0,
+                    travelDistanceMeters = currentUser?.travelDistanceMeters ?: 0L,
+                    routeInteractions = routeInteractions,
+                    explorationStreakDays = explorationStreakDays,
+                    preferenceAnswers = explorationPreferenceAnswers,
+                    onOpenQuestionnaire = { pushScreen(AppScreen.ProfileQuestionnaire) },
+                    onOpenFavoriteRoutes = { pushScreen(AppScreen.FavoriteRoutes) },
                     onOpenDiscover = ::replaceWithDiscover,
                     onOpenMap = ::openMapWithActiveRouteFallback,
                     onOpenRoutes = { pushScreen(AppScreen.Routes) }
+                )
+
+                AppScreen.ProfileQuestionnaire -> ProfileQuestionnaireScreen(
+                    answers = explorationPreferenceAnswers,
+                    onBack = ::popScreen,
+                    onSave = { answers ->
+                        explorationPreferenceAnswers = answers
+                        popScreen()
+                    }
                 )
             }
             routeGenerationNotice?.let { notice ->
@@ -392,6 +538,10 @@ private fun UrbanSidequestApp() {
                 onLoginSuccess = {
                     isLoggedIn = true
                     screenStack = listOf(AppScreen.Discover)
+                    routeActionScope.launch {
+                        refreshCurrentUser()
+                        refreshRouteInteractions()
+                    }
                 }
             )
         }
@@ -598,5 +748,9 @@ private enum class AppScreen {
     Routes,
     RouteExecution,
     PoiExplanation,
-    Profile
+    Profile,
+    FavoriteRoutes,
+    ProfileQuestionnaire
 }
+
+private val PROFILE_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")

@@ -67,6 +67,13 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private CurrentUserVO toCurrentUserVO(UserPO user) {
-        return new CurrentUserVO(user.getId(), user.getPhone(), user.getNickname(), user.getAvatarUrl());
+        return new CurrentUserVO(
+                user.getId(),
+                user.getPhone(),
+                user.getNickname(),
+                user.getAvatarUrl(),
+                user.getCompletedRouteCount() == null ? 0 : user.getCompletedRouteCount(),
+                user.getTravelDistanceMeters() == null ? 0L : user.getTravelDistanceMeters()
+        );
     }
 }

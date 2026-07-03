@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,10 +47,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -79,6 +84,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -111,6 +117,8 @@ import com.urbansidequest.app.data.map.searchAmapInputTips
 import com.urbansidequest.app.domain.model.GeneratedRoute
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
+import com.urbansidequest.app.domain.model.RouteInteractionState
+import com.urbansidequest.app.domain.model.RouteReaction
 import com.urbansidequest.app.domain.model.RouteSegment
 import com.urbansidequest.app.domain.model.RouteStop
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
@@ -124,9 +132,14 @@ import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
+import com.urbansidequest.app.ui.theme.AreaGreen
+import com.urbansidequest.app.ui.theme.AreaGreenSurface
 import com.urbansidequest.app.ui.theme.DeepTeal
+import com.urbansidequest.app.ui.theme.InfoCyan
+import com.urbansidequest.app.ui.theme.InfoCyanSurface
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.WarningAmber
+import com.urbansidequest.app.ui.theme.WarningSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -165,8 +178,10 @@ private val RouteSwitcherShape = RoundedCornerShape(14.dp)
 private val RouteSwitcherSegmentShape = RoundedCornerShape(12.dp)
 private val RouteSwitcherSegmentWidth = 42.dp
 private val RouteSwitcherSegmentHeight = 24.dp
-private val RoutePoiRailWidth = 40.dp
-private val RoutePoiRailItemSize = 30.dp
+private val RoutePoiRailWidth = 24.dp
+private val RoutePoiRailTouchSize = 24.dp
+private val RoutePoiRailDotSize = 12.dp
+private val RoutePoiRailConnectorHeight = 18.dp
 
 private data class RouteStopMarkerPayload(
     val routeIndex: Int,
@@ -187,6 +202,10 @@ private data class RouteSegmentPolylinePayload(
 fun MapSelectScreen(
     routeGeneration: RouteGeneration? = null,
     initialVisibleRouteCode: String? = null,
+    routeInteractions: Map<String, RouteInteractionState> = emptyMap(),
+    routeInteractionKey: (String, String) -> String = { candidateSetId, routeCode -> "$candidateSetId:$routeCode" },
+    onToggleRouteFavorite: (String, String, String) -> Unit = { _, _, _ -> },
+    onReactToRoute: (String, String, String, RouteReaction) -> Unit = { _, _, _, _ -> },
     onOpenRouteConfig: (GeoPoint) -> Unit = {},
     onStartRoute: (String, String) -> Unit = { _, _ -> },
     onCompleteRoute: (String, String) -> Unit = { _, _ -> },
@@ -240,6 +259,12 @@ fun MapSelectScreen(
     fun resetRouteSheet() {
         routeSheetProgress = 0f
         routeSheetHiddenProgress = 0f
+        routeSheetDragOffset = 0f
+    }
+
+    fun hideRouteSheet() {
+        routeSheetProgress = 0f
+        routeSheetHiddenProgress = 1f
         routeSheetDragOffset = 0f
     }
 
@@ -304,8 +329,16 @@ fun MapSelectScreen(
         visibleRouteIndexes = setOf(routeIndex)
         selectedStopPayload = RouteStopMarkerPayload(routeIndex = routeIndex, stop = stop)
         selectedSegmentPayload = null
-        resetRouteSheet()
+        hideRouteSheet()
         moveToLocation(stop.location.toLatLng(), 17f)
+    }
+
+    fun focusSegment(payload: RouteSegmentPolylinePayload) {
+        selectedRouteIndex = payload.routeIndex
+        visibleRouteIndexes = setOf(payload.routeIndex)
+        selectedSegmentPayload = payload
+        selectedStopPayload = null
+        hideRouteSheet()
     }
 
     fun checkInStop(stop: RouteStop) {
@@ -430,11 +463,7 @@ fun MapSelectScreen(
                 focusStop(payload.routeIndex, payload.stop)
             },
             onRouteSegmentClick = { payload ->
-                selectedRouteIndex = payload.routeIndex
-                visibleRouteIndexes = setOf(payload.routeIndex)
-                selectedSegmentPayload = payload
-                selectedStopPayload = null
-                resetRouteSheet()
+                focusSegment(payload)
             }
         )
 
@@ -500,10 +529,12 @@ fun MapSelectScreen(
                     .align(Alignment.CenterStart)
                     .padding(start = 10.dp),
                 route = railRoute,
+                routeIndex = railRouteIndex,
                 currentStopId = railCurrentStopId,
                 completedStopIds = if (isRouteExecutionMode) completedStopIds else emptySet(),
                 routeColor = routeColor(railRouteIndex).toComposeColor(),
-                onSelectStop = { stop -> focusStop(railRouteIndex, stop) }
+                onSelectStop = { stop -> focusStop(railRouteIndex, stop) },
+                onSelectSegment = ::focusSegment
             )
         }
 
@@ -568,6 +599,9 @@ fun MapSelectScreen(
                         routeIndex = selectedRoutePosition,
                         routeCount = routes.size,
                         isRouteCompleted = routeGeneration?.executionStatus == "COMPLETED",
+                        interaction = routeGeneration?.candidateSetId
+                            ?.let { candidateSetId -> routeInteractions[routeInteractionKey(candidateSetId, selectedRoute.routeCode)] }
+                            ?: RouteInteractionState(),
                         sheetProgress = routeSheetProgress,
                         hiddenProgress = routeSheetHiddenProgress,
                         onDrag = { drag -> dragRouteSheet(drag) },
@@ -578,13 +612,15 @@ fun MapSelectScreen(
                                 onStartRoute(requestId, selectedRoute.routeCode)
                             } ?: onOpenRoutes()
                         },
-                        onAdjustRoute = {
-                            onOpenRouteConfig(
-                                GeoPoint(
-                                    longitudeGcj02 = currentLocation.longitude,
-                                    latitudeGcj02 = currentLocation.latitude
-                                )
-                            )
+                        onToggleFavorite = {
+                            routeGeneration?.let { generation ->
+                                onToggleRouteFavorite(generation.requestId, generation.candidateSetId, selectedRoute.routeCode)
+                            }
+                        },
+                        onReact = { reaction ->
+                            routeGeneration?.let { generation ->
+                                onReactToRoute(generation.requestId, generation.candidateSetId, selectedRoute.routeCode, reaction)
+                            }
                         }
                     )
                 }
@@ -1546,20 +1582,21 @@ private fun PoiImageDialog(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RouteDetailSheet(
     route: GeneratedRoute,
     routeIndex: Int,
     routeCount: Int,
     isRouteCompleted: Boolean,
+    interaction: RouteInteractionState,
     sheetProgress: Float,
     hiddenProgress: Float,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
     onLocateStop: (RouteStop) -> Unit,
     onStartRoute: () -> Unit,
-    onAdjustRoute: () -> Unit
+    onToggleFavorite: () -> Unit,
+    onReact: (RouteReaction) -> Unit
 ) {
     val routeColor = routeColor(routeIndex).toComposeColor()
     val detailHeight = 300.dp * sheetProgress.coerceIn(0f, 1f)
@@ -1597,7 +1634,9 @@ private fun RouteDetailSheet(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
@@ -1616,23 +1655,31 @@ private fun RouteDetailSheet(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Text(
-                    text = "路线 ${route.routeCode}",
-                    color = routeColor.copy(alpha = 0.82f),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "路线 ${route.routeCode}",
+                        color = routeColor.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    RouteInteractionActions(
+                        interaction = interaction,
+                        onToggleFavorite = onToggleFavorite,
+                        onReact = onReact
+                    )
+                }
             }
 
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                UrbanChip(text = formatDuration(route.totalDurationMinutes), selected = true)
-                UrbanChip(text = formatDistance(route.totalDistanceMeters))
-                UrbanChip(text = formatBudget(route.budgetCent))
-                UrbanChip(text = formatRiskLevel(route.riskLevel))
-            }
+            RouteMetricStrip(
+                duration = formatDuration(route.totalDurationMinutes),
+                distance = formatDistance(route.totalDistanceMeters),
+                budget = formatBudget(route.budgetCent),
+                risk = formatRiskLevel(route.riskLevel),
+                routeColor = routeColor
+            )
 
             Text(
                 text = route.summary,
@@ -1668,19 +1715,167 @@ private fun RouteDetailSheet(
                 onClick = onStartRoute,
                 enabled = !isRouteCompleted
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                UrbanSecondaryButton(
-                    modifier = Modifier.weight(1f),
-                    text = "调整条件",
-                    onClick = onAdjustRoute
-                )
-                UrbanSecondaryButton(
-                    modifier = Modifier.weight(1f),
-                    text = "站点说明",
-                    onClick = {
-                        route.stops.sortedBy(RouteStop::order).firstOrNull()?.let(onLocateStop)
-                    }
-                )
+        }
+    }
+}
+
+@Composable
+private fun RouteMetricStrip(
+    duration: String,
+    distance: String,
+    budget: String,
+    risk: String,
+    routeColor: Color
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        RouteMetricPill(
+            modifier = Modifier.weight(1f),
+            label = "时间",
+            value = duration,
+            accentColor = routeColor,
+            surfaceColor = routeColor.copy(alpha = 0.10f)
+        )
+        RouteMetricPill(
+            modifier = Modifier.weight(1f),
+            label = "距离",
+            value = distance,
+            accentColor = InfoCyan,
+            surfaceColor = InfoCyanSurface
+        )
+        RouteMetricPill(
+            modifier = Modifier.weight(1f),
+            label = "预算",
+            value = budget,
+            accentColor = AreaGreen,
+            surfaceColor = AreaGreenSurface
+        )
+        RouteMetricPill(
+            modifier = Modifier.weight(1f),
+            label = "风险",
+            value = risk,
+            accentColor = WarningAmber,
+            surfaceColor = WarningSurface
+        )
+    }
+}
+
+@Composable
+private fun RouteMetricPill(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+    accentColor: Color,
+    surfaceColor: Color
+) {
+    Surface(
+        modifier = modifier.height(46.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = surfaceColor,
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.28f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(
+                text = label,
+                color = accentColor,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = value,
+                color = AppText,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun RouteInteractionActions(
+    interaction: RouteInteractionState,
+    onToggleFavorite: () -> Unit,
+    onReact: (RouteReaction) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RouteActionButton(
+            selected = interaction.isFavorite,
+            contentDescription = if (interaction.isFavorite) "取消收藏路线" else "收藏路线",
+            onClick = onToggleFavorite
+        ) {
+            Icon(
+                imageVector = if (interaction.isFavorite) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp),
+                tint = if (interaction.isFavorite) RouteTeal else AppTextMuted
+            )
+        }
+        RouteActionButton(
+            selected = interaction.reaction == RouteReaction.Liked,
+            contentDescription = "喜欢这条路线",
+            onClick = { onReact(RouteReaction.Liked) }
+        ) {
+            Icon(
+                imageVector = Icons.Filled.ThumbUp,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp),
+                tint = if (interaction.reaction == RouteReaction.Liked) RouteTeal else AppTextMuted
+            )
+        }
+        RouteActionButton(
+            selected = interaction.reaction == RouteReaction.Disliked,
+            contentDescription = "不喜欢这条路线",
+            onClick = { onReact(RouteReaction.Disliked) }
+        ) {
+            Icon(
+                imageVector = Icons.Filled.ThumbDown,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp),
+                tint = if (interaction.reaction == RouteReaction.Disliked) WarningAmber else AppTextMuted
+            )
+        }
+    }
+}
+
+@Composable
+private fun RouteActionButton(
+    modifier: Modifier = Modifier,
+    selected: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .size(24.dp)
+            .semantics {
+                role = Role.Button
+                this.contentDescription = contentDescription
+                this.selected = selected
+            }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier.size(18.dp),
+            shape = CircleShape,
+            color = if (selected) RouteTeal.copy(alpha = 0.10f) else AppSurfaceMuted.copy(alpha = 0.72f),
+            border = BorderStroke(1.dp, if (selected) RouteTeal.copy(alpha = 0.32f) else AppBorder.copy(alpha = 0.58f))
+        ) {
+            Box(modifier = Modifier.size(15.dp), contentAlignment = Alignment.Center) {
+                icon()
             }
         }
     }
@@ -1857,22 +2052,24 @@ private fun RouteStopDetailRow(
 private fun RoutePoiRail(
     modifier: Modifier = Modifier,
     route: GeneratedRoute,
+    routeIndex: Int,
     currentStopId: String?,
     completedStopIds: Set<String>,
     routeColor: Color,
-    onSelectStop: (RouteStop) -> Unit
+    onSelectStop: (RouteStop) -> Unit,
+    onSelectSegment: (RouteSegmentPolylinePayload) -> Unit
 ) {
     val stops = route.stops.sortedBy(RouteStop::order)
     Surface(
         modifier = modifier.width(RoutePoiRailWidth),
-        shape = RoundedCornerShape(14.dp),
-        color = AppSurface.copy(alpha = 0.78f),
-        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.48f))
+        shape = RoundedCornerShape(999.dp),
+        color = AppSurface.copy(alpha = 0.68f),
+        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.34f))
     ) {
         LazyColumn(
-            modifier = Modifier.padding(vertical = 6.dp),
+            modifier = Modifier.padding(vertical = 5.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(5.dp)
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             item {
                 Text(
@@ -1882,10 +2079,10 @@ private fun RoutePoiRail(
                     fontWeight = FontWeight.Bold
                 )
             }
-            items(
+            itemsIndexed(
                 items = stops,
-                key = { stop -> stop.id }
-            ) { stop ->
+                key = { _, stop -> stop.id }
+            ) { index, stop ->
                 RoutePoiRailItem(
                     stop = stop,
                     isCurrent = stop.id == currentStopId,
@@ -1893,6 +2090,22 @@ private fun RoutePoiRail(
                     routeColor = routeColor,
                     onClick = { onSelectStop(stop) }
                 )
+                val nextStop = stops.getOrNull(index + 1)
+                if (nextStop != null) {
+                    RoutePoiRailConnector(
+                        routeColor = routeColor,
+                        onClick = {
+                            onSelectSegment(
+                                buildRailSegmentPayload(
+                                    routeIndex = routeIndex,
+                                    route = route,
+                                    originStop = stop,
+                                    destinationStop = nextStop
+                                )
+                            )
+                        }
+                    )
+                }
             }
         }
     }
@@ -1908,34 +2121,61 @@ private fun RoutePoiRailItem(
 ) {
     val backgroundColor = when {
         isCurrent -> routeColor
-        isCompleted -> routeColor.copy(alpha = 0.14f)
-        else -> AppSurfaceMuted
+        isCompleted -> routeColor.copy(alpha = 0.20f)
+        else -> AppSurfaceMuted.copy(alpha = 0.82f)
     }
-    val textColor = when {
-        isCurrent -> Color.White
-        isCompleted -> routeColor
-        else -> AppTextMuted
-    }
-    Surface(
+    Box(
         modifier = Modifier
-            .size(RoutePoiRailItemSize)
+            .size(RoutePoiRailTouchSize)
             .semantics {
                 role = Role.Button
+                contentDescription = "查看${stop.name}"
                 selected = isCurrent
             }
             .clickable(onClick = onClick),
-        shape = CircleShape,
-        color = backgroundColor,
-        border = BorderStroke(1.dp, if (isCurrent || isCompleted) routeColor else AppBorder)
+        contentAlignment = Alignment.Center
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = if (isCompleted) "✓" else stop.order.toString(),
-                color = textColor,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold
-            )
+        Surface(
+            modifier = Modifier.size(if (isCurrent) RoutePoiRailDotSize + 2.dp else RoutePoiRailDotSize),
+            shape = CircleShape,
+            color = backgroundColor,
+            border = BorderStroke(1.dp, if (isCurrent || isCompleted) routeColor else AppBorder.copy(alpha = 0.64f))
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                if (isCompleted && !isCurrent) {
+                    Box(
+                        modifier = Modifier
+                            .size(4.dp)
+                            .background(routeColor, CircleShape)
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun RoutePoiRailConnector(
+    routeColor: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .width(RoutePoiRailTouchSize)
+            .height(RoutePoiRailConnectorHeight)
+            .semantics {
+                role = Role.Button
+                contentDescription = "查看这一段怎么去"
+            }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .height(RoutePoiRailConnectorHeight)
+                .background(routeColor.copy(alpha = 0.46f), CircleShape)
+        )
     }
 }
 
@@ -2175,6 +2415,34 @@ private fun buildEstimatedSegmentPath(
     val origin = stopsById[segment.originStopId]?.location?.toLatLng()
     val destination = stopsById[segment.destinationStopId]?.location?.toLatLng()
     return listOfNotNull(origin, destination)
+}
+
+private fun buildRailSegmentPayload(
+    routeIndex: Int,
+    route: GeneratedRoute,
+    originStop: RouteStop,
+    destinationStop: RouteStop
+): RouteSegmentPolylinePayload {
+    val segment = route.segments.firstOrNull { segment ->
+        segment.originStopId == originStop.id && segment.destinationStopId == destinationStop.id
+    } ?: RouteSegment(
+        order = originStop.order,
+        originStopId = originStop.id,
+        destinationStopId = destinationStop.id,
+        mode = originStop.transportToNext ?: "WALK",
+        distanceMeters = originStop.distanceToNextMeters
+            ?: distanceMeters(originStop.location.toLatLng(), destinationStop.location.toLatLng()),
+        durationMinutes = originStop.durationToNextMinutes ?: 0,
+        summary = "从${originStop.name}前往${destinationStop.name}，按当前路线推荐方式前往。"
+    )
+    return RouteSegmentPolylinePayload(
+        routeIndex = routeIndex,
+        routeCode = route.routeCode,
+        segment = segment,
+        originStop = originStop,
+        destinationStop = destinationStop,
+        isEstimated = segment.polyline.size < 2
+    )
 }
 
 private fun routeLineColor(index: Int, selected: Boolean, estimated: Boolean): Int {

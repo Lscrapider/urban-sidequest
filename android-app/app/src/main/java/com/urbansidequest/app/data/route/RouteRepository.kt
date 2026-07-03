@@ -5,6 +5,7 @@ import com.urbansidequest.app.data.api.RouteGenerateRequest
 import com.urbansidequest.app.data.auth.AuthSessionStore
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
+import com.urbansidequest.app.domain.model.RouteInteractionState
 
 class RouteRepository(
     private val routeApi: RouteApi,
@@ -24,6 +25,30 @@ class RouteRepository(
         val authorizationHeader = authSessionStore.getAuthorizationHeader()
             ?: throw IllegalStateException("登录状态已失效，请重新登录")
         return routeApi.fetchRouteHistory(authorizationHeader = authorizationHeader)
+    }
+
+    suspend fun fetchRouteInteractions(): Map<String, RouteInteractionState> {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return routeApi.fetchRouteInteractions(authorizationHeader = authorizationHeader)
+            .associate { interaction ->
+                "${interaction.candidateSetId}:${interaction.routeCode}" to interaction.state
+            }
+    }
+
+    suspend fun saveRouteInteraction(
+        requestId: String,
+        routeCode: String,
+        interaction: RouteInteractionState
+    ): RouteInteractionState {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return routeApi.saveRouteInteraction(
+            requestId = requestId,
+            routeCode = routeCode,
+            interaction = interaction,
+            authorizationHeader = authorizationHeader
+        ).state
     }
 
     suspend fun fetchRouteHistoryDetail(requestId: String): RouteGeneration {

@@ -21,6 +21,12 @@ public class UserPO {
 
     private String status;
 
+    @TableField("completed_route_count")
+    private Integer completedRouteCount;
+
+    @TableField("travel_distance_meters")
+    private Long travelDistanceMeters;
+
     @TableField("created_at")
     private Instant createdAt;
 
@@ -65,6 +71,22 @@ public class UserPO {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public Integer getCompletedRouteCount() {
+        return this.completedRouteCount;
+    }
+
+    public void setCompletedRouteCount(Integer completedRouteCount) {
+        this.completedRouteCount = completedRouteCount;
+    }
+
+    public Long getTravelDistanceMeters() {
+        return this.travelDistanceMeters;
+    }
+
+    public void setTravelDistanceMeters(Long travelDistanceMeters) {
+        this.travelDistanceMeters = travelDistanceMeters;
     }
 
     public Instant getCreatedAt() {

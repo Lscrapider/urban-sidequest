@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -23,7 +21,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.urbansidequest.app.ui.components.UrbanBadge
@@ -41,14 +38,16 @@ import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
-import com.urbansidequest.app.ui.theme.DeepTealDark
 
 @Composable
 fun DiscoverScreen(
+    nickname: String = "",
     onOpenMap: () -> Unit = {},
     onOpenRoutes: () -> Unit = {},
     onOpenProfile: () -> Unit = {}
 ) {
+    val displayNickname = nickname.ifBlank { "城市探索者" }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -63,8 +62,7 @@ fun DiscoverScreen(
         ) {
             UrbanScreenTitle(
                 eyebrow = "今日入口",
-                title = "今天从哪里开始？",
-                trailing = { UserAvatar() }
+                title = "今天从哪里开始？"
             )
 
             Surface(
@@ -86,7 +84,7 @@ fun DiscoverScreen(
             UrbanTaskCard {
                 UrbanBadge(text = "先定范围", style = UrbanBadgeStyle.Area)
                 Text(
-                    text = "林沐，先在地图圈出今天的出发范围",
+                    text = "$displayNickname，先在地图圈出今天的出发范围",
                     color = AppText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
@@ -185,24 +183,6 @@ fun DiscoverScreen(
             onRoutesClick = onOpenRoutes,
             onProfileClick = onOpenProfile
         )
-    }
-}
-
-@Composable
-private fun UserAvatar() {
-    Surface(
-        modifier = Modifier.size(44.dp),
-        shape = CircleShape,
-        color = DeepTealDark
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = "林",
-                color = Color.White,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-        }
     }
 }
 

@@ -1,0 +1,3 @@
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS completed_route_count INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS travel_distance_meters BIGINT NOT NULL DEFAULT 0;

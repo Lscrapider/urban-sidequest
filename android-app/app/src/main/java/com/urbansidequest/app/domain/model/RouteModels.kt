@@ -75,6 +75,7 @@ data class GeneratedRoute(
 
 data class RouteGeneration(
     val requestId: String,
+    val candidateSetId: String,
     val status: String,
     val area: RouteArea,
     val routes: List<GeneratedRoute>,
@@ -102,4 +103,14 @@ data class RouteHistoryRouteSummary(
     val totalDurationMinutes: Int,
     val totalDistanceMeters: Int,
     val riskLevel: String
+)
+
+enum class RouteReaction {
+    Liked,
+    Disliked
+}
+
+data class RouteInteractionState(
+    val isFavorite: Boolean = false,
+    val reaction: RouteReaction? = null
 )

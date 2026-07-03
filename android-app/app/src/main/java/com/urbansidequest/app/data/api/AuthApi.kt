@@ -38,18 +38,28 @@ class AuthApi {
         }
 
         val json = JSONObject(responseBody)
-        val userJson = json.getJSONObject("user")
         AuthLoginResponse(
             tokenType = json.getString("tokenType"),
             accessToken = json.getString("accessToken"),
             expiresIn = json.getLong("expiresIn"),
-            user = AuthUserResponse(
-                id = userJson.getString("id"),
-                phone = userJson.getString("phone"),
-                nickname = userJson.optString("nickname"),
-                avatarUrl = userJson.optString("avatarUrl")
-            )
+            user = parseAuthUser(json.getJSONObject("user"))
         )
+    }
+
+    suspend fun fetchCurrentUser(authorizationHeader: String): AuthUserResponse = withContext(Dispatchers.IO) {
+        val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/auth/me")
+        val connection = endpoint.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+        connection.readTimeout = READ_TIMEOUT_MILLIS
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("Authorization", authorizationHeader)
+
+        val responseBody = readBody(connection)
+        if (connection.responseCode !in HTTP_SUCCESS_RANGE) {
+            throw IllegalStateException(parseErrorMessage(responseBody))
+        }
+        parseAuthUser(JSONObject(responseBody))
     }
 
     private fun readBody(connection: HttpURLConnection): String {
@@ -79,6 +89,17 @@ class AuthApi {
         }.getOrDefault("登录失败，请稍后重试")
     }
 
+    private fun parseAuthUser(json: JSONObject): AuthUserResponse {
+        return AuthUserResponse(
+            id = json.getString("id"),
+            phone = json.getString("phone"),
+            nickname = json.optString("nickname"),
+            avatarUrl = json.optString("avatarUrl"),
+            completedRouteCount = json.optInt("completedRouteCount", 0),
+            travelDistanceMeters = json.optLong("travelDistanceMeters", 0L)
+        )
+    }
+
     private companion object {
         private const val CONNECT_TIMEOUT_MILLIS = 10_000
         private const val READ_TIMEOUT_MILLIS = 10_000
@@ -97,5 +118,7 @@ data class AuthUserResponse(
     val id: String,
     val phone: String,
     val nickname: String,
-    val avatarUrl: String
+    val avatarUrl: String,
+    val completedRouteCount: Int = 0,
+    val travelDistanceMeters: Long = 0L
 )

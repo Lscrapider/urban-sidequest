@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -41,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
+import com.urbansidequest.app.domain.model.RouteInteractionState
 import com.urbansidequest.app.ui.components.EmptyState
 import com.urbansidequest.app.ui.components.UrbanBadge
 import com.urbansidequest.app.ui.components.UrbanBadgeStyle
@@ -52,10 +55,15 @@ import com.urbansidequest.app.ui.components.UrbanTaskCard
 import com.urbansidequest.app.ui.theme.AppBackground
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
-import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
+import com.urbansidequest.app.ui.theme.AreaGreen
+import com.urbansidequest.app.ui.theme.AreaGreenSurface
+import com.urbansidequest.app.ui.theme.InfoCyan
+import com.urbansidequest.app.ui.theme.InfoCyanSurface
 import com.urbansidequest.app.ui.theme.RouteTeal
+import com.urbansidequest.app.ui.theme.WarningAmber
+import com.urbansidequest.app.ui.theme.WarningSurface
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -76,8 +84,12 @@ fun RoutesScreen(
     val activeGroup = historyGroups.firstOrNull {
         it.generationStatus == "SUCCESS" && it.executionStatus == "IN_PROGRESS" && it.activeRouteCode != null
     }
-    val walkedGroups = historyGroups.filter { group ->
-        group.generationStatus == "SUCCESS" && group.executionStatus == "COMPLETED"
+    val walkedGroups = historyGroups.mapNotNull { group ->
+        if (group.generationStatus == "SUCCESS" && group.executionStatus == "COMPLETED") {
+            group.withOnlyActiveRoute()
+        } else {
+            null
+        }
     }
     val generatedGroups = historyGroups.filter { group ->
         group.requestId != activeGroup?.requestId && group.executionStatus != "COMPLETED"
@@ -86,6 +98,7 @@ fun RoutesScreen(
         RouteLibraryTab.Generated -> generatedGroups
         RouteLibraryTab.Walked -> walkedGroups
     }
+    val visibleRouteCount = visibleGroups.sumOf { group -> group.routes.size }
 
     Column(
         modifier = Modifier
@@ -159,7 +172,14 @@ fun RoutesScreen(
                     )
                 }
                 item {
-                    SectionHeader(title = selectedTab.sectionTitle, badge = "${visibleGroups.size} 组")
+                    SectionHeader(
+                        title = selectedTab.sectionTitle,
+                        badge = if (selectedTab == RouteLibraryTab.Walked) {
+                            "$visibleRouteCount 条"
+                        } else {
+                            "${visibleGroups.size} 组"
+                        }
+                    )
                 }
                 if (visibleGroups.isEmpty()) {
                     item(key = "empty_${selectedTab.name}") {
@@ -175,7 +195,15 @@ fun RoutesScreen(
                     ) { group ->
                         RouteHistoryGroupRow(
                             group = group,
-                            onOpenGroup = { onOpenHistoryGroup(group.requestId) },
+                            onOpenGroup = {
+                                if (selectedTab == RouteLibraryTab.Walked) {
+                                    group.routes.firstOrNull()?.let { route ->
+                                        onOpenHistoryRoute(group.requestId, route.routeCode)
+                                    }
+                                } else {
+                                    onOpenHistoryGroup(group.requestId)
+                                }
+                            },
                             onOpenRoute = { routeCode -> onOpenHistoryRoute(group.requestId, routeCode) }
                         )
                     }
@@ -192,6 +220,119 @@ fun RoutesScreen(
             onDiscoverClick = onOpenDiscover,
             onMapClick = onOpenMap,
             onRoutesClick = {},
+            onProfileClick = onOpenProfile
+        )
+    }
+}
+
+@Composable
+fun FavoriteRoutesScreen(
+    historyGroups: List<RouteHistoryGroup> = emptyList(),
+    routeInteractions: Map<String, RouteInteractionState> = emptyMap(),
+    routeInteractionKey: (String, String) -> String = { candidateSetId, routeCode -> "$candidateSetId:$routeCode" },
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
+    onOpenFavoriteRoute: (String, String) -> Unit = { _, _ -> },
+    onRefreshHistory: () -> Unit = {},
+    onOpenDiscover: () -> Unit = {},
+    onOpenMap: () -> Unit = {},
+    onOpenRoutes: () -> Unit = {},
+    onOpenProfile: () -> Unit = {}
+) {
+    val favoriteGroups = historyGroups.mapNotNull { group ->
+        val favoriteRoutes = group.routes.filter { route ->
+            routeInteractions[routeInteractionKey(group.candidateSetId, route.routeCode)]?.isFavorite == true
+        }
+        if (favoriteRoutes.isEmpty()) {
+            null
+        } else {
+            group.copy(routes = favoriteRoutes)
+        }
+    }
+    val favoriteRouteCount = favoriteGroups.sumOf { it.routes.size }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                UrbanScreenTitle(
+                    eyebrow = "我的收藏",
+                    title = "收藏路线",
+                    trailing = {
+                        IconButton(onClick = onRefreshHistory) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "刷新收藏路线",
+                                tint = AppText
+                            )
+                        }
+                    }
+                )
+            }
+
+            if (isLoading) {
+                item {
+                    EmptyState(
+                        title = "正在加载收藏路线",
+                        description = "正在同步你收藏过的路线。"
+                    )
+                }
+            } else if (errorMessage != null) {
+                item {
+                    EmptyState(
+                        title = "收藏路线加载失败",
+                        description = errorMessage
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    UrbanPrimaryButton(text = "重新加载", onClick = onRefreshHistory)
+                }
+            } else if (favoriteGroups.isEmpty()) {
+                item {
+                    EmptyState(
+                        title = "还没有收藏路线",
+                        description = "收藏后的路线会单独沉淀到这里，之后可以直接回到地图查看。"
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    UrbanPrimaryButton(text = "查看生成路线", onClick = onOpenRoutes)
+                }
+            } else {
+                item {
+                    SectionHeader(title = "已收藏路线", badge = "$favoriteRouteCount 条")
+                }
+                items(
+                    items = favoriteGroups,
+                    key = { "favorite_${it.requestId}_${it.routes.joinToString("_") { route -> route.routeCode }}" }
+                ) { group ->
+                    RouteHistoryGroupRow(
+                        group = group,
+                        onOpenGroup = {
+                            group.routes.firstOrNull()?.let { route ->
+                                onOpenFavoriteRoute(group.requestId, route.routeCode)
+                            }
+                        },
+                        onOpenRoute = { routeCode -> onOpenFavoriteRoute(group.requestId, routeCode) }
+                    )
+                }
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+            }
+        }
+
+        UrbanBottomNavigationBar(
+            modifier = Modifier.navigationBarsPadding(),
+            selectedDestination = UrbanDestination.Profile,
+            onDiscoverClick = onOpenDiscover,
+            onMapClick = onOpenMap,
+            onRoutesClick = onOpenRoutes,
             onProfileClick = onOpenProfile
         )
     }
@@ -315,13 +456,14 @@ private fun RouteHistoryGroupRow(
     onOpenRoute: (String) -> Unit
 ) {
     val canOpenRoutes = group.generationStatus == "SUCCESS" && group.routes.isNotEmpty()
+    val statusAccent = historyStatusAccentColor(group)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = canOpenRoutes, onClick = onOpenGroup),
         shape = RoundedCornerShape(12.dp),
-        color = AppSurface,
-        border = BorderStroke(1.dp, AppBorder)
+        color = historyStatusSurfaceColor(group),
+        border = BorderStroke(1.dp, statusAccent.copy(alpha = 0.26f))
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -364,13 +506,7 @@ private fun RouteHistoryGroupRow(
                         RouteHistoryRouteChip(
                             route = route,
                             isActive = route.routeCode == group.activeRouteCode && group.executionStatus == "IN_PROGRESS",
-                            onClick = {
-                                if (route.routeCode == group.activeRouteCode && group.executionStatus == "IN_PROGRESS") {
-                                    onOpenRoute(route.routeCode)
-                                } else {
-                                    onOpenGroup()
-                                }
-                            }
+                            onClick = { onOpenRoute(route.routeCode) }
                         )
                     }
                 }
@@ -391,13 +527,14 @@ private fun RouteHistoryRouteChip(
     isActive: Boolean,
     onClick: () -> Unit
 ) {
+    val routeAccent = routeChipAccentColor(route.routeCode)
     Surface(
         modifier = Modifier
-            .width(132.dp)
+            .width(174.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(10.dp),
-        color = if (isActive) AppSurface else AppSurfaceMuted,
-        border = BorderStroke(1.dp, if (isActive) RouteTeal else AppBorder)
+        color = if (isActive) routeAccent.copy(alpha = 0.12f) else routeAccent.copy(alpha = 0.07f),
+        border = BorderStroke(1.dp, routeAccent.copy(alpha = if (isActive) 0.52f else 0.28f))
     ) {
         Column(
             modifier = Modifier.padding(10.dp),
@@ -407,9 +544,15 @@ private fun RouteHistoryRouteChip(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .height(18.dp)
+                        .background(routeAccent, RoundedCornerShape(999.dp))
+                )
                 Text(
                     text = route.routeCode,
-                    color = if (isActive) RouteTeal else AppText,
+                    color = routeAccent,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -433,7 +576,7 @@ private fun RouteHistoryRouteChip(
                 color = AppText,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
@@ -498,8 +641,41 @@ private fun historyStatusBadgeStyle(group: RouteHistoryGroup): UrbanBadgeStyle {
         group.generationStatus == "GENERATING" -> UrbanBadgeStyle.Area
         group.generationStatus == "FAILED" -> UrbanBadgeStyle.Warning
         group.executionStatus == "IN_PROGRESS" -> UrbanBadgeStyle.RouteA
-        else -> UrbanBadgeStyle.Default
+        group.executionStatus == "COMPLETED" -> UrbanBadgeStyle.Reward
+        else -> UrbanBadgeStyle.Area
     }
+}
+
+private fun historyStatusAccentColor(group: RouteHistoryGroup): Color {
+    return when {
+        group.generationStatus == "FAILED" -> WarningAmber
+        group.executionStatus == "IN_PROGRESS" -> RouteTeal
+        group.executionStatus == "COMPLETED" -> InfoCyan
+        else -> AreaGreen
+    }
+}
+
+private fun historyStatusSurfaceColor(group: RouteHistoryGroup): Color {
+    return when {
+        group.generationStatus == "FAILED" -> WarningSurface
+        group.executionStatus == "COMPLETED" -> InfoCyanSurface.copy(alpha = 0.66f)
+        else -> AreaGreenSurface.copy(alpha = 0.62f)
+    }
+}
+
+private fun routeChipAccentColor(routeCode: String): Color {
+    return when (routeCode.uppercase()) {
+        "A" -> RouteTeal
+        "B" -> InfoCyan
+        "C" -> AreaGreen
+        else -> WarningAmber
+    }
+}
+
+private fun RouteHistoryGroup.withOnlyActiveRoute(): RouteHistoryGroup? {
+    val walkedRouteCode = this.activeRouteCode ?: return null
+    val walkedRoute = this.routes.firstOrNull { route -> route.routeCode == walkedRouteCode } ?: return null
+    return this.copy(routes = listOf(walkedRoute))
 }
 
 private fun formatHistorySubtitle(group: RouteHistoryGroup): String {

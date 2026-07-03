@@ -7,6 +7,8 @@ import com.urbansidequest.app.domain.model.RouteArea
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
+import com.urbansidequest.app.domain.model.RouteInteractionState
+import com.urbansidequest.app.domain.model.RouteReaction
 import com.urbansidequest.app.domain.model.RouteSegment
 import com.urbansidequest.app.domain.model.RouteStep
 import com.urbansidequest.app.domain.model.RouteStop
@@ -45,6 +47,80 @@ class RouteApi {
                 JSONArray(responseBody).mapObjects(::parseRouteHistoryGroup)
             }.getOrElse { throwable ->
                 throw IllegalStateException("路线历史响应解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
+        }
+    }
+
+    suspend fun fetchRouteInteractions(authorizationHeader: String): List<RouteInteractionResponse> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/interactions")
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                JSONArray(responseBody).mapObjects(::parseRouteInteraction)
+            }.getOrElse { throwable ->
+                throw IllegalStateException("路线互动状态解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
+        }
+    }
+
+    suspend fun saveRouteInteraction(
+        requestId: String,
+        routeCode: String,
+        interaction: RouteInteractionState,
+        authorizationHeader: String
+    ): RouteInteractionResponse = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL(
+                "${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history/$requestId/routes/$routeCode/interaction"
+            )
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+            connection.doOutput = true
+
+            val requestBody = JSONObject()
+                .put("favorite", interaction.isFavorite)
+                .put("reaction", interaction.reaction.toApiValue() ?: JSONObject.NULL)
+                .toString()
+                .toByteArray(StandardCharsets.UTF_8)
+            connection.outputStream.use { outputStream ->
+                outputStream.write(requestBody)
+            }
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                parseRouteInteraction(JSONObject(responseBody))
+            }.getOrElse { throwable ->
+                throw IllegalStateException("路线互动状态保存响应解析失败：${throwable.message}", throwable)
             }
         } catch (exception: IOException) {
             throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
@@ -239,6 +315,7 @@ class RouteApi {
     private fun parseRouteGeneration(json: JSONObject): RouteGeneration {
         return RouteGeneration(
             requestId = json.getString("requestId"),
+            candidateSetId = json.getString("candidateSetId"),
             status = json.getString("status"),
             area = parseRouteArea(json.getJSONObject("area")),
             routes = json.getJSONArray("routes").mapObjects(::parseGeneratedRoute),
@@ -350,6 +427,17 @@ class RouteApi {
         )
     }
 
+    private fun parseRouteInteraction(json: JSONObject): RouteInteractionResponse {
+        return RouteInteractionResponse(
+            candidateSetId = json.getString("candidateSetId"),
+            routeCode = json.getString("routeCode"),
+            state = RouteInteractionState(
+                isFavorite = json.optBoolean("favorite", false),
+                reaction = json.optNullableString("reaction").toRouteReaction()
+            )
+        )
+    }
+
     private fun readBody(connection: HttpURLConnection): String {
         val inputStream = if (connection.responseCode in HTTP_SUCCESS_RANGE) {
             connection.inputStream
@@ -456,6 +544,12 @@ data class MustVisitPointRequest(
     }
 }
 
+data class RouteInteractionResponse(
+    val candidateSetId: String,
+    val routeCode: String,
+    val state: RouteInteractionState
+)
+
 private fun GeoPoint.toJson(): JSONObject {
     return JSONObject()
         .put("longitudeGcj02", longitudeGcj02)
@@ -498,5 +592,21 @@ private fun JSONObject.optNullableDouble(name: String): Double? {
         null
     } else {
         optDouble(name)
+    }
+}
+
+private fun RouteReaction?.toApiValue(): String? {
+    return when (this) {
+        RouteReaction.Liked -> "LIKED"
+        RouteReaction.Disliked -> "DISLIKED"
+        null -> null
+    }
+}
+
+private fun String?.toRouteReaction(): RouteReaction? {
+    return when (this) {
+        "LIKED" -> RouteReaction.Liked
+        "DISLIKED" -> RouteReaction.Disliked
+        else -> null
     }
 }

@@ -1,6 +1,7 @@
 package com.urbansidequest.app.data.auth
 
 import com.urbansidequest.app.data.api.AuthApi
+import com.urbansidequest.app.data.api.AuthUserResponse
 
 class AuthRepository(
     private val authApi: AuthApi,
@@ -19,6 +20,12 @@ class AuthRepository(
                 nickname = response.user.nickname
             )
         )
+    }
+
+    suspend fun fetchCurrentUser(): AuthUserResponse {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return authApi.fetchCurrentUser(authorizationHeader = authorizationHeader)
     }
 
     fun isLoggedIn(): Boolean {

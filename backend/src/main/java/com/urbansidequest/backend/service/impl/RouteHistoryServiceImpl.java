@@ -11,6 +11,7 @@ import com.urbansidequest.backend.domain.vo.RouteHistoryGroupVO;
 import com.urbansidequest.backend.domain.vo.RouteHistoryRouteSummaryVO;
 import com.urbansidequest.backend.manage.RouteExecutionManage;
 import com.urbansidequest.backend.manage.RouteGenerationHistoryManage;
+import com.urbansidequest.backend.manage.UserManage;
 import com.urbansidequest.backend.service.RouteHistoryService;
 import java.util.List;
 import java.util.Map;
@@ -29,13 +30,16 @@ public class RouteHistoryServiceImpl implements RouteHistoryService {
     private final RouteGenerationHistoryManage routeGenerationHistoryManage;
 
     private final RouteExecutionManage routeExecutionManage;
+    private final UserManage userManage;
 
     public RouteHistoryServiceImpl(
             RouteGenerationHistoryManage routeGenerationHistoryManage,
-            RouteExecutionManage routeExecutionManage
+            RouteExecutionManage routeExecutionManage,
+            UserManage userManage
     ) {
         this.routeGenerationHistoryManage = routeGenerationHistoryManage;
         this.routeExecutionManage = routeExecutionManage;
+        this.userManage = userManage;
     }
 
     @Override
@@ -97,7 +101,13 @@ public class RouteHistoryServiceImpl implements RouteHistoryService {
         if (!requestId.equals(activeExecution.getRequestId()) || !param.getRouteCode().equals(activeExecution.getRouteCode())) {
             throw new IllegalArgumentException("路线不是当前进行中的路线");
         }
+        RouteGenerationVO routeGeneration = this.getHistoryDetail(authenticatedUser, requestId);
+        GeneratedRouteVO completedRoute = routeGeneration.routes().stream()
+                .filter(route -> param.getRouteCode().equals(route.routeCode()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("路线不属于当前历史记录"));
         this.routeExecutionManage.completeActiveRoute(authenticatedUser.id(), requestId, param.getRouteCode());
+        this.userManage.incrementRouteAssetStats(authenticatedUser.id(), completedRoute.totalDistanceMeters());
         return this.getHistoryDetail(authenticatedUser, requestId);
     }
 
