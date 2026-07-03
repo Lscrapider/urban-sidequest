@@ -5,6 +5,8 @@ import com.urbansidequest.app.domain.model.GeneratedRoute
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteArea
 import com.urbansidequest.app.domain.model.RouteGeneration
+import com.urbansidequest.app.domain.model.RouteHistoryGroup
+import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
 import com.urbansidequest.app.domain.model.RouteSegment
 import com.urbansidequest.app.domain.model.RouteStep
 import com.urbansidequest.app.domain.model.RouteStop
@@ -20,6 +22,139 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 
 class RouteApi {
+
+    suspend fun fetchRouteHistory(authorizationHeader: String): List<RouteHistoryGroup> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history")
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                JSONArray(responseBody).mapObjects(::parseRouteHistoryGroup)
+            }.getOrElse { throwable ->
+                throw IllegalStateException("路线历史响应解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
+        }
+    }
+
+    suspend fun fetchRouteHistoryDetail(
+        requestId: String,
+        authorizationHeader: String
+    ): RouteGeneration = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history/$requestId")
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                parseRouteGeneration(JSONObject(responseBody))
+            }.getOrElse { throwable ->
+                throw IllegalStateException("路线历史详情解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
+        }
+    }
+
+    suspend fun fetchActiveRoute(authorizationHeader: String): RouteGeneration? = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/active")
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            if (responseBody.isBlank()) {
+                null
+            } else {
+                runCatching {
+                    parseRouteGeneration(JSONObject(responseBody))
+                }.getOrElse { throwable ->
+                    throw IllegalStateException("进行中路线解析失败：${throwable.message}", throwable)
+                }
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
+        }
+    }
+
+    suspend fun activateRoute(
+        requestId: String,
+        routeCode: String,
+        authorizationHeader: String
+    ): RouteGeneration = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history/$requestId/active-route")
+            val connection = endpoint.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", authorizationHeader)
+            connection.doOutput = true
+
+            val requestBody = JSONObject()
+                .put("routeCode", routeCode)
+                .toString()
+                .toByteArray(StandardCharsets.UTF_8)
+            connection.outputStream.use { outputStream ->
+                outputStream.write(requestBody)
+            }
+
+            val responseBody = readBody(connection)
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_RANGE) {
+                throw RouteApiException(
+                    responseCode = responseCode,
+                    message = parseErrorMessage(responseCode, responseBody)
+                )
+            }
+            runCatching {
+                parseRouteGeneration(JSONObject(responseBody))
+            }.getOrElse { throwable ->
+                throw IllegalStateException("进行中路线响应解析失败：${throwable.message}", throwable)
+            }
+        } catch (exception: IOException) {
+            throw IllegalStateException("无法连接路线服务：${exception.message}", exception)
+        }
+    }
 
     suspend fun generateRoute(
         request: RouteGenerateRequest,
@@ -65,7 +200,31 @@ class RouteApi {
             status = json.getString("status"),
             area = parseRouteArea(json.getJSONObject("area")),
             routes = json.getJSONArray("routes").mapObjects(::parseGeneratedRoute),
-            warnings = json.optJSONArray("warnings").orEmptyStringList()
+            warnings = json.optJSONArray("warnings").orEmptyStringList(),
+            activeRouteCode = json.optNullableString("activeRouteCode"),
+            executionStatus = json.optString("executionStatus").ifBlank { "GENERATED" }
+        )
+    }
+
+    private fun parseRouteHistoryGroup(json: JSONObject): RouteHistoryGroup {
+        return RouteHistoryGroup(
+            requestId = json.getString("requestId"),
+            candidateSetId = json.getString("candidateSetId"),
+            areaLabel = json.getString("areaLabel"),
+            createdAt = json.optString("createdAt"),
+            activeRouteCode = json.optNullableString("activeRouteCode"),
+            executionStatus = json.optString("executionStatus").ifBlank { "GENERATED" },
+            routes = json.getJSONArray("routes").mapObjects(::parseRouteHistoryRouteSummary)
+        )
+    }
+
+    private fun parseRouteHistoryRouteSummary(json: JSONObject): RouteHistoryRouteSummary {
+        return RouteHistoryRouteSummary(
+            routeCode = json.getString("routeCode"),
+            title = json.getString("title"),
+            totalDurationMinutes = json.getInt("totalDurationMinutes"),
+            totalDistanceMeters = json.getInt("totalDistanceMeters"),
+            riskLevel = json.getString("riskLevel")
         )
     }
 
@@ -199,14 +358,18 @@ data class RouteGenerateRequest(
     val areaMode: String,
     val areaLabel: String,
     val center: GeoPoint,
+    val radiusMeters: Int?,
     val areaPolygonGcj02: List<GeoPoint>,
+    val adminAdcodes: List<String>,
     val routeCityName: String?,
     val routeCityAdcode: String?,
     val departureTime: String,
     val durationMinutes: Int,
     val transportProfile: String,
     val routeGoal: String,
+    val budgetLevel: String,
     val interestTags: List<String>,
+    val mealWindows: List<String>,
     val mustVisitPoints: List<MustVisitPointRequest>
 ) {
 
@@ -215,14 +378,18 @@ data class RouteGenerateRequest(
             .put("areaMode", areaMode)
             .put("areaLabel", areaLabel)
             .put("center", center.toJson())
+            .put("radiusMeters", radiusMeters ?: JSONObject.NULL)
             .put("areaPolygonGcj02", areaPolygonGcj02.toGeoPointArray())
+            .put("adminAdcodes", JSONArray(adminAdcodes))
             .put("routeCityName", routeCityName ?: JSONObject.NULL)
             .put("routeCityAdcode", routeCityAdcode ?: JSONObject.NULL)
             .put("departureTime", departureTime)
             .put("durationMinutes", durationMinutes)
             .put("transportProfile", transportProfile)
             .put("routeGoal", routeGoal)
+            .put("budgetLevel", budgetLevel)
             .put("interestTags", JSONArray(interestTags))
+            .put("mealWindows", JSONArray(mealWindows))
             .put("mustVisitPoints", JSONArray(mustVisitPoints.map { it.toJson() }))
     }
 }

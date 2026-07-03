@@ -59,7 +59,12 @@ import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
+import com.urbansidequest.app.ui.theme.AreaGreen
+import com.urbansidequest.app.ui.theme.AreaGreenSurface
 import com.urbansidequest.app.ui.theme.DeepTeal
+import com.urbansidequest.app.ui.theme.DeepTealDark
+import com.urbansidequest.app.ui.theme.InfoCyan
+import com.urbansidequest.app.ui.theme.InfoCyanSurface
 import com.urbansidequest.app.ui.theme.RouteSecondary
 import com.urbansidequest.app.ui.theme.WarningAmber
 import com.urbansidequest.app.ui.theme.WarningSurface
@@ -131,6 +136,156 @@ fun UrbanTopBar(
 }
 
 @Composable
+fun UrbanScreenTitle(
+    eyebrow: String,
+    title: String,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = eyebrow,
+                color = AppTextMuted,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = title,
+                color = AppText,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        trailing?.invoke()
+    }
+}
+
+enum class UrbanBadgeStyle {
+    Default,
+    RouteA,
+    Area,
+    Warning,
+    Reward
+}
+
+@Composable
+fun UrbanBadge(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: UrbanBadgeStyle = UrbanBadgeStyle.Default
+) {
+    val (container, content, border) = when (style) {
+        UrbanBadgeStyle.RouteA -> Triple(DeepTeal, AppSurface, DeepTeal)
+        UrbanBadgeStyle.Area -> Triple(AreaGreenSurface, AreaGreen, AreaGreen.copy(alpha = 0.30f))
+        UrbanBadgeStyle.Warning -> Triple(WarningSurface, AppText, WarningAmber.copy(alpha = 0.55f))
+        UrbanBadgeStyle.Reward -> Triple(InfoCyanSurface, InfoCyan, InfoCyan.copy(alpha = 0.30f))
+        UrbanBadgeStyle.Default -> Triple(AppSurfaceMuted, AppTextMuted, Color.Transparent)
+    }
+    Surface(
+        modifier = modifier.heightIn(min = 24.dp),
+        shape = CircleShape,
+        color = container,
+        border = BorderStroke(1.dp, border)
+    ) {
+        Text(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            text = text,
+            color = content,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+fun UrbanTaskCard(
+    modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = if (highlighted) DeepTeal.copy(alpha = 0.05f) else AppSurface,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (highlighted) DeepTeal.copy(alpha = 0.24f) else AppBorder
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+fun UrbanMetricGrid(
+    items: List<Pair<String, String>>,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        items.forEach { (value, label) ->
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp),
+                color = AppSurfaceMuted
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Text(
+                        text = value,
+                        color = AppText,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = label,
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UrbanListContainer(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(content = content)
+    }
+}
+
+@Composable
 fun UrbanSection(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
@@ -174,8 +329,8 @@ fun UrbanChip(
     ) {
         Surface(
             modifier = Modifier.height(36.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = if (selected) DeepTeal.copy(alpha = 0.08f) else AppSurface,
+            shape = CircleShape,
+            color = if (selected) DeepTeal else AppSurface,
             border = BorderStroke(1.dp, if (selected) DeepTeal else AppBorder)
         ) {
             Box(
@@ -186,7 +341,7 @@ fun UrbanChip(
             ) {
                 Text(
                     text = text,
-                    color = if (selected) DeepTeal else AppText,
+                    color = if (selected) AppSurface else AppText,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -508,8 +663,8 @@ fun RouteMapPreview(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(16.dp),
-            shape = RoundedCornerShape(8.dp),
-            color = AppSurface,
+            shape = CircleShape,
+            color = AppSurface.copy(alpha = 0.92f),
             border = BorderStroke(1.dp, AppBorder)
         ) {
             Text(
@@ -568,6 +723,63 @@ fun TimelineItem(
                 color = AppTextMuted,
                 style = MaterialTheme.typography.bodySmall
             )
+        }
+    }
+}
+
+@Composable
+fun UrbanProgressPanel(
+    title: String,
+    description: String,
+    progress: Float,
+    badgeText: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = DeepTealDark
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = title,
+                        color = AppSurface,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = description,
+                        color = AppSurface.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                UrbanBadge(text = badgeText, style = UrbanBadgeStyle.Warning)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .background(AppSurface.copy(alpha = 0.20f), CircleShape)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .height(8.dp)
+                        .background(WarningAmber, CircleShape)
+                )
+            }
         }
     }
 }

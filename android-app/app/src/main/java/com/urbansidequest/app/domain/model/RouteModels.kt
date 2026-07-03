@@ -78,5 +78,25 @@ data class RouteGeneration(
     val status: String,
     val area: RouteArea,
     val routes: List<GeneratedRoute>,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val activeRouteCode: String? = null,
+    val executionStatus: String = "GENERATED"
+)
+
+data class RouteHistoryGroup(
+    val requestId: String,
+    val candidateSetId: String,
+    val areaLabel: String,
+    val createdAt: String,
+    val activeRouteCode: String?,
+    val executionStatus: String,
+    val routes: List<RouteHistoryRouteSummary>
+)
+
+data class RouteHistoryRouteSummary(
+    val routeCode: String,
+    val title: String,
+    val totalDurationMinutes: Int,
+    val totalDistanceMeters: Int,
+    val riskLevel: String
 )

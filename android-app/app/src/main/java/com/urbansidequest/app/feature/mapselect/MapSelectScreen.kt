@@ -116,6 +116,7 @@ import com.urbansidequest.app.ui.components.UrbanDestination
 import com.urbansidequest.app.ui.components.UrbanChip
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
 import com.urbansidequest.app.ui.components.UrbanSearchField
+import com.urbansidequest.app.ui.components.UrbanSecondaryButton
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
@@ -174,7 +175,10 @@ private data class RouteSegmentPolylinePayload(
 @Composable
 fun MapSelectScreen(
     routeGeneration: RouteGeneration? = null,
+    initialVisibleRouteCode: String? = null,
     onOpenRouteConfig: (GeoPoint) -> Unit = {},
+    onStartRoute: (String, String) -> Unit = { _, _ -> },
+    onOpenDiscover: () -> Unit = {},
     onOpenRoutes: () -> Unit = {},
     onOpenProfile: () -> Unit = {}
 ) {
@@ -305,9 +309,13 @@ fun MapSelectScreen(
         }
     }
 
-    LaunchedEffect(routeGeneration?.requestId, routes.size) {
-        selectedRouteIndex = if (routes.isNotEmpty()) DEFAULT_VISIBLE_ROUTE_INDEX else null
-        visibleRouteIndexes = if (routes.isNotEmpty()) setOf(DEFAULT_VISIBLE_ROUTE_INDEX) else emptySet()
+    LaunchedEffect(routeGeneration?.requestId, routes.size, initialVisibleRouteCode) {
+        val initialRouteIndex = initialVisibleRouteCode
+            ?.let { routeCode -> routes.indexOfFirst { route -> route.routeCode == routeCode } }
+            ?.takeIf { it >= 0 }
+            ?: DEFAULT_VISIBLE_ROUTE_INDEX
+        selectedRouteIndex = if (routes.isNotEmpty()) initialRouteIndex else null
+        visibleRouteIndexes = if (routes.isNotEmpty()) setOf(initialRouteIndex) else emptySet()
         resetRouteSheet()
         selectedStopPayload = null
         selectedSegmentPayload = null
@@ -463,6 +471,11 @@ fun MapSelectScreen(
                         onDrag = { drag -> dragRouteSheet(drag) },
                         onDragEnd = { settleRouteSheet() },
                         onLocateStop = { stop -> focusStop(selectedRoutePosition, stop) },
+                        onStartRoute = {
+                            routeGeneration?.requestId?.let { requestId ->
+                                onStartRoute(requestId, selectedRoute.routeCode)
+                            } ?: onOpenRoutes()
+                        },
                         onAdjustRoute = {
                             onOpenRouteConfig(
                                 GeoPoint(
@@ -494,6 +507,7 @@ fun MapSelectScreen(
             }
             UrbanBottomNavigationBar(
                 selectedDestination = UrbanDestination.Map,
+                onDiscoverClick = onOpenDiscover,
                 onMapClick = {},
                 onRoutesClick = onOpenRoutes,
                 onProfileClick = onOpenProfile
@@ -1441,6 +1455,7 @@ private fun RouteDetailSheet(
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
     onLocateStop: (RouteStop) -> Unit,
+    onStartRoute: () -> Unit,
     onAdjustRoute: () -> Unit
 ) {
     val routeColor = routeColor(routeIndex).toComposeColor()
@@ -1489,13 +1504,17 @@ private fun RouteDetailSheet(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${routeCount} 条路线可切换，当前高亮 ${route.routeCode} 线",
+                        text = if (route.routeCode == "A") {
+                            "今天最稳妥，少绕路，解释充分。"
+                        } else {
+                            "${routeCount} 条路线可切换，默认仍从路线 A 开始。"
+                        },
                         color = AppTextMuted,
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
                 Text(
-                    text = "详情",
+                    text = "路线 ${route.routeCode}",
                     color = routeColor.copy(alpha = 0.82f),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold
@@ -1542,9 +1561,23 @@ private fun RouteDetailSheet(
 
             UrbanPrimaryButton(
                 modifier = Modifier.fillMaxWidth(),
-                text = "调整路线条件",
-                onClick = onAdjustRoute,
+                text = "开始路线 ${route.routeCode}",
+                onClick = onStartRoute
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                UrbanSecondaryButton(
+                    modifier = Modifier.weight(1f),
+                    text = "调整条件",
+                    onClick = onAdjustRoute
+                )
+                UrbanSecondaryButton(
+                    modifier = Modifier.weight(1f),
+                    text = "站点说明",
+                    onClick = {
+                        route.stops.sortedBy(RouteStop::order).firstOrNull()?.let(onLocateStop)
+                    }
+                )
+            }
         }
     }
 }
@@ -1723,36 +1756,28 @@ private fun MapHomeActionSheet(onGenerateRoute: () -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = HorizontalScreenPadding, vertical = 12.dp)
             .shadow(8.dp, RoundedCornerShape(12.dp), clip = false),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
         color = AppSurface,
         border = BorderStroke(1.dp, AppBorder)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Button(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                onClick = onGenerateRoute,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DeepTeal,
-                    contentColor = Color.White
-                )
-            ) {
-                Text(
-                    text = "生成副本",
-                    fontWeight = FontWeight.Bold
-                )
-            }
             Text(
-                text = "选择区域后生成今天的城市副本",
+                text = "先定范围",
+                color = AppText,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "搜索酒店、街区或地标，确认中心点后，系统再生成一条可执行的路线 A。",
                 color = AppTextMuted,
                 style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center
+            )
+            UrbanPrimaryButton(
+                text = "去地图选点",
+                onClick = onGenerateRoute
             )
         }
     }
@@ -1778,57 +1803,26 @@ private fun MapSelectionSheet(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "待选择范围",
+                    text = "已选：当前位置附近",
                     color = AppText,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "确认区域后再进入路线条件配置",
+                    text = "中心点 + 3 公里范围，下一步配置时间、交通和偏好。",
                     color = AppTextMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MapChip(text = "范围待定")
-                MapChip(text = "交通待选")
-                MapChip(text = "目标待选")
+                MapChip(text = "3 公里")
+                MapChip(text = "自动范围")
+                MapChip(text = "路线 A")
             }
 
-            Button(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                onClick = onNext,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DeepTeal,
-                    contentColor = Color.White
-                )
-            ) {
-                Text(
-                    text = "下一步配置路线",
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            OutlinedButton(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
-                onClick = onManualSelect,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = DeepTeal
-                ),
-                border = BorderStroke(1.dp, DeepTeal)
-            ) {
-                Text(
-                    text = "手动框选区域",
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            UrbanPrimaryButton(text = "下一步配置路线", onClick = onNext)
+            UrbanSecondaryButton(text = "手动框选区域", onClick = onManualSelect)
         }
     }
 }

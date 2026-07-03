@@ -2,9 +2,9 @@
 name: "城市副本 Android UI"
 description: "面向城市路线生成与执行的移动端产品视觉基线，来自 Stitch 项目 Urban Sidequest Mobile 的已确认设计稿。"
 colors:
-  primary: "#0D4D4D"
-  primary-deep: "#003535"
-  route-primary: "#0F6B63"
+  primary: "#0B4FAD"
+  primary-deep: "#062B63"
+  route-primary: "#1373E6"
   route-secondary: "#607D8B"
   warning: "#FFB100"
   warning-surface: "#FFF7E0"
@@ -36,15 +36,15 @@ spacing:
   xl: "32px"
   screen-margin: "16px"
 components:
-  primary-button: "48px height, deep teal surface, white text, 12px radius"
-  secondary-button: "48px height, white surface, teal text, 1px teal border"
+  primary-button: "48px height, brand blue surface, white text, 12px radius"
+  secondary-button: "48px height, white surface, blue text, 1px blue border"
   chip: "36px minimum height, pill radius, compact label"
   bottom-sheet: "white surface, 18px top radius, soft shadow, map overlay"
-  route-node: "white fill, teal stroke, teal label, halo on map"
+  route-node: "white fill, blue stroke, blue label, halo on map"
   warning-banner: "amber-tinted surface with explicit warning icon and text"
 ---
 
-<!-- SEED: this design system is derived from the confirmed Stitch UI export, not from implemented frontend tokens. Re-run $impeccable document once code exists to capture the actual components. -->
+<!-- SEED: color tokens are synced to the Android implementation in android-app/app/src/main/java/com/urbansidequest/app/ui/theme/Color.kt. Android is the source of truth for current colors. -->
 
 ## Overview
 
@@ -58,11 +58,11 @@ components:
 
 ## Colors
 
-**The Teal Owns Action Rule.** Deep Teal 是唯一主行动色，用于主按钮、路线 A、当前 tab、选中态、关键图标和地图路径。它表达可靠和方向感，不用于大面积装饰背景。
+**The Blue Owns Action Rule.** Brand Blue 是唯一主行动色，用于主按钮、路线 A、当前 tab、选中态、关键图标和地图路径。它表达可靠和方向感，不用于大面积装饰背景。
 
 **The Yellow Is Risk Rule.** 地图底图已有大量黄色道路，黄色只能用于风险、等待、注意事项等语义状态。路线节点、主路径、主按钮禁止使用黄色。
 
-**The White Node Rule.** 地图节点必须使用白色填充、深青绿描边和深青绿编号文字，必要时加白色 halo 或轻阴影，确保在真实地图道路上仍然可读。
+**The White Node Rule.** 地图节点必须使用白色填充、品牌蓝描边和品牌蓝编号文字，必要时加白色 halo 或轻阴影，确保在真实地图道路上仍然可读。
 
 Primary roles:
 
@@ -95,21 +95,21 @@ If a screen looks like stacked cards instead of a navigable route tool, elevatio
 
 ## Components
 
-**Primary Button.** Full-width or high-priority action, 48px height, deep teal background, white text, 12px radius, clear active and disabled states. Use for “下一步配置路线”, “生成路线 A”, “开始路线”, “登录 / 注册”.
+**Primary Button.** Full-width or high-priority action, 48px height, brand blue background, white text, 12px radius, clear active and disabled states. Use for “下一步配置路线”, “生成路线 A”, “开始路线”, “登录 / 注册”.
 
-**Secondary Button.** Same height as primary, white or surface-muted background, teal text, 1px teal or border stroke. Use for “调整路线”, “替换此点”, “手动框选区域”.
+**Secondary Button.** Same height as primary, white or surface-muted background, blue text, 1px blue or border stroke. Use for “调整路线”, “替换此点”, “手动框选区域”.
 
-**Chips.** Use chips for structured route choices: duration, transport, route goal, interests and filters. Selected chips use teal tint or border; default chips stay white with light border. Chips must never feel like decorative tags.
+**Chips.** Use chips for structured route choices: duration, transport, route goal, interests and filters. Selected chips use blue tint or border; default chips stay white with light border. Chips must never feel like decorative tags.
 
 **Bottom Sheet.** The core map companion pattern. It contains current route summary, explanation, metrics, warning and primary action. It should reveal enough map above it for spatial context.
 
-**Route Node.** White fill, teal stroke, compact label, stable size. Node labels must remain legible on dense road maps and should not visually merge with yellow roads.
+**Route Node.** White fill, blue stroke, compact label, stable size. Node labels must remain legible on dense road maps and should not visually merge with yellow roads.
 
 **POI Explanation Card.** Explains why this POI fits the current route: time window, transition logic, risk and replacement. It is not a shop-detail page and must not center ratings or rankings.
 
 **Warning Banner.** Amber-tinted surface with icon and concise copy. Use for closure, weather, queue, transit risk and walking fatigue. It must be semantic, not decorative.
 
-**Navigation.** Bottom navigation has three product destinations: 地图、生成、我的. Current state uses teal; inactive state uses muted text. Navigation must not introduce social feed, ranking or game lobby patterns.
+**Navigation.** Bottom navigation has three product destinations: 地图、生成、我的. Current state uses blue; inactive state uses muted text. Navigation must not introduce social feed, ranking or game lobby patterns.
 
 ## Do's and Don'ts
 

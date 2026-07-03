@@ -7,6 +7,7 @@ import com.urbansidequest.backend.domain.dto.RouteAreaDTO;
 import com.urbansidequest.backend.domain.dto.RouteSegmentDTO;
 import com.urbansidequest.backend.domain.dto.RouteStepDTO;
 import com.urbansidequest.backend.domain.dto.RouteStopDTO;
+import com.urbansidequest.backend.domain.enums.RouteExecutionStatus;
 import com.urbansidequest.backend.domain.enums.RouteRequestStatus;
 import com.urbansidequest.backend.domain.vo.GeneratedRouteVO;
 import com.urbansidequest.backend.domain.vo.GeoPointVO;
@@ -37,12 +38,15 @@ public class RouteGenerationConverter {
         return new RouteGenerationVO(
                 context.getRequestId(),
                 context.getCandidateSetId(),
+                context.getUserId(),
                 RouteRequestStatus.SUCCESS,
                 this.toAreaVO(context.getArea(), context.getGenerateParam().getDurationMinutes()),
                 context.getSelectedRoutes().stream()
                         .map(route -> this.toGeneratedRouteVO(route, context, candidatesByPoiId))
                         .toList(),
-                context.getWarnings()
+                context.getWarnings(),
+                null,
+                RouteExecutionStatus.GENERATED
         );
     }
 

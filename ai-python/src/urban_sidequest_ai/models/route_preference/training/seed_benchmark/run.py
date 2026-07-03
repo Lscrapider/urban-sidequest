@@ -88,6 +88,8 @@ class BenchmarkConfig:
     device: str
     skip_invalid_judgments: bool
     lambda_goodness: float | None
+    dropout: float | None
+    min_delta: float | None
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
         device=args.device,
         skip_invalid_judgments=args.skip_invalid_judgments,
         lambda_goodness=args.lambda_goodness,
+        dropout=args.dropout,
+        min_delta=args.min_delta,
     )
     payload = run_benchmark(config)
     config.output.parent.mkdir(parents=True, exist_ok=True)
@@ -132,7 +136,6 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
     bundle = _load_bundle(config)
-    model_config = _model_config_from_feature_spec(bundle.feature_spec, TRAIN_CONFIG)
     device = torch.device(config.device)
     runs: list[RunSummary] = []
     total_runs = len(config.split_seeds) * len(config.train_seeds)
@@ -153,6 +156,12 @@ def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
             )
             if config.lambda_goodness is not None:
                 run_config = replace(run_config, lambda_goodness=config.lambda_goodness)
+            if config.dropout is not None:
+                run_config = replace(run_config, dropout=config.dropout)
+            if config.min_delta is not None:
+                run_config = replace(run_config, min_delta=config.min_delta)
+            # dropout 在 model_config 里，必须用覆盖后的 run_config 重建，不能循环外用 TRAIN_CONFIG 固化。
+            model_config = _model_config_from_feature_spec(bundle.feature_spec, run_config)
             loss_config = LossConfig(
                 beta=run_config.beta,
                 lambda_goodness=run_config.lambda_goodness,
@@ -180,6 +189,10 @@ def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
             "epochs": config.epochs,
             "lambda_goodness": TRAIN_CONFIG.lambda_goodness if config.lambda_goodness is None else config.lambda_goodness,
             "lambda_goodness_source": "TRAIN_CONFIG" if config.lambda_goodness is None else "CLI override",
+            "dropout": TRAIN_CONFIG.dropout if config.dropout is None else config.dropout,
+            "dropout_source": "TRAIN_CONFIG" if config.dropout is None else "CLI override",
+            "min_delta": TRAIN_CONFIG.min_delta if config.min_delta is None else config.min_delta,
+            "min_delta_source": "TRAIN_CONFIG" if config.min_delta is None else "CLI override",
             "device": config.device,
             "run_output_dir": str(config.run_output_dir),
             "candidate_set_filter": "全部 TRAIN_READY 样本聚合多 judge（与主训练同口径）",
@@ -437,6 +450,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=float,
         default=None,
         help="临时覆盖 lambda_goodness；默认使用 TRAIN_CONFIG.lambda_goodness。",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=None,
+        help="临时覆盖 dropout（含 model_config）；默认使用 TRAIN_CONFIG.dropout。",
+    )
+    parser.add_argument(
+        "--min-delta",
+        type=float,
+        default=None,
+        help="临时覆盖 early stopping min_delta；默认使用 TRAIN_CONFIG.min_delta。",
     )
     parser.add_argument(
         "--skip-invalid-judgments",

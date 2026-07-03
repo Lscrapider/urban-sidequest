@@ -47,10 +47,16 @@ import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.ui.components.RouteMapPreview
 import com.urbansidequest.app.ui.components.UrbanChip
+import com.urbansidequest.app.ui.components.UrbanBadge
+import com.urbansidequest.app.ui.components.UrbanBadgeStyle
+import com.urbansidequest.app.ui.components.UrbanMetricGrid
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
 import com.urbansidequest.app.ui.components.UrbanSearchField
 import com.urbansidequest.app.ui.components.UrbanSection
+import com.urbansidequest.app.ui.components.UrbanScreenTitle
+import com.urbansidequest.app.ui.components.UrbanTaskCard
 import com.urbansidequest.app.ui.components.UrbanTopBar
+import com.urbansidequest.app.ui.components.WarningBanner
 import com.urbansidequest.app.ui.theme.AppBackground
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
@@ -76,7 +82,12 @@ fun RouteConfigScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val uiState by routeConfigViewModel.uiState.collectAsStateWithLifecycle()
-    val canGenerate = selectedCenter != null && routeRepository != null && !uiState.isGenerating
+    val validationMessage = uiState.validateForRouteRequest(
+        selectedCenter = selectedCenter,
+        routeRepositoryAvailable = routeRepository != null
+    )
+    val canGenerate = validationMessage == null && !uiState.isGenerating
+    val feasibleMealWindows = uiState.feasibleMealWindowCodes()
 
     LaunchedEffect(routeConfigViewModel) {
         routeConfigViewModel.events.collectLatest { event ->
@@ -125,18 +136,24 @@ fun RouteConfigScreen(
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = AppSurface,
-                border = BorderStroke(1.dp, AppBorder)
-            ) {
+            UrbanScreenTitle(
+                eyebrow = "ROUTE REQUEST",
+                title = "生成路线条件",
+                trailing = {
+                    UrbanBadge(
+                        text = "自动范围",
+                        style = UrbanBadgeStyle.Area
+                    )
+                }
+            )
+
+            UrbanTaskCard(highlighted = true) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     RouteMapPreview(
-                        label = if (selectedCenter == null) "待选择区域" else "已选择区域",
+                        label = if (selectedCenter == null) "待选择" else "地图选区",
                         modifier = Modifier
                             .weight(1f)
                             .height(104.dp)
@@ -151,22 +168,30 @@ fun RouteConfigScreen(
                             style = MaterialTheme.typography.labelMedium
                         )
                         Text(
-                            text = if (selectedCenter == null) "待选择" else "地图选区",
+                            text = if (selectedCenter == null) "请先从地图选点" else "地图中心点已确认",
                             color = AppText,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "路线生成会把区域、时长、交通组合和兴趣偏好一起提交后端。",
+                            text = "按后端 AUTO_RADIUS 提交，半径 ${ROUTE_AUTO_RADIUS_METERS / 1000} 公里。",
                             color = AppTextMuted,
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
+                UrbanMetricGrid(
+                    items = listOf(
+                        "${ROUTE_AUTO_RADIUS_METERS / 1000} km" to "自动半径",
+                        uiState.selectedDuration.label to "可用时长",
+                        uiState.selectedBudget.label to "预算偏好"
+                    )
+                )
             }
 
             UrbanSection {
-                SectionTitle(title = "出发时间", subtitle = "用于判断饭点和营业风险")
+                SectionTitle(title = "路线窗口", subtitle = "用于判断饭点、营业风险和路线密度")
+                FieldLabel(text = "出发时间")
                 OptionFlow {
                     DepartureOptions.forEach { option ->
                         SelectableChip(
@@ -176,10 +201,7 @@ fun RouteConfigScreen(
                         )
                     }
                 }
-            }
-
-            UrbanSection {
-                SectionTitle(title = "可用时长", subtitle = "后端会据此选择默认范围和路线密度")
+                FieldLabel(text = "可用时长")
                 OptionFlow {
                     DurationOptions.forEach { option ->
                         SelectableChip(
@@ -189,10 +211,27 @@ fun RouteConfigScreen(
                         )
                     }
                 }
+                FieldLabel(text = "饭点安排")
+                OptionFlow {
+                    MealWindowOptions.forEach { option ->
+                        val feasible = feasibleMealWindows.contains(option.code)
+                        SelectableChip(
+                            text = if (feasible) option.label else "${option.label}不可排",
+                            selected = uiState.selectedMealWindows.contains(option.code),
+                            onClick = { routeConfigViewModel.toggleMealWindow(option.code) }
+                        )
+                    }
+                }
+                Text(
+                    text = "午餐窗口 11:30-13:30，晚餐窗口 17:30-20:00；超出当前路线窗口会被拦截。",
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
 
             UrbanSection {
-                SectionTitle(title = "交通组合", subtitle = "选项和后端 TransportProfile 保持一致")
+                SectionTitle(title = "路线策略", subtitle = "选项和后端 TransportProfile、RouteGoal、BudgetLevel 对齐")
+                FieldLabel(text = "交通组合")
                 OptionFlow {
                     TransportOptions.forEach { option ->
                         SelectableChip(
@@ -202,10 +241,7 @@ fun RouteConfigScreen(
                         )
                     }
                 }
-            }
-
-            UrbanSection {
-                SectionTitle(title = "路线目标", subtitle = "选项和后端 RouteGoal 保持一致")
+                FieldLabel(text = "路线目标")
                 OptionFlow {
                     RouteGoalOptions.forEach { option ->
                         SelectableChip(
@@ -215,10 +251,20 @@ fun RouteConfigScreen(
                         )
                     }
                 }
+                FieldLabel(text = "预算偏好")
+                OptionFlow {
+                    BudgetOptions.forEach { option ->
+                        SelectableChip(
+                            text = option.label,
+                            selected = option == uiState.selectedBudget,
+                            onClick = { routeConfigViewModel.selectBudget(option) }
+                        )
+                    }
+                }
             }
 
             UrbanSection {
-                SectionTitle(title = "兴趣偏好", subtitle = "可多选，标签和后端 interest_tag_catalog 对齐")
+                SectionTitle(title = "兴趣偏好", subtitle = "最多 5 个兴趣大类；餐饮偏好需要选择午餐或晚餐")
                 OptionFlow {
                     InterestTagOptions.forEach { option ->
                         SelectableChip(
@@ -227,6 +273,9 @@ fun RouteConfigScreen(
                             onClick = { routeConfigViewModel.toggleInterestTag(option.code) }
                         )
                     }
+                }
+                if (uiState.hasFoodInterest() && uiState.selectedMealWindows.isEmpty()) {
+                    WarningBanner(text = "选择美食或咖啡时，需要同时选择午餐或晚餐饭点。")
                 }
             }
 
@@ -244,6 +293,10 @@ fun RouteConfigScreen(
                     },
                     onRemovePoint = routeConfigViewModel::removeMustVisitPoint
                 )
+            }
+
+            if (validationMessage != null) {
+                WarningBanner(text = validationMessage)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -278,12 +331,14 @@ fun RouteConfigScreen(
                     }
                 )
                 Text(
-                    text = uiState.errorMessage ?: if (selectedCenter == null) {
-                        "请先从地图页确认区域。"
+                    text = validationMessage
+                        ?: uiState.errorMessage
+                        ?: "将提交自动范围、出发窗口、饭点、策略、预算、兴趣和必去点。",
+                    color = if (validationMessage == null && uiState.errorMessage == null) {
+                        AppTextMuted
                     } else {
-                        "路线会由后端生成，前端只提交结构化条件。"
+                        MaterialTheme.colorScheme.error
                     },
-                    color = if (uiState.errorMessage == null) AppTextMuted else MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -306,6 +361,16 @@ private fun SectionTitle(title: String, subtitle: String) {
             style = MaterialTheme.typography.bodySmall
         )
     }
+}
+
+@Composable
+private fun FieldLabel(text: String) {
+    Text(
+        text = text,
+        color = AppTextMuted,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

@@ -62,3 +62,4 @@ temp/
 *.xlsx
 /ai-python/src/urban_sidequest_ai/models/route_preference/training/schema.py
 /docs/algorithm/route/路线偏好MLP训练复盘.md
+/.pnpm-store/

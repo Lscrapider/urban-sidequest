@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLocationAlt
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,6 +40,7 @@ import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.DeepTeal
 
 enum class UrbanDestination {
+    Discover,
     Map,
     Routes,
     Profile
@@ -46,6 +49,7 @@ enum class UrbanDestination {
 @Composable
 fun UrbanBottomNavigationBar(
     selectedDestination: UrbanDestination,
+    onDiscoverClick: () -> Unit = {},
     onMapClick: () -> Unit,
     onRoutesClick: () -> Unit,
     onProfileClick: () -> Unit,
@@ -66,14 +70,20 @@ fun UrbanBottomNavigationBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             UrbanNavigationItem(
+                text = "发现",
+                icon = Icons.Filled.Explore,
+                selected = selectedDestination == UrbanDestination.Discover,
+                onClick = onDiscoverClick
+            )
+            UrbanNavigationItem(
                 text = "地图",
                 icon = Icons.Filled.Map,
                 selected = selectedDestination == UrbanDestination.Map,
                 onClick = onMapClick
             )
             UrbanNavigationItem(
-                text = "生成",
-                icon = Icons.Filled.AddLocationAlt,
+                text = "进行",
+                icon = Icons.Filled.Route,
                 selected = selectedDestination == UrbanDestination.Routes,
                 onClick = onRoutesClick
             )
@@ -103,7 +113,7 @@ private fun UrbanNavigationItem(
                 this.selected = selected
             }
             .clickable(onClick = onClick)
-            .background(if (selected) AppSurfaceMuted else Color.Transparent, CircleShape)
+            .background(if (selected) DeepTeal.copy(alpha = 0.10f) else Color.Transparent, CircleShape)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
