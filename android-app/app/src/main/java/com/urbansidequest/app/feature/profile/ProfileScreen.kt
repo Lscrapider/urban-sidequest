@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,9 +33,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.urbansidequest.app.R
 import com.urbansidequest.app.domain.model.RouteInteractionState
 import com.urbansidequest.app.domain.model.RouteReaction
 import com.urbansidequest.app.ui.components.UrbanBadge
@@ -55,10 +60,12 @@ import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
+import com.urbansidequest.app.ui.theme.AreaGreen
+import com.urbansidequest.app.ui.theme.AreaGreenSurface
 import com.urbansidequest.app.ui.theme.DeepTeal
-import com.urbansidequest.app.ui.theme.DeepTealDark
 import com.urbansidequest.app.ui.theme.InfoCyan
 import com.urbansidequest.app.ui.theme.InfoCyanSurface
+import com.urbansidequest.app.ui.theme.WarningAmber
 import com.urbansidequest.app.ui.theme.WarningSurface
 import kotlin.math.floor
 
@@ -89,8 +96,33 @@ private data class ProfileLevel(
 private data class AchievementSpec(
     val title: String,
     val description: String,
-    val marker: String,
+    val iconKey: AchievementIconKey,
+    val rarity: AchievementRarity,
     val earned: Boolean
+)
+
+private enum class AchievementIconKey {
+    Route,
+    Distance,
+    Favorite,
+    Like,
+    Dislike,
+    Streak,
+    Preference,
+    Level
+}
+
+private enum class AchievementRarity {
+    Common,
+    Advanced,
+    Rare,
+    Milestone
+}
+
+private data class AchievementBadgeColors(
+    val cardSurface: Color,
+    val markerSurface: Color,
+    val border: Color
 )
 
 private data class QuestionnaireOption(
@@ -373,6 +405,15 @@ private fun LevelProgressCard(level: ProfileLevel) {
 @Composable
 private fun AchievementCollectionCard(achievements: List<AchievementSpec>) {
     val earnedCount = achievements.count { it.earned }
+    val displayAchievements = remember(achievements) {
+        achievements
+            .mapIndexed { index, achievement -> index to achievement }
+            .sortedWith(
+                compareByDescending<Pair<Int, AchievementSpec>> { it.second.earned }
+                    .thenBy { it.first }
+            )
+            .map { it.second }
+    }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -412,7 +453,7 @@ private fun AchievementCollectionCard(achievements: List<AchievementSpec>) {
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                achievements.forEach { achievement ->
+                displayAchievements.forEach { achievement ->
                     AchievementBadgeItem(spec = achievement)
                 }
             }
@@ -422,14 +463,12 @@ private fun AchievementCollectionCard(achievements: List<AchievementSpec>) {
 
 @Composable
 private fun AchievementBadgeItem(spec: AchievementSpec) {
-    val markerSurface = if (spec.earned) WarningSurface else AppSurfaceMuted
-    val markerColor = if (spec.earned) DeepTealDark else AppTextMuted
-    val borderColor = if (spec.earned) DeepTeal.copy(alpha = 0.22f) else AppBorder.copy(alpha = 0.62f)
+    val colors = achievementBadgeColors(spec)
     Surface(
         modifier = Modifier.width(92.dp),
         shape = RoundedCornerShape(12.dp),
-        color = if (spec.earned) AppSurfaceMuted else AppSurfaceMuted.copy(alpha = 0.62f),
-        border = BorderStroke(1.dp, borderColor)
+        color = colors.cardSurface,
+        border = BorderStroke(1.dp, colors.border)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
@@ -439,17 +478,17 @@ private fun AchievementBadgeItem(spec: AchievementSpec) {
             Surface(
                 modifier = Modifier.size(36.dp),
                 shape = CircleShape,
-                color = markerSurface,
-                border = BorderStroke(1.dp, borderColor)
+                color = colors.markerSurface,
+                border = BorderStroke(1.dp, colors.border)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = spec.marker,
-                        color = markerColor,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                    Icon(
+                        painter = painterResource(id = achievementIconRes(spec.iconKey)),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .alpha(if (spec.earned) 1f else 0.42f),
+                        tint = Color.Unspecified
                     )
                 }
             }
@@ -468,6 +507,51 @@ private fun AchievementBadgeItem(spec: AchievementSpec) {
                 maxLines = 1
             )
         }
+    }
+}
+
+private fun achievementBadgeColors(spec: AchievementSpec): AchievementBadgeColors {
+    if (!spec.earned) {
+        return AchievementBadgeColors(
+            cardSurface = AppSurfaceMuted.copy(alpha = 0.62f),
+            markerSurface = AppSurfaceMuted,
+            border = AppBorder.copy(alpha = 0.62f)
+        )
+    }
+    return when (spec.rarity) {
+        AchievementRarity.Common -> AchievementBadgeColors(
+            cardSurface = AreaGreenSurface.copy(alpha = 0.70f),
+            markerSurface = AreaGreenSurface,
+            border = AreaGreen.copy(alpha = 0.30f)
+        )
+        AchievementRarity.Advanced -> AchievementBadgeColors(
+            cardSurface = InfoCyanSurface.copy(alpha = 0.76f),
+            markerSurface = InfoCyanSurface,
+            border = InfoCyan.copy(alpha = 0.32f)
+        )
+        AchievementRarity.Rare -> AchievementBadgeColors(
+            cardSurface = WarningSurface.copy(alpha = 0.78f),
+            markerSurface = WarningSurface,
+            border = WarningAmber.copy(alpha = 0.42f)
+        )
+        AchievementRarity.Milestone -> AchievementBadgeColors(
+            cardSurface = DeepTeal.copy(alpha = 0.10f),
+            markerSurface = AppSurface,
+            border = DeepTeal.copy(alpha = 0.30f)
+        )
+    }
+}
+
+private fun achievementIconRes(iconKey: AchievementIconKey): Int {
+    return when (iconKey) {
+        AchievementIconKey.Route -> R.drawable.ic_achievement_route
+        AchievementIconKey.Distance -> R.drawable.ic_achievement_distance
+        AchievementIconKey.Favorite -> R.drawable.ic_achievement_favorite
+        AchievementIconKey.Like -> R.drawable.ic_achievement_like
+        AchievementIconKey.Dislike -> R.drawable.ic_achievement_dislike
+        AchievementIconKey.Streak -> R.drawable.ic_achievement_streak
+        AchievementIconKey.Preference -> R.drawable.ic_achievement_preference
+        AchievementIconKey.Level -> R.drawable.ic_achievement_level
     }
 }
 
@@ -593,38 +677,38 @@ private fun resolveProfileLevel(stats: ProfileStats): ProfileLevel {
 
 private fun buildAchievements(stats: ProfileStats): List<AchievementSpec> {
     return listOf(
-        AchievementSpec("第一条路线", "完成任意 1 条路线", "1", stats.completedRoutes >= 1),
-        AchievementSpec("路线熟手", "完成 3 条路线", "3", stats.completedRoutes >= 3),
-        AchievementSpec("半日行者", "完成 5 条路线", "5", stats.completedRoutes >= 5),
-        AchievementSpec("十路线记录", "完成 10 条路线", "10", stats.completedRoutes >= 10),
-        AchievementSpec("二十路线记录", "完成 20 条路线", "20", stats.completedRoutes >= 20),
-        AchievementSpec("五十路线记录", "完成 50 条路线", "50", stats.completedRoutes >= 50),
-        AchievementSpec("三公里起步", "累计出行 3 公里", "3k", stats.travelDistanceMeters >= 3_000L),
-        AchievementSpec("十公里出行", "累计出行 10 公里", "10", stats.travelDistanceMeters >= 10_000L),
-        AchievementSpec("二十五公里", "累计出行 25 公里", "25", stats.travelDistanceMeters >= 25_000L),
-        AchievementSpec("五十公里", "累计出行 50 公里", "50", stats.travelDistanceMeters >= 50_000L),
-        AchievementSpec("百公里城市账本", "累计出行 100 公里", "百", stats.travelDistanceMeters >= 100_000L),
-        AchievementSpec("收藏起步", "收藏 1 条路线", "藏", stats.favoriteRoutes >= 1),
-        AchievementSpec("收藏整理者", "收藏 3 条路线", "藏", stats.favoriteRoutes >= 3),
-        AchievementSpec("路线夹收藏家", "收藏 8 条路线", "夹", stats.favoriteRoutes >= 8),
-        AchievementSpec("复走候选库", "收藏 15 条路线", "库", stats.favoriteRoutes >= 15),
-        AchievementSpec("第一次认可", "喜欢 1 条路线", "赞", stats.likedRoutes >= 1),
-        AchievementSpec("路线认可", "喜欢 3 条路线", "赞", stats.likedRoutes >= 3),
-        AchievementSpec("稳定路线派", "喜欢 8 条路线", "稳", stats.likedRoutes >= 8),
-        AchievementSpec("路线校准员", "标记 1 条不喜欢路线", "调", stats.dislikedRoutes >= 1),
-        AchievementSpec("偏好边界", "标记 3 条不喜欢路线", "界", stats.dislikedRoutes >= 3),
-        AchievementSpec("连续探索", "连续打开我的页 3 天", "连", stats.explorationStreakDays >= 3),
-        AchievementSpec("一周探索", "连续打开我的页 7 天", "7", stats.explorationStreakDays >= 7),
-        AchievementSpec("双周探索", "连续打开我的页 14 天", "14", stats.explorationStreakDays >= 14),
-        AchievementSpec("月度探索", "连续打开我的页 30 天", "月", stats.explorationStreakDays >= 30),
-        AchievementSpec("偏好起草", "完成部分探索偏好", "偏", stats.profileConfidence >= 0.4),
-        AchievementSpec("兴趣清单", "记录兴趣类偏好", "趣", stats.profileConfidence >= 0.6),
-        AchievementSpec("偏好完成", "完成探索偏好题组", "好", stats.profileConfidence >= 1.0),
-        AchievementSpec("城市新人", "Lv.1 初到城市", "新", stats.completedRoutes >= 0),
-        AchievementSpec("路线熟路", "达到 Lv.2 路线熟手", "熟", stats.completedRoutes >= 1),
-        AchievementSpec("城区行者", "达到 Lv.3 城区行者", "行", stats.completedRoutes >= 4 || stats.travelDistanceMeters >= 12_000L),
-        AchievementSpec("深度探索", "达到 Lv.4 深度探索者", "深", stats.completedRoutes >= 8 || stats.travelDistanceMeters >= 30_000L),
-        AchievementSpec("城市罗盘", "达到 Lv.5 城市罗盘", "罗", stats.completedRoutes >= 15 || stats.travelDistanceMeters >= 60_000L)
+        AchievementSpec("第一条路线", "完成任意 1 条路线", AchievementIconKey.Route, AchievementRarity.Common, stats.completedRoutes >= 1),
+        AchievementSpec("路线熟手", "完成 3 条路线", AchievementIconKey.Route, AchievementRarity.Common, stats.completedRoutes >= 3),
+        AchievementSpec("半日行者", "完成 5 条路线", AchievementIconKey.Route, AchievementRarity.Advanced, stats.completedRoutes >= 5),
+        AchievementSpec("十路线记录", "完成 10 条路线", AchievementIconKey.Route, AchievementRarity.Advanced, stats.completedRoutes >= 10),
+        AchievementSpec("二十路线记录", "完成 20 条路线", AchievementIconKey.Route, AchievementRarity.Rare, stats.completedRoutes >= 20),
+        AchievementSpec("五十路线记录", "完成 50 条路线", AchievementIconKey.Route, AchievementRarity.Milestone, stats.completedRoutes >= 50),
+        AchievementSpec("三公里起步", "累计出行 3 公里", AchievementIconKey.Distance, AchievementRarity.Common, stats.travelDistanceMeters >= 3_000L),
+        AchievementSpec("十公里出行", "累计出行 10 公里", AchievementIconKey.Distance, AchievementRarity.Common, stats.travelDistanceMeters >= 10_000L),
+        AchievementSpec("二十五公里", "累计出行 25 公里", AchievementIconKey.Distance, AchievementRarity.Advanced, stats.travelDistanceMeters >= 25_000L),
+        AchievementSpec("五十公里", "累计出行 50 公里", AchievementIconKey.Distance, AchievementRarity.Rare, stats.travelDistanceMeters >= 50_000L),
+        AchievementSpec("百公里城市账本", "累计出行 100 公里", AchievementIconKey.Distance, AchievementRarity.Milestone, stats.travelDistanceMeters >= 100_000L),
+        AchievementSpec("收藏起步", "收藏 1 条路线", AchievementIconKey.Favorite, AchievementRarity.Common, stats.favoriteRoutes >= 1),
+        AchievementSpec("收藏整理者", "收藏 3 条路线", AchievementIconKey.Favorite, AchievementRarity.Common, stats.favoriteRoutes >= 3),
+        AchievementSpec("路线夹收藏家", "收藏 8 条路线", AchievementIconKey.Favorite, AchievementRarity.Advanced, stats.favoriteRoutes >= 8),
+        AchievementSpec("复走候选库", "收藏 15 条路线", AchievementIconKey.Favorite, AchievementRarity.Rare, stats.favoriteRoutes >= 15),
+        AchievementSpec("第一次认可", "喜欢 1 条路线", AchievementIconKey.Like, AchievementRarity.Common, stats.likedRoutes >= 1),
+        AchievementSpec("路线认可", "喜欢 3 条路线", AchievementIconKey.Like, AchievementRarity.Common, stats.likedRoutes >= 3),
+        AchievementSpec("稳定路线派", "喜欢 8 条路线", AchievementIconKey.Like, AchievementRarity.Advanced, stats.likedRoutes >= 8),
+        AchievementSpec("路线校准员", "标记 1 条不喜欢路线", AchievementIconKey.Dislike, AchievementRarity.Common, stats.dislikedRoutes >= 1),
+        AchievementSpec("偏好边界", "标记 3 条不喜欢路线", AchievementIconKey.Dislike, AchievementRarity.Advanced, stats.dislikedRoutes >= 3),
+        AchievementSpec("连续探索", "连续打开我的页 3 天", AchievementIconKey.Streak, AchievementRarity.Common, stats.explorationStreakDays >= 3),
+        AchievementSpec("一周探索", "连续打开我的页 7 天", AchievementIconKey.Streak, AchievementRarity.Advanced, stats.explorationStreakDays >= 7),
+        AchievementSpec("双周探索", "连续打开我的页 14 天", AchievementIconKey.Streak, AchievementRarity.Rare, stats.explorationStreakDays >= 14),
+        AchievementSpec("月度探索", "连续打开我的页 30 天", AchievementIconKey.Streak, AchievementRarity.Milestone, stats.explorationStreakDays >= 30),
+        AchievementSpec("偏好起草", "完成部分探索偏好", AchievementIconKey.Preference, AchievementRarity.Common, stats.profileConfidence >= 0.4),
+        AchievementSpec("兴趣清单", "记录兴趣类偏好", AchievementIconKey.Preference, AchievementRarity.Advanced, stats.profileConfidence >= 0.6),
+        AchievementSpec("偏好完成", "完成探索偏好题组", AchievementIconKey.Preference, AchievementRarity.Rare, stats.profileConfidence >= 1.0),
+        AchievementSpec("城市新人", "Lv.1 初到城市", AchievementIconKey.Level, AchievementRarity.Common, stats.completedRoutes >= 0),
+        AchievementSpec("路线熟路", "达到 Lv.2 路线熟手", AchievementIconKey.Level, AchievementRarity.Common, stats.completedRoutes >= 1),
+        AchievementSpec("城区行者", "达到 Lv.3 城区行者", AchievementIconKey.Level, AchievementRarity.Advanced, stats.completedRoutes >= 4 || stats.travelDistanceMeters >= 12_000L),
+        AchievementSpec("深度探索", "达到 Lv.4 深度探索者", AchievementIconKey.Level, AchievementRarity.Rare, stats.completedRoutes >= 8 || stats.travelDistanceMeters >= 30_000L),
+        AchievementSpec("城市罗盘", "达到 Lv.5 城市罗盘", AchievementIconKey.Level, AchievementRarity.Milestone, stats.completedRoutes >= 15 || stats.travelDistanceMeters >= 60_000L)
     )
 }
 
