@@ -180,6 +180,8 @@ internal fun PoiDetailPopup(
     routeCode: String,
     routeColor: Int,
     stop: RouteStop,
+    distanceMetersOverride: Int? = null,
+    showStopDistanceFallback: Boolean = true,
     onLocate: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -258,7 +260,9 @@ internal fun PoiDetailPopup(
                 if (!stop.transportToNext.isNullOrBlank() && stop.durationToNextMinutes != null) {
                     UrbanChip(text = "下一段 ${formatTransportMode(stop.transportToNext)} ${stop.durationToNextMinutes} 分钟")
                 }
-                stop.distanceToNextMeters?.let { meters ->
+                val displayDistance = distanceMetersOverride
+                    ?: stop.distanceToNextMeters.takeIf { showStopDistanceFallback }
+                displayDistance?.let { meters ->
                     UrbanChip(text = "距离 ${formatDistance(meters)}")
                 }
             }

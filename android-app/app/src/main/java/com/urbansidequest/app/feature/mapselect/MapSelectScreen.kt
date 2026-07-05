@@ -241,8 +241,11 @@ fun MapSelectScreen(
     }
 
     fun checkInStop(stop: RouteStop) {
-        completedStopIds = completedStopIds + stop.id
+        val nextCompletedStopIds = completedStopIds + stop.id
+        completedStopIds = nextCompletedStopIds
         dismissedCheckInStopId = null
+        selectedStopPayload = null
+        selectedSegmentPayload = null
         if (selectedRouteStops.lastOrNull()?.id == stop.id) {
             routeGeneration?.requestId?.let { requestId ->
                 selectedRoute?.routeCode?.let { routeCode ->
@@ -251,10 +254,13 @@ fun MapSelectScreen(
             }
         } else {
             val nextStop = selectedRouteStops.firstOrNull { routeStop ->
-                routeStop.id != stop.id && routeStop.id !in completedStopIds
+                routeStop.id != stop.id && routeStop.id !in nextCompletedStopIds
             }
             if (nextStop != null && selectedRoutePosition != null) {
-                focusStop(selectedRoutePosition, nextStop)
+                selectedRouteIndex = selectedRoutePosition
+                visibleRouteIndexes = setOf(selectedRoutePosition)
+                generationPanelMode = MapGenerationPanelMode.RouteDetail
+                moveToLocation(nextStop.location.toLatLng(), 16f)
             }
         }
     }
@@ -459,13 +465,24 @@ fun MapSelectScreen(
             )
         }
 
+        if (isRouteExecutionMode && !isSearchActive) {
+            MapExecutionControlStack(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 18.dp),
+                onCurrentLocation = ::locateWithPermission,
+                onLayers = {},
+                onMore = {}
+            )
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            if (!isSearchActive) {
+            if (!isSearchActive && !isRouteExecutionMode) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -492,22 +509,72 @@ fun MapSelectScreen(
                         routeCode = routes.getOrNull(payload.routeIndex)?.routeCode.orEmpty(),
                         routeColor = routeColor(payload.routeIndex),
                         stop = payload.stop,
+                        distanceMetersOverride = if (isRouteExecutionMode) {
+                            executionLegDistance(selectedRouteStops, payload.stop)
+                        } else {
+                            null
+                        },
+                        showStopDistanceFallback = !isRouteExecutionMode,
                         onLocate = { focusStop(payload.routeIndex, payload.stop) },
                         onClose = { selectedStopPayload = null }
                     )
                 }
                 if (isRouteExecutionMode) {
                     if (currentTargetStop != null) {
-                        RouteCheckInPrompt(
-                            route = selectedRoute,
-                            stop = currentTargetStop,
-                            completedCount = completedStopIds.size,
-                            totalCount = selectedRouteStops.size,
-                            distanceMeters = distanceToTargetMeters,
-                            canCheckIn = shouldShowCheckInPrompt,
-                            onCheckIn = { checkInStop(currentTargetStop) },
-                            onDismiss = { dismissedCheckInStopId = currentTargetStop.id }
-                        )
+                        val finishActiveRoute: () -> Unit = {
+                            routeGeneration?.requestId?.let { requestId ->
+                                onCompleteRoute(requestId, selectedRoute.routeCode)
+                            }
+                        }
+                        val selectedStop = selectedStopPayload?.stop
+                        if (selectedStop != null) {
+                            RouteExecutionCompactPanel(
+                                route = selectedRoute,
+                                currentStop = currentTargetStop,
+                                selectedStop = selectedStop,
+                                completedStopIds = completedStopIds,
+                                distanceMeters = executionLegDistance(selectedRouteStops, selectedStop),
+                                durationMinutes = executionLegDuration(selectedRouteStops, selectedStop),
+                                canCheckIn = selectedStop.id == currentTargetStop.id && shouldShowCheckInPrompt,
+                                onConfirmCheckIn = { checkInStop(selectedStop) },
+                                onFinishEarly = finishActiveRoute,
+                                onSelectStop = { stop -> focusStop(selectedRoutePosition, stop) },
+                                onSelectSegment = { originStop, destinationStop ->
+                                    focusSegment(
+                                        buildRailSegmentPayload(
+                                            routeIndex = selectedRoutePosition,
+                                            route = selectedRoute,
+                                            originStop = originStop,
+                                            destinationStop = destinationStop
+                                        )
+                                    )
+                                }
+                            )
+                        } else {
+                            RouteExecutionPanel(
+                                route = selectedRoute,
+                                stop = currentTargetStop,
+                                completedStopIds = completedStopIds,
+                                distanceMeters = executionLegDistance(selectedRouteStops, currentTargetStop),
+                                durationMinutes = executionLegDuration(selectedRouteStops, currentTargetStop),
+                                canCheckIn = shouldShowCheckInPrompt,
+                                onShowDetail = { focusStop(selectedRoutePosition, currentTargetStop) },
+                                onCheckIn = { checkInStop(currentTargetStop) },
+                                onUnableToArrive = { dismissedCheckInStopId = currentTargetStop.id },
+                                onFinishEarly = finishActiveRoute,
+                                onSelectStop = { stop -> focusStop(selectedRoutePosition, stop) },
+                                onSelectSegment = { originStop, destinationStop ->
+                                    focusSegment(
+                                        buildRailSegmentPayload(
+                                            routeIndex = selectedRoutePosition,
+                                            route = selectedRoute,
+                                            originStop = originStop,
+                                            destinationStop = destinationStop
+                                        )
+                                    )
+                                }
+                            )
+                        }
                     } else {
                         RouteCompletionPendingPanel(route = selectedRoute)
                     }

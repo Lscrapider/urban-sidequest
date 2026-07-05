@@ -149,6 +149,30 @@ internal fun buildRailSegmentPayload(
     )
 }
 
+internal fun executionLegDistance(
+    stops: List<RouteStop>,
+    stop: RouteStop
+): Int? {
+    val sortedStops = stops.sortedBy(RouteStop::order)
+    val index = sortedStops.indexOfFirst { it.id == stop.id }
+    if (index <= 0) {
+        return null
+    }
+    return sortedStops[index - 1].distanceToNextMeters
+}
+
+internal fun executionLegDuration(
+    stops: List<RouteStop>,
+    stop: RouteStop
+): Int? {
+    val sortedStops = stops.sortedBy(RouteStop::order)
+    val index = sortedStops.indexOfFirst { it.id == stop.id }
+    if (index <= 0) {
+        return null
+    }
+    return sortedStops[index - 1].durationToNextMinutes
+}
+
 internal fun routeLineColor(index: Int, selected: Boolean, estimated: Boolean): Int {
     val color = routeColor(index)
     val alpha = when {

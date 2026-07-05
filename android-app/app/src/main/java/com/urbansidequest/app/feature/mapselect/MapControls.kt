@@ -20,7 +20,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
@@ -234,6 +236,79 @@ internal fun MapLocationButton(
             contentDescription = "回到当前位置",
             tint = DeepTeal
         )
+    }
+}
+
+@Composable
+internal fun MapExecutionControlStack(
+    modifier: Modifier = Modifier,
+    onCurrentLocation: () -> Unit,
+    onLayers: () -> Unit,
+    onMore: () -> Unit
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        MapRoundIconButton(
+            contentDescription = "回到当前位置",
+            onClick = onCurrentLocation
+        ) {
+            Icon(
+                modifier = Modifier.size(22.dp),
+                imageVector = Icons.Filled.GpsFixed,
+                contentDescription = null,
+                tint = AppText
+            )
+        }
+        MapRoundIconButton(
+            contentDescription = "切换地图图层",
+            onClick = onLayers
+        ) {
+            Icon(
+                modifier = Modifier.size(22.dp),
+                imageVector = Icons.Filled.Layers,
+                contentDescription = null,
+                tint = AppText
+            )
+        }
+        MapRoundIconButton(
+            contentDescription = "更多地图操作",
+            onClick = onMore
+        ) {
+            Icon(
+                modifier = Modifier.size(22.dp),
+                imageVector = Icons.Filled.MoreHoriz,
+                contentDescription = null,
+                tint = AppText
+            )
+        }
+    }
+}
+
+@Composable
+private fun MapRoundIconButton(
+    contentDescription: String,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .size(48.dp)
+            .shadow(5.dp, CircleShape, clip = false)
+            .semantics {
+                role = Role.Button
+                this.contentDescription = contentDescription
+            }
+            .clickable(onClick = onClick),
+        shape = CircleShape,
+        color = AppSurface.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.72f))
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            icon()
+        }
     }
 }
 
