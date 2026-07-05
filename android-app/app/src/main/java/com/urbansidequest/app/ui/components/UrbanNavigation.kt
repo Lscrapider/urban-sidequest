@@ -100,7 +100,7 @@ fun UrbanBottomNavigationBar(
                         modifier = Modifier.weight(1f)
                     )
                     UrbanNavigationItem(
-                        text = "进行",
+                        text = "路线",
                         selected = selectedDestination == UrbanDestination.Routes,
                         unselectedIconRes = R.drawable.nav_routes_unselected,
                         selectedIconRes = R.drawable.nav_routes_selected,

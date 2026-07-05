@@ -1,6 +1,7 @@
 package com.urbansidequest.app.feature.routes
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -14,17 +15,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,7 +32,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,7 +39,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -50,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
+import androidx.annotation.DrawableRes
 import com.urbansidequest.app.R
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
@@ -60,7 +64,6 @@ import com.urbansidequest.app.ui.components.UrbanBadgeStyle
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
-import com.urbansidequest.app.ui.components.UrbanQuestLoadingCard
 import com.urbansidequest.app.ui.components.UrbanScreenTitle
 import com.urbansidequest.app.ui.components.UrbanSecondaryButton
 import com.urbansidequest.app.ui.components.UrbanTaskCard
@@ -71,15 +74,16 @@ import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.AreaGreen
-import com.urbansidequest.app.ui.theme.AreaGreenSurface
 import com.urbansidequest.app.ui.theme.InfoCyan
-import com.urbansidequest.app.ui.theme.InfoCyanSurface
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.WarningAmber
-import com.urbansidequest.app.ui.theme.WarningSurface
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+
+private val RouteBlue = Color(0xFF0B5CFF)
+private val RouteBlueSurface = Color(0xFFEAF3FF)
+private val RouteBlueBorder = Color(0xFF78A9FF)
 
 @Composable
 fun RoutesScreen(
@@ -114,7 +118,13 @@ fun RoutesScreen(
         RouteLibraryTab.Generated -> generatedGroups
         RouteLibraryTab.Walked -> walkedGroups
     }
-    val visibleRouteCount = visibleGroups.sumOf { group -> group.routes.size }
+    val generatedRouteCount = generatedGroups.sumOf { group -> group.routes.size }
+    val walkedRouteCount = walkedGroups.sumOf { group -> group.routes.size }
+    val latestGeneratedGroup = generatedGroups.firstOrNull { group ->
+        group.generationStatus == "SUCCESS" && group.routes.isNotEmpty()
+    }
+    val generatingCount = generatedGroups.count(::isGeneratingHistory)
+    val failedCount = generatedGroups.count { group -> group.generationStatus == "FAILED" }
 
     Column(
         modifier = Modifier
@@ -129,19 +139,7 @@ fun RoutesScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                UrbanScreenTitle(
-                    eyebrow = "路线库",
-                    title = "生成结果与走过路线",
-                    trailing = {
-                        IconButton(onClick = onRefreshHistory) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "刷新路线历史",
-                                tint = AppText
-                            )
-                        }
-                    }
-                )
+                RouteLibraryHeader()
             }
 
             if (isLoading) {
@@ -184,19 +182,9 @@ fun RoutesScreen(
                 item {
                     RouteLibrarySwitcher(
                         selectedTab = selectedTab,
-                        generatedCount = generatedGroups.size,
-                        walkedCount = walkedGroups.size,
+                        generatedCount = generatedRouteCount,
+                        walkedCount = walkedRouteCount,
                         onSelectTab = { selectedTab = it }
-                    )
-                }
-                item {
-                    SectionHeader(
-                        title = selectedTab.sectionTitle,
-                        badge = if (selectedTab == RouteLibraryTab.Walked) {
-                            "$visibleRouteCount 条"
-                        } else {
-                            "${visibleGroups.size} 组"
-                        }
                     )
                 }
                 if (visibleGroups.isEmpty()) {
@@ -208,10 +196,20 @@ fun RoutesScreen(
                         )
                     }
                 } else if (selectedTab == RouteLibraryTab.Walked) {
-                    itemsIndexed(
+                    item {
+                        WalkedRoutesSummaryCard(groups = walkedGroups)
+                    }
+                    item {
+                        SectionHeader(
+                            title = selectedTab.sectionTitle,
+                            trailingText = "最近完成",
+                            showDropdown = true
+                        )
+                    }
+                    items(
                         items = visibleGroups,
-                        key = { _, group -> "walked_${group.requestId}" }
-                    ) { index, group ->
+                        key = { group -> "walked_${group.requestId}" }
+                    ) { group ->
                         val route = group.routes.firstOrNull()
                         if (route != null) {
                             WalkedRouteRow(
@@ -223,12 +221,35 @@ fun RoutesScreen(
                                     shareText = DEFAULT_SHARE_TEXT
                                 }
                             )
-                            if (index < visibleGroups.lastIndex) {
-                                HorizontalDivider(color = AppBorder.copy(alpha = 0.64f))
-                            }
                         }
                     }
+                    item {
+                        MoreWalkedRoutesButton(onClick = onRefreshHistory)
+                    }
                 } else {
+                    latestGeneratedGroup?.let { group ->
+                        item(key = "latest_${group.requestId}") {
+                            LatestGeneratedGroupCard(
+                                group = group,
+                                onOpenGroup = { onOpenHistoryGroup(group.requestId) },
+                                onOpenRoute = { routeCode -> onOpenHistoryRoute(group.requestId, routeCode) }
+                            )
+                        }
+                    }
+                    item {
+                        GenerationStatusRow(
+                            generatingCount = generatingCount,
+                            failedCount = failedCount,
+                            onRegenerate = onOpenMap
+                        )
+                    }
+                    item {
+                        SectionHeader(
+                            title = selectedTab.sectionTitle,
+                            trailingText = "最新生成",
+                            showDropdown = true
+                        )
+                    }
                     items(
                         items = visibleGroups,
                         key = { "${selectedTab.name}_${it.requestId}" }
@@ -449,7 +470,7 @@ fun FavoriteRoutesScreen(
                 }
             } else {
                 item {
-                    SectionHeader(title = "已收藏路线", badge = "$favoriteRouteCount 条")
+                    SectionHeader(title = "已收藏路线", trailingText = "$favoriteRouteCount 条")
                 }
                 items(
                     items = favoriteGroups,
@@ -497,13 +518,17 @@ private fun RouteLibrarySwitcher(
     ) {
         Row(
             modifier = Modifier.padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             RouteLibraryTab.values().forEach { tab ->
                 val selected = tab == selectedTab
                 val count = when (tab) {
                     RouteLibraryTab.Generated -> generatedCount
                     RouteLibraryTab.Walked -> walkedCount
+                }
+                val iconRes = when (tab) {
+                    RouteLibraryTab.Generated -> R.drawable.icon_routes_generated
+                    RouteLibraryTab.Walked -> R.drawable.icon_routes_walked
                 }
                 Surface(
                     modifier = Modifier
@@ -513,31 +538,88 @@ private fun RouteLibrarySwitcher(
                             this.selected = selected
                         }
                         .clickable { onSelectTab(tab) },
-                    shape = RoundedCornerShape(9.dp),
-                    color = if (selected) RouteTeal.copy(alpha = 0.12f) else AppSurface,
-                    border = BorderStroke(1.dp, if (selected) RouteTeal.copy(alpha = 0.56f) else AppSurface)
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (selected) RouteBlueSurface else AppSurface,
+                    border = BorderStroke(1.dp, if (selected) RouteBlue else AppSurface)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .height(44.dp)
+                            .padding(horizontal = 13.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        RouteLibraryImageIcon(
+                            iconRes = iconRes,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (selected) RouteBlue else AppText
+                        )
                         Text(
+                            modifier = Modifier.weight(1f),
                             text = tab.label,
-                            color = if (selected) RouteTeal else AppText,
+                            color = if (selected) RouteBlue else AppText,
                             style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = count.toString(),
-                            color = AppTextMuted,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        CountPill(text = count.toString())
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RouteLibraryHeader() {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = "路线",
+            color = AppText,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "生成结果与走过路线",
+            color = AppTextMuted,
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+
+@Composable
+private fun RouteLibraryImageIcon(
+    @DrawableRes iconRes: Int,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    tint: Color? = null
+) {
+    Image(
+        painter = painterResource(iconRes),
+        contentDescription = contentDescription,
+        modifier = modifier,
+        colorFilter = tint?.let(ColorFilter::tint)
+    )
+}
+
+@Composable
+private fun CountPill(text: String) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = AppSurfaceMuted
+    ) {
+        Text(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            text = text,
+            color = AppText,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -582,14 +664,261 @@ private fun ActiveRoutePanel(
 }
 
 @Composable
-private fun SectionHeader(title: String, badge: String) {
+private fun SectionHeader(
+    title: String,
+    trailingText: String,
+    showDropdown: Boolean = false
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(text = title, color = AppText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        UrbanBadge(text = badge, style = UrbanBadgeStyle.Reward)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = trailingText,
+                color = RouteBlue,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+            if (showDropdown) {
+                RouteLibraryImageIcon(
+                    iconRes = R.drawable.icon_routes_chevron_down,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = RouteBlue
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LatestGeneratedGroupCard(
+    group: RouteHistoryGroup,
+    onOpenGroup: () -> Unit,
+    onOpenRoute: (String) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenGroup),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, RouteBlueBorder)
+    ) {
+        Box {
+            RecentBadge(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 0.dp, top = 0.dp)
+            )
+            Column(
+                modifier = Modifier.padding(start = 12.dp, top = 34.dp, end = 12.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RouteLibraryImageIcon(
+                                iconRes = R.drawable.icon_routes_location,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                                tint = AppText
+                            )
+                            Text(
+                                text = group.areaLabel,
+                                color = AppText,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = "${formatCreatedAt(group.createdAt)} · ${group.routes.size} 条路线",
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        UrbanBadge(text = formatHistoryStatus(group), style = historyStatusBadgeStyle(group))
+                        RouteLibraryImageIcon(
+                            iconRes = R.drawable.icon_routes_more,
+                            contentDescription = "更多生成组操作",
+                            modifier = Modifier.size(22.dp),
+                            tint = AppText
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    group.routes.forEach { route ->
+                        RouteHistoryRouteChip(
+                            route = route,
+                            isActive = route.routeCode == group.activeRouteCode,
+                            onClick = { onOpenRoute(route.routeCode) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentBadge(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.height(24.dp),
+        shape = RoundedCornerShape(topStart = 11.dp, bottomEnd = 8.dp),
+        color = RouteBlue
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "最近生成",
+                color = AppSurface,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun GenerationStatusRow(
+    generatingCount: Int,
+    failedCount: Int,
+    onRegenerate: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        GenerationMiniStatusCard(
+            modifier = Modifier.weight(1f),
+            title = "生成中",
+            subtitle = if (generatingCount > 0) "${generatingCount} 组路线正在生成" else "暂无生成",
+            statusText = if (generatingCount > 0) "等待中" else "空闲",
+            iconRes = R.drawable.icon_routes_generated,
+            accent = RouteBlue,
+            showProgress = generatingCount > 0,
+            onClick = {}
+        )
+        GenerationMiniStatusCard(
+            modifier = Modifier.weight(1f),
+            title = "生成失败",
+            subtitle = if (failedCount > 0) "${failedCount} 组路线生成失败" else "暂无失败",
+            statusText = "重新生成",
+            iconRes = R.drawable.icon_routes_warning,
+            accent = WarningAmber,
+            onClick = onRegenerate
+        )
+    }
+}
+
+@Composable
+private fun GenerationMiniStatusCard(
+    title: String,
+    subtitle: String,
+    statusText: String,
+    @DrawableRes iconRes: Int,
+    accent: Color,
+    showProgress: Boolean = false,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .height(102.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.30f))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RouteLibraryImageIcon(
+                    iconRes = iconRes,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                    tint = accent
+                )
+                Text(
+                    text = title,
+                    color = AppText,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = subtitle,
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (showProgress) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(4.dp)
+                            .background(RouteBlue.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.65f)
+                                .height(4.dp)
+                                .background(RouteBlue, RoundedCornerShape(999.dp))
+                        )
+                    }
+                    Text(
+                        text = statusText,
+                        color = AppText,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            } else {
+                Text(
+                    text = statusText,
+                    color = accent,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 
@@ -600,36 +929,272 @@ private fun WalkedRouteRow(
     onOpenRoute: () -> Unit,
     onShareRoute: () -> Unit
 ) {
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpenRoute)
-            .padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .clickable(onClick = onOpenRoute),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.82f))
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            WalkedRouteMapThumbnail(
+                modifier = Modifier.size(width = 118.dp, height = 96.dp),
+                routeCode = route.routeCode
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = route.title,
+                            color = AppText,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${formatCreatedDate(group.createdAt)} 完成",
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    UrbanBadge(text = "已完成", style = UrbanBadgeStyle.Area)
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RouteMetaItem(iconRes = R.drawable.icon_routes_location, text = formatCompactDistance(route.totalDistanceMeters))
+                    RouteMetaItem(iconRes = R.drawable.icon_routes_clock, text = formatDuration(route.totalDurationMinutes))
+                    RouteMetaItem(iconRes = R.drawable.icon_routes_flag, text = "— 个点")
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        WalkedRouteAction(
+                            iconRes = R.drawable.icon_routes_star,
+                            label = "收藏",
+                            onClick = {}
+                        )
+                        WalkedRouteAction(
+                            iconRes = R.drawable.icon_routes_share,
+                            label = "分享",
+                            onClick = onShareRoute
+                        )
+                    }
+                    RouteLibraryImageIcon(
+                        iconRes = R.drawable.icon_routes_chevron_right,
+                        contentDescription = "查看路线详情",
+                        modifier = Modifier.size(22.dp),
+                        tint = AppText
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WalkedRoutesSummaryCard(groups: List<RouteHistoryGroup>) {
+    val walkedRoutes = groups.mapNotNull { group -> group.routes.firstOrNull() }
+    val totalDistanceMeters = walkedRoutes.sumOf { route -> route.totalDistanceMeters }
+    val totalDurationMinutes = walkedRoutes.sumOf { route -> route.totalDurationMinutes }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.70f))
+    ) {
+        Box {
+            Image(
+                painter = painterResource(R.drawable.route_walked_summary_bg),
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(AppSurface.copy(alpha = 0.72f))
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1.15f),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        text = "走过路线",
+                        color = AppText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${walkedRoutes.size} 条已完成",
+                        color = AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                WalkedSummaryMetric(
+                    modifier = Modifier.weight(0.92f),
+                    value = formatCompactDistance(totalDistanceMeters),
+                    label = "总距离"
+                )
+                WalkedSummaryMetric(
+                    modifier = Modifier.weight(0.92f),
+                    value = formatHourDecimal(totalDurationMinutes),
+                    label = "总时间"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WalkedSummaryMetric(
+    modifier: Modifier = Modifier,
+    value: String,
+    label: String
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = value,
+            color = AppText,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = label,
+            color = AppTextMuted,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+@Composable
+private fun WalkedRouteMapThumbnail(
+    routeCode: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(AppSurfaceMuted)
+    ) {
+        Image(
+            painter = painterResource(R.drawable.route_thumb_placeholder),
+            contentDescription = "路线${routeCode}地图缩略图",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+    }
+}
+
+@Composable
+private fun RouteMetaItem(
+    @DrawableRes iconRes: Int,
+    text: String
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+        RouteLibraryImageIcon(
+            iconRes = iconRes,
+            contentDescription = null,
+            modifier = Modifier.size(15.dp),
+            tint = AppTextMuted
+        )
+        Text(
+            text = text,
+            color = AppText,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun WalkedRouteAction(
+    @DrawableRes iconRes: Int,
+    label: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RouteLibraryImageIcon(
+            iconRes = iconRes,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = AppText
+        )
+        Text(
+            text = label,
+            color = AppText,
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+
+@Composable
+private fun MoreWalkedRoutesButton(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(10.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = route.title,
+                text = "查看更多走过路线",
                 color = AppText,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
             )
-            Text(
-                text = "${group.areaLabel} · ${formatDuration(route.totalDurationMinutes)} · ${formatDistance(route.totalDistanceMeters)}",
-                color = AppTextMuted,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+            RouteLibraryImageIcon(
+                iconRes = R.drawable.icon_routes_chevron_right,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = AppText
             )
-        }
-        TextButton(onClick = onShareRoute) {
-            Text("分享")
         }
     }
 }
@@ -641,81 +1206,77 @@ private fun RouteHistoryGroupRow(
     onOpenRoute: (String) -> Unit
 ) {
     val canOpenRoutes = group.generationStatus == "SUCCESS" && group.routes.isNotEmpty()
-    if (isGeneratingHistory(group)) {
-        UrbanQuestLoadingCard(
-            modifier = Modifier.fillMaxWidth(),
-            title = group.areaLabel,
-            subtitle = formatHistorySubtitle(group),
-            statusText = formatHistoryProgressText(group),
-            badgeText = formatHistoryStatus(group),
-            badgeStyle = historyStatusBadgeStyle(group),
-            accentColor = if (group.generationStatus == "PENDING") AreaGreen else RouteTeal,
-            illustrationResId = R.drawable.illustration_route_generating
-        )
-        return
-    }
-
-    val statusAccent = historyStatusAccentColor(group)
+    val failed = group.generationStatus == "FAILED"
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = canOpenRoutes, onClick = onOpenGroup),
         shape = RoundedCornerShape(12.dp),
-        color = historyStatusSurfaceColor(group),
-        border = BorderStroke(1.dp, statusAccent.copy(alpha = 0.26f))
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.74f))
     ) {
-        Column(
+        Row(
             modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+            Surface(
+                modifier = Modifier.size(58.dp),
+                shape = RoundedCornerShape(999.dp),
+                color = if (failed) WarningAmber.copy(alpha = 0.12f) else RouteBlueSurface
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Text(
-                        text = group.areaLabel,
-                        color = AppText,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = formatHistorySubtitle(group),
-                        color = AppTextMuted,
-                        style = MaterialTheme.typography.bodySmall
+                Box(contentAlignment = Alignment.Center) {
+                    RouteLibraryImageIcon(
+                        iconRes = if (failed) R.drawable.icon_routes_warning else R.drawable.icon_routes_layers,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp),
+                        tint = if (failed) WarningAmber else RouteBlue
                     )
                 }
-                UrbanBadge(
-                    text = formatHistoryStatus(group),
-                    style = historyStatusBadgeStyle(group)
-                )
             }
-            if (canOpenRoutes) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    group.routes.forEach { route ->
-                        RouteHistoryRouteChip(
-                            route = route,
-                            isActive = route.routeCode == group.activeRouteCode && group.executionStatus == "IN_PROGRESS",
-                            onClick = { onOpenRoute(route.routeCode) }
-                        )
-                    }
-                }
-            } else {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
                 Text(
-                    text = formatHistoryProgressText(group),
+                    text = group.areaLabel,
+                    color = AppText,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (failed) {
+                        "${formatCreatedAt(group.createdAt)} · 生成失败"
+                    } else {
+                        "${formatCreatedAt(group.createdAt)} · ${group.routes.size} 条路线"
+                    },
                     color = AppTextMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
+                Text(
+                    text = if (failed) {
+                        "路线生成失败，请稍后重试"
+                    } else {
+                        "路线 ${group.routes.size} 条 · 候选 ${group.routes.size * 3} 条"
+                    },
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
+            UrbanBadge(
+                text = formatHistoryStatus(group),
+                style = historyStatusBadgeStyle(group)
+            )
+            RouteLibraryImageIcon(
+                iconRes = R.drawable.icon_routes_chevron_right,
+                contentDescription = "查看生成组",
+                modifier = Modifier.size(20.dp),
+                tint = AppTextMuted
+            )
         }
     }
 }
@@ -739,15 +1300,16 @@ private fun RouteHistoryRouteChip(
     val routeAccent = routeChipAccentColor(route.routeCode)
     Surface(
         modifier = Modifier
-            .width(174.dp)
+            .width(132.dp)
+            .height(132.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(10.dp),
-        color = if (isActive) routeAccent.copy(alpha = 0.12f) else routeAccent.copy(alpha = 0.07f),
+        color = if (isActive) routeAccent.copy(alpha = 0.10f) else AppSurface,
         border = BorderStroke(1.dp, routeAccent.copy(alpha = if (isActive) 0.52f else 0.28f))
     ) {
         Column(
             modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -788,14 +1350,44 @@ private fun RouteHistoryRouteChip(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = "${formatDuration(route.totalDurationMinutes)} · ${formatDistance(route.totalDistanceMeters)}",
-                color = AppTextMuted,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+            RouteChipMetricLine(
+                iconRes = R.drawable.icon_routes_clock,
+                text = formatDuration(route.totalDurationMinutes)
+            )
+            RouteChipMetricLine(
+                iconRes = R.drawable.icon_routes_location,
+                text = formatCompactDistance(route.totalDistanceMeters)
+            )
+            RouteChipMetricLine(
+                iconRes = R.drawable.icon_routes_flag,
+                text = "${routePlaceholderStopCount(route)} 个点"
             )
         }
+    }
+}
+
+@Composable
+private fun RouteChipMetricLine(
+    @DrawableRes iconRes: Int,
+    text: String
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RouteLibraryImageIcon(
+            iconRes = iconRes,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp),
+            tint = AppTextMuted
+        )
+        Text(
+            text = text,
+            color = AppText,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -803,17 +1395,29 @@ private fun formatDuration(minutes: Int): String {
     val hours = minutes / 60
     val restMinutes = minutes % 60
     return when {
-        hours > 0 && restMinutes > 0 -> "${hours} 小时 ${restMinutes} 分钟"
-        hours > 0 -> "${hours} 小时"
-        else -> "${minutes} 分钟"
+        hours > 0 && restMinutes > 0 -> "${hours}小时${restMinutes}分钟"
+        hours > 0 -> "${hours}小时"
+        else -> "${minutes}分钟"
     }
 }
 
 private fun formatDistance(meters: Int): String {
+    return formatCompactDistance(meters)
+}
+
+private fun formatCompactDistance(meters: Int): String {
     return if (meters >= 1000) {
-        "${String.format("%.1f", meters / 1000.0)} 公里"
+        "${String.format("%.1f", meters / 1000.0)} km"
     } else {
-        "${meters} 米"
+        "${meters} m"
+    }
+}
+
+private fun formatHourDecimal(minutes: Int): String {
+    return if (minutes >= 60) {
+        "${String.format("%.1f", minutes / 60.0)} 小时"
+    } else {
+        "${minutes} 分钟"
     }
 }
 
@@ -864,20 +1468,21 @@ private fun historyStatusAccentColor(group: RouteHistoryGroup): Color {
     }
 }
 
-private fun historyStatusSurfaceColor(group: RouteHistoryGroup): Color {
-    return when {
-        group.generationStatus == "FAILED" -> WarningSurface
-        group.executionStatus == "COMPLETED" -> InfoCyanSurface.copy(alpha = 0.66f)
-        else -> AreaGreenSurface.copy(alpha = 0.62f)
-    }
-}
-
 private fun routeChipAccentColor(routeCode: String): Color {
     return when (routeCode.uppercase()) {
         "A" -> RouteTeal
         "B" -> InfoCyan
         "C" -> AreaGreen
         else -> WarningAmber
+    }
+}
+
+private fun routePlaceholderStopCount(route: RouteHistoryRouteSummary): Int {
+    return when (route.routeCode.uppercase()) {
+        "A" -> 12
+        "B" -> 10
+        "C" -> 9
+        else -> 8
     }
 }
 
@@ -942,6 +1547,22 @@ private fun formatCreatedAt(createdAt: String): String {
     }
 }
 
+private fun formatCreatedDate(createdAt: String): String {
+    if (createdAt.isBlank()) {
+        return "刚刚"
+    }
+    return runCatching {
+        DateTimeFormatter
+            .ofPattern("yyyy-MM-dd")
+            .format(Instant.parse(createdAt).atZone(ROUTE_HISTORY_ZONE))
+    }.getOrElse {
+        createdAt
+            .substringBefore(" ")
+            .substringBefore("T")
+            .ifBlank { "刚刚" }
+    }
+}
+
 private val ROUTE_HISTORY_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
 
 private const val DEFAULT_SHARE_TEXT = "这条路线走下来很顺，适合直接照着走。"
@@ -956,7 +1577,7 @@ private enum class RouteLibraryTab(
 ) {
     Generated(
         label = "生成结果",
-        sectionTitle = "可查看的生成路线",
+        sectionTitle = "全部生成组",
         emptyTitle = "没有待查看的生成路线",
         emptyDescription = "生成后的路线会先放在这里，开始并完成后会进入走过路线。"
     ),
