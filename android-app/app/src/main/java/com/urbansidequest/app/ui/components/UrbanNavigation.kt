@@ -63,7 +63,7 @@ fun UrbanBottomNavigationBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(86.dp),
+            .height(78.dp),
         color = AppSurface
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -76,7 +76,7 @@ fun UrbanBottomNavigationBar(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxSize(),

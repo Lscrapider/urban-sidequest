@@ -502,6 +502,9 @@ private fun UrbanSidequestApp() {
                         selectedCenter = center
                         pushScreen(AppScreen.RouteConfig)
                     },
+                    routeRepositoryAvailable = true,
+                    isRouteGenerationSubmitting = isRouteGenerationSubmitting,
+                    onSubmitRouteGeneration = ::submitRouteGeneration,
                     onStartRoute = ::startRoute,
                     onCompleteRoute = ::completeActiveRoute,
                     onOpenDiscover = ::replaceWithDiscover,
