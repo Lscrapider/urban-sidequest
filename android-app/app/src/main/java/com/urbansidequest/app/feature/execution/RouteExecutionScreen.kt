@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.urbansidequest.app.ui.components.TimelineItem
+import com.urbansidequest.app.ui.components.RouteMapPreview
 import com.urbansidequest.app.ui.components.UrbanBadge
 import com.urbansidequest.app.ui.components.UrbanBadgeStyle
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
@@ -66,6 +67,7 @@ fun RouteExecutionScreen(
                 eyebrow = "进行中 / 第 3 站",
                 title = "下一站：街角咖啡馆"
             )
+            ExecutionMapCard()
             UrbanProgressPanel(
                 title = "苏州河半日走法",
                 description = "距离 900 米，预计 14 分钟到达；当前段以步行为主。",
@@ -82,12 +84,12 @@ fun RouteExecutionScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     UrbanPrimaryButton(
                         modifier = Modifier.weight(1f),
-                        text = "到达确认",
+                        text = "到达打卡",
                         onClick = onOpenPoi
                     )
                     UrbanSecondaryButton(
                         modifier = Modifier.weight(1f),
-                        text = "拍照记录",
+                        text = "无法到达",
                         onClick = onOpenPoi
                     )
                 }
@@ -172,5 +174,31 @@ fun RouteExecutionScreen(
             onRoutesClick = onBackToRoutes,
             onProfileClick = onOpenProfile
         )
+    }
+}
+
+@Composable
+private fun ExecutionMapCard() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Box {
+            RouteMapPreview(
+                label = "路线进行中",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(186.dp)
+            )
+            UrbanBadge(
+                text = "下一站 900m",
+                style = UrbanBadgeStyle.RouteA,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(12.dp)
+            )
+        }
     }
 }

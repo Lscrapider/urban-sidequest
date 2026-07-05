@@ -22,7 +22,8 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
                 route_count,
                 generation_status,
                 generation_stage,
-                generation_json
+                generation_json,
+                route_summaries_json
             )
             VALUES (
                 #{history.requestId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
@@ -32,7 +33,8 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
                 #{history.routeCount},
                 #{history.generationStatus},
                 #{history.generationStage},
-                CAST(#{history.generationJson} AS JSONB)
+                CAST(#{history.generationJson} AS JSONB),
+                CAST(#{history.routeSummariesJson} AS JSONB)
             )
             ON CONFLICT (request_id) DO UPDATE SET
                 candidate_set_id = EXCLUDED.candidate_set_id,
@@ -42,6 +44,7 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
                 generation_status = EXCLUDED.generation_status,
                 generation_stage = EXCLUDED.generation_stage,
                 generation_json = EXCLUDED.generation_json,
+                route_summaries_json = EXCLUDED.route_summaries_json,
                 updated_at = now()
             """)
     int upsertHistory(@Param("history") RouteGenerationHistoryPO history);
@@ -57,6 +60,7 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
                 generation_status,
                 generation_stage,
                 generation_json::text AS generation_json,
+                route_summaries_json::text AS route_summaries_json,
                 created_at,
                 updated_at
             FROM route_generation_history
@@ -75,6 +79,7 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
             @Result(column = "generation_status", property = "generationStatus"),
             @Result(column = "generation_stage", property = "generationStage"),
             @Result(column = "generation_json", property = "generationJson"),
+            @Result(column = "route_summaries_json", property = "routeSummariesJson"),
             @Result(column = "created_at", property = "createdAt"),
             @Result(column = "updated_at", property = "updatedAt")
     })
@@ -95,6 +100,7 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
                 generation_status,
                 generation_stage,
                 generation_json::text AS generation_json,
+                route_summaries_json::text AS route_summaries_json,
                 created_at,
                 updated_at
             FROM route_generation_history
@@ -111,6 +117,7 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
             @Result(column = "generation_status", property = "generationStatus"),
             @Result(column = "generation_stage", property = "generationStage"),
             @Result(column = "generation_json", property = "generationJson"),
+            @Result(column = "route_summaries_json", property = "routeSummariesJson"),
             @Result(column = "created_at", property = "createdAt"),
             @Result(column = "updated_at", property = "updatedAt")
     })

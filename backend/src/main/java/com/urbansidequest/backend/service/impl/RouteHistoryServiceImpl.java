@@ -123,18 +123,20 @@ public class RouteHistoryServiceImpl implements RouteHistoryService {
                 execution == null ? null : execution.getRouteCode(),
                 execution == null ? RouteExecutionStatus.GENERATED : execution.getExecutionStatus(),
                 routeGeneration.routes().stream()
-                        .map(this::toRouteHistoryRouteSummaryVO)
+                        .map(route -> this.toRouteHistoryRouteSummaryVO(route, routeGeneration.area() == null ? null : routeGeneration.area().cityName()))
                         .toList()
         );
     }
 
-    private RouteHistoryRouteSummaryVO toRouteHistoryRouteSummaryVO(GeneratedRouteVO route) {
+    private RouteHistoryRouteSummaryVO toRouteHistoryRouteSummaryVO(GeneratedRouteVO route, String cityName) {
         return new RouteHistoryRouteSummaryVO(
                 route.routeCode(),
                 route.title(),
+                cityName,
                 route.totalDurationMinutes(),
                 route.totalDistanceMeters(),
-                route.riskLevel()
+                route.riskLevel(),
+                route.stops() == null ? 0 : route.stops().size()
         );
     }
 

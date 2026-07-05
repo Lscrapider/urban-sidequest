@@ -65,12 +65,13 @@ public class RouteGenerationConverter {
     private RouteAreaVO toAreaVO(RouteGenerationContext context) {
         RouteAreaDTO area = context.getArea();
         if (area != null) {
-            return this.toAreaVO(area, context.getGenerateParam().getDurationMinutes());
+            return this.toAreaVO(area, context.getGenerateParam().getRouteCityName(), context.getGenerateParam().getDurationMinutes());
         }
         GeoPointParam center = context.getGenerateParam().getCenter();
         return new RouteAreaVO(
                 context.getGenerateParam().getAreaMode(),
                 context.getGenerateParam().getAreaLabel() == null ? "路线生成中" : context.getGenerateParam().getAreaLabel(),
+                context.getGenerateParam().getRouteCityName(),
                 center == null ? new GeoPointVO(BigDecimal.ZERO, BigDecimal.ZERO) : this.toGeoPointVO(center),
                 context.getGenerateParam().getRadiusMeters() == null ? 0 : context.getGenerateParam().getRadiusMeters(),
                 List.of(),
@@ -78,10 +79,11 @@ public class RouteGenerationConverter {
         );
     }
 
-    private RouteAreaVO toAreaVO(RouteAreaDTO area, int durationMinutes) {
+    private RouteAreaVO toAreaVO(RouteAreaDTO area, String cityName, int durationMinutes) {
         return new RouteAreaVO(
                 area.areaMode(),
                 area.areaLabel(),
+                cityName,
                 this.toGeoPointVO(area.center()),
                 area.radiusMeters(),
                 area.polygonGcj02().stream().map(this::toGeoPointVO).toList(),

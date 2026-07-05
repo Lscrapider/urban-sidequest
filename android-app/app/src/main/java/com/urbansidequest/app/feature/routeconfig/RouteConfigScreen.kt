@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.urbansidequest.app.R
 import com.urbansidequest.app.data.api.RouteGenerateRequest
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
 import com.urbansidequest.app.data.route.RouteRepository
@@ -48,6 +49,7 @@ import com.urbansidequest.app.ui.components.UrbanBadge
 import com.urbansidequest.app.ui.components.UrbanBadgeStyle
 import com.urbansidequest.app.ui.components.UrbanMetricGrid
 import com.urbansidequest.app.ui.components.UrbanPrimaryButton
+import com.urbansidequest.app.ui.components.UrbanQuestLoadingCard
 import com.urbansidequest.app.ui.components.UrbanSearchField
 import com.urbansidequest.app.ui.components.UrbanSection
 import com.urbansidequest.app.ui.components.UrbanScreenTitle
@@ -301,6 +303,16 @@ fun RouteConfigScreen(
 
             if (validationMessage != null) {
                 WarningBanner(text = validationMessage)
+            }
+
+            if (uiState.isGenerating) {
+                UrbanQuestLoadingCard(
+                    title = "正在生成路线 A",
+                    subtitle = "根据当前区域、时间窗口和兴趣偏好组合路线",
+                    statusText = "正在生成候选路线和地图节点",
+                    badgeText = "生成中",
+                    illustrationResId = R.drawable.illustration_route_generating
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))

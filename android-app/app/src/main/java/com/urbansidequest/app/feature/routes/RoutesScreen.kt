@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
+import com.urbansidequest.app.R
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
 import com.urbansidequest.app.domain.model.RouteInteractionState
@@ -163,7 +164,8 @@ fun RoutesScreen(
                 item {
                     EmptyState(
                         title = "当前没有历史路线",
-                        description = "每次生成的 3 到 5 条路线会按一行保存，之后可以回到地图继续查看。"
+                        description = "每次生成的 3 到 5 条路线会按一行保存，之后可以回到地图继续查看。",
+                        illustrationResId = R.drawable.illustration_empty_routes
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     UrbanPrimaryButton(text = "去地图选点", onClick = onOpenMap)
@@ -201,7 +203,8 @@ fun RoutesScreen(
                     item(key = "empty_${selectedTab.name}") {
                         EmptyState(
                             title = selectedTab.emptyTitle,
-                            description = selectedTab.emptyDescription
+                            description = selectedTab.emptyDescription,
+                            illustrationResId = R.drawable.illustration_empty_routes
                         )
                     }
                 } else if (selectedTab == RouteLibraryTab.Walked) {
@@ -438,7 +441,8 @@ fun FavoriteRoutesScreen(
                 item {
                     EmptyState(
                         title = "还没有收藏路线",
-                        description = "收藏后的路线会单独沉淀到这里，之后可以直接回到地图查看。"
+                        description = "收藏后的路线会单独沉淀到这里，之后可以直接回到地图查看。",
+                        illustrationResId = R.drawable.illustration_empty_routes
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     UrbanPrimaryButton(text = "查看生成路线", onClick = onOpenRoutes)
@@ -645,7 +649,8 @@ private fun RouteHistoryGroupRow(
             statusText = formatHistoryProgressText(group),
             badgeText = formatHistoryStatus(group),
             badgeStyle = historyStatusBadgeStyle(group),
-            accentColor = if (group.generationStatus == "PENDING") AreaGreen else RouteTeal
+            accentColor = if (group.generationStatus == "PENDING") AreaGreen else RouteTeal,
+            illustrationResId = R.drawable.illustration_route_generating
         )
         return
     }

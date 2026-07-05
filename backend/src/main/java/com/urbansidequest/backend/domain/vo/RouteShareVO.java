@@ -8,7 +8,10 @@ public record RouteShareVO(
         UUID requestId,
         String routeCode,
         String routeTitle,
-        String areaLabel,
+        String cityName,
+        Integer totalDurationMinutes,
+        Integer totalDistanceMeters,
+        Integer stopCount,
         String shareText,
         String imageUrl,
         Instant createdAt

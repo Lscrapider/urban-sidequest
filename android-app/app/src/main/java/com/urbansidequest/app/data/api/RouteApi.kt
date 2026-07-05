@@ -481,7 +481,10 @@ class RouteApi {
             requestId = json.getString("requestId"),
             routeCode = json.getString("routeCode"),
             routeTitle = json.optString("routeTitle").ifBlank { "城市路线" },
-            areaLabel = json.optString("areaLabel").ifBlank { "城市副本路线" },
+            cityName = json.optString("cityName").ifBlank { "城市" },
+            totalDurationMinutes = json.optNullableInt("totalDurationMinutes"),
+            totalDistanceMeters = json.optNullableInt("totalDistanceMeters"),
+            stopCount = json.optNullableInt("stopCount"),
             shareText = json.optString("shareText"),
             imageUrl = json.optString("imageUrl"),
             createdAt = json.optString("createdAt")

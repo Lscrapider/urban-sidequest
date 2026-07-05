@@ -5,11 +5,16 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.domain.enums.RouteExecutionStatus;
 import com.urbansidequest.backend.domain.enums.RouteRequestStatus;
+import com.urbansidequest.backend.domain.vo.GeneratedRouteVO;
 import com.urbansidequest.backend.domain.vo.RouteGenerationVO;
+import com.urbansidequest.backend.domain.vo.RouteHistoryRouteSummaryVO;
+import com.urbansidequest.backend.domain.vo.RouteStopVO;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @TableName("route_generation_history")
@@ -42,6 +47,9 @@ public class RouteGenerationHistoryPO {
     @TableField("generation_json")
     private String generationJson;
 
+    @TableField("route_summaries_json")
+    private String routeSummariesJson;
+
     @TableField("created_at")
     private Instant createdAt;
 
@@ -58,6 +66,7 @@ public class RouteGenerationHistoryPO {
         po.setGenerationStatus(routeGeneration.status());
         po.setGenerationStage(routeGeneration.generationStage());
         po.setGenerationJson(writeJson(objectMapper, routeGeneration));
+        po.setRouteSummariesJson(writeJson(objectMapper, toRouteSummaries(routeGeneration)));
         return po;
     }
 
@@ -75,6 +84,39 @@ public class RouteGenerationHistoryPO {
                 null,
                 RouteExecutionStatus.GENERATED
         );
+    }
+
+    public List<RouteHistoryRouteSummaryVO> toRouteSummaries(ObjectMapper objectMapper) {
+        if (this.routeSummariesJson == null || this.routeSummariesJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            JavaType type = objectMapper.getTypeFactory()
+                    .constructCollectionType(List.class, RouteHistoryRouteSummaryVO.class);
+            return objectMapper.readValue(this.routeSummariesJson, type);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("路线摘要快照反序列化失败", exception);
+        }
+    }
+
+    private static List<RouteHistoryRouteSummaryVO> toRouteSummaries(RouteGenerationVO routeGeneration) {
+        List<GeneratedRouteVO> routes = routeGeneration.routes() == null ? List.of() : routeGeneration.routes();
+        return routes.stream()
+                .map(route -> new RouteHistoryRouteSummaryVO(
+                        route.routeCode(),
+                        route.title(),
+                        routeGeneration.area() == null ? null : routeGeneration.area().cityName(),
+                        route.totalDurationMinutes(),
+                        route.totalDistanceMeters(),
+                        route.riskLevel(),
+                        stopCount(route)
+                ))
+                .toList();
+    }
+
+    private static int stopCount(GeneratedRouteVO route) {
+        List<RouteStopVO> stops = route.stops();
+        return stops == null ? 0 : stops.size();
     }
 
     private static String writeJson(ObjectMapper objectMapper, Object value) {
@@ -163,6 +205,14 @@ public class RouteGenerationHistoryPO {
 
     public void setGenerationJson(String generationJson) {
         this.generationJson = generationJson;
+    }
+
+    public String getRouteSummariesJson() {
+        return this.routeSummariesJson;
+    }
+
+    public void setRouteSummariesJson(String routeSummariesJson) {
+        this.routeSummariesJson = routeSummariesJson;
     }
 
     public Instant getCreatedAt() {

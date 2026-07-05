@@ -10,6 +10,7 @@ import com.urbansidequest.backend.domain.po.RouteSharePO;
 import com.urbansidequest.backend.domain.vo.GeneratedRouteVO;
 import com.urbansidequest.backend.domain.vo.GeoPointVO;
 import com.urbansidequest.backend.domain.vo.RouteGenerationVO;
+import com.urbansidequest.backend.domain.vo.RouteHistoryRouteSummaryVO;
 import com.urbansidequest.backend.domain.vo.RouteSegmentVO;
 import com.urbansidequest.backend.domain.vo.RouteShareVO;
 import com.urbansidequest.backend.domain.vo.RouteStopVO;
@@ -151,21 +152,27 @@ public class RouteShareServiceImpl implements RouteShareService {
         RouteGenerationHistoryPO history = this.routeGenerationHistoryManage
                 .findByUserAndRequestId(share.getUserId(), share.getRequestId())
                 .orElse(null);
-        RouteGenerationVO routeGeneration = history == null ? null : this.routeGenerationHistoryManage.toRouteGenerationVO(history);
-        GeneratedRouteVO route = routeGeneration == null ? null : routeGeneration.routes().stream()
-                .filter(candidate -> candidate.routeCode().equals(share.getRouteCode()))
-                .findFirst()
-                .orElse(null);
+        RouteHistoryRouteSummaryVO summary = history == null ? null : this.findRouteSummary(history, share.getRouteCode());
         return new RouteShareVO(
                 share.getId(),
                 share.getRequestId(),
                 share.getRouteCode(),
-                route == null ? "城市路线" : route.title(),
-                history == null ? "城市副本路线" : history.getAreaLabel(),
+                summary == null ? "城市路线" : summary.title(),
+                summary == null ? null : summary.cityName(),
+                summary == null ? null : summary.totalDurationMinutes(),
+                summary == null ? null : summary.totalDistanceMeters(),
+                summary == null ? null : summary.stopCount(),
                 share.getShareText(),
                 share.getImageUrl(),
                 share.getCreatedAt()
         );
+    }
+
+    private RouteHistoryRouteSummaryVO findRouteSummary(RouteGenerationHistoryPO history, String routeCode) {
+        return this.routeGenerationHistoryManage.toRouteSummaries(history).stream()
+                .filter(summary -> summary.routeCode().equals(routeCode))
+                .findFirst()
+                .orElse(null);
     }
 
     private byte[] readImageBytes(MultipartFile image) {

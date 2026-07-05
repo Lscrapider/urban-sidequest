@@ -1,6 +1,7 @@
 package com.urbansidequest.app.feature.profile
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -163,31 +165,17 @@ fun ProfileScreen(
                 eyebrow = "我的资产",
                 title = "${displayNickname}的城市资产"
             )
-            UrbanTaskCard {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    UrbanBadge(text = "Lv.${level.number} ${level.title}", style = UrbanBadgeStyle.RouteA)
-                    UrbanBadge(text = "连续探索 ${stats.explorationStreakDays} 天")
-                }
-                Text(
-                    text = "轻量成就，专注个人路线",
-                    color = AppText,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "用走过路线、收藏和反馈沉淀你的城市资产，下一次路线 A 会更贴近你的节奏。",
-                    color = AppTextMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-                UrbanMetricGrid(
-                    items = listOf(
-                        stats.completedRoutes.toString() to "完成路线",
-                        formatKilometers(stats.travelDistanceMeters) to "出行公里",
-                        stats.favoriteRoutes.toString() to "收藏路线"
-                    )
-                )
-                LevelProgressCard(level = level)
-            }
+            ProfileHeaderCard(
+                nickname = displayNickname,
+                level = level,
+                stats = stats
+            )
+
+            PreferenceSurveyCard(
+                profileConfidence = stats.profileConfidence,
+                preferenceAnswers = preferenceAnswers,
+                onClick = onOpenQuestionnaire
+            )
 
             AchievementCollectionCard(achievements = achievements)
 
@@ -209,35 +197,10 @@ fun ProfileScreen(
                     description = "${stats.likedRoutes} 次喜欢，${stats.dislikedRoutes} 次不喜欢，用于校准路线判断",
                     action = "记录"
                 )
-            }
-
-            UrbanTaskCard(highlighted = stats.profileConfidence < 1.0) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = if (stats.profileConfidence >= 1.0) "探索偏好已完成" else "探索偏好仍在积累",
-                            color = AppText,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = profileSummary(preferenceAnswers, stats.profileConfidence),
-                            color = AppTextMuted,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    UrbanBadge(text = "${(stats.profileConfidence * 100).toInt()}%", style = UrbanBadgeStyle.Reward)
-                }
-                UrbanPrimaryButton(
-                    text = if (preferenceAnswers == null) "开始探索偏好" else "更新探索偏好",
-                    onClick = onOpenQuestionnaire
+                AssetRow(
+                    title = "帮助中心",
+                    description = "查看路线生成、地图选区和打卡反馈的常见问题",
+                    action = "帮助"
                 )
             }
 
@@ -256,6 +219,127 @@ fun ProfileScreen(
             onRoutesClick = onOpenRoutes,
             onProfileClick = {}
         )
+    }
+}
+
+@Composable
+private fun ProfileHeaderCard(
+    nickname: String,
+    level: ProfileLevel,
+    stats: ProfileStats
+) {
+    UrbanTaskCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(58.dp),
+                shape = CircleShape,
+                color = DeepTeal,
+                border = BorderStroke(2.dp, AppSurface)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = nickname.take(1).ifBlank { "城" },
+                        color = AppSurface,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = nickname,
+                    color = AppText,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    UrbanBadge(text = "城市探索者", style = UrbanBadgeStyle.Reward)
+                    UrbanBadge(text = "Lv.12", style = UrbanBadgeStyle.RouteA)
+                }
+                Text(
+                    text = "当前标志：Lv.${level.number} ${level.title}",
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        UrbanMetricGrid(
+            items = listOf(
+                stats.completedRoutes.toString() to "完成路线",
+                formatKilometers(stats.travelDistanceMeters) to "出行公里",
+                stats.favoriteRoutes.toString() to "收藏路线",
+                stats.explorationStreakDays.toString() to "连续天数"
+            )
+        )
+        LevelProgressCard(level = level)
+    }
+}
+
+@Composable
+private fun PreferenceSurveyCard(
+    profileConfidence: Double,
+    preferenceAnswers: ExplorationPreferenceAnswers?,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = InfoCyanSurface,
+        border = BorderStroke(1.dp, InfoCyan.copy(alpha = 0.26f))
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, top = 12.dp, end = 10.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    UrbanBadge(text = "探索偏好问卷", style = UrbanBadgeStyle.Reward)
+                    UrbanBadge(text = "${(profileConfidence * 100).toInt()}%")
+                }
+                Text(
+                    text = if (profileConfidence >= 1.0) "探索偏好已完成" else "让路线更贴近你的节奏",
+                    color = AppText,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = profileSummary(preferenceAnswers, profileConfidence),
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                UrbanPrimaryButton(
+                    text = if (preferenceAnswers == null) "开始问卷" else "更新偏好",
+                    onClick = onClick
+                )
+            }
+            Image(
+                painter = painterResource(id = R.drawable.illustration_preference_survey),
+                contentDescription = null,
+                modifier = Modifier
+                    .width(112.dp)
+                    .height(82.dp),
+                contentScale = ContentScale.Fit
+            )
+        }
     }
 }
 

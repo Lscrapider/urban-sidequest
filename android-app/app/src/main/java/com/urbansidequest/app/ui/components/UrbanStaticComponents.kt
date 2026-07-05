@@ -2,6 +2,7 @@ package com.urbansidequest.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedVisibility
@@ -76,6 +77,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -263,6 +266,7 @@ fun UrbanQuestLoadingCard(
     modifier: Modifier = Modifier,
     accentColor: Color = DeepTeal,
     badgeStyle: UrbanBadgeStyle = UrbanBadgeStyle.Area,
+    illustrationResId: Int? = null,
     onClick: (() -> Unit)? = null
 ) {
     val motionEnabled = urbanMotionEnabled()
@@ -360,6 +364,16 @@ fun UrbanQuestLoadingCard(
                     )
                 }
                 UrbanBadge(text = badgeText, style = badgeStyle)
+            }
+            if (illustrationResId != null) {
+                Image(
+                    painter = painterResource(id = illustrationResId),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(104.dp),
+                    contentScale = ContentScale.Fit
+                )
             }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -946,7 +960,8 @@ fun WarningBanner(
 fun EmptyState(
     title: String,
     description: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    illustrationResId: Int? = null
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -956,8 +971,18 @@ fun EmptyState(
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (illustrationResId != null) {
+                Image(
+                    painter = painterResource(id = illustrationResId),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(132.dp),
+                    contentScale = ContentScale.Fit
+                )
+            }
             Text(
                 text = title,
                 color = AppText,

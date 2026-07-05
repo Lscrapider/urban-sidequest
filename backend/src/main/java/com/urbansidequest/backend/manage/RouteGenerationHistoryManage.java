@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.domain.po.RouteGenerationHistoryPO;
 import com.urbansidequest.backend.domain.vo.RouteGenerationVO;
+import com.urbansidequest.backend.domain.vo.RouteHistoryRouteSummaryVO;
 import com.urbansidequest.backend.mapper.RouteGenerationHistoryMapper;
 import java.util.List;
 import java.util.Optional;
@@ -34,5 +35,9 @@ public class RouteGenerationHistoryManage extends ServiceImpl<RouteGenerationHis
 
     public RouteGenerationVO toRouteGenerationVO(RouteGenerationHistoryPO history) {
         return history.toRouteGenerationVO(this.objectMapper);
+    }
+
+    public List<RouteHistoryRouteSummaryVO> toRouteSummaries(RouteGenerationHistoryPO history) {
+        return history.toRouteSummaries(this.objectMapper);
     }
 }

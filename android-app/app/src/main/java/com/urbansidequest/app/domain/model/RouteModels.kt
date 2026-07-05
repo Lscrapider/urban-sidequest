@@ -110,7 +110,10 @@ data class RouteShare(
     val requestId: String,
     val routeCode: String,
     val routeTitle: String,
-    val areaLabel: String,
+    val cityName: String,
+    val totalDurationMinutes: Int? = null,
+    val totalDistanceMeters: Int? = null,
+    val stopCount: Int? = null,
     val shareText: String,
     val imageUrl: String,
     val createdAt: String

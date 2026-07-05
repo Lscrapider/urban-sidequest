@@ -17,6 +17,9 @@ CREATE INDEX idx_route_shares_created_at
 CREATE INDEX idx_route_shares_user_created_at
     ON route_shares (user_id, created_at DESC);
 
+ALTER TABLE route_generation_history
+    ADD COLUMN IF NOT EXISTS route_summaries_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urban_sidequest') THEN
