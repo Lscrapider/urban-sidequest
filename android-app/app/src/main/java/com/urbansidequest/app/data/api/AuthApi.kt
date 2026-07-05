@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -62,6 +63,34 @@ class AuthApi {
         parseAuthUser(JSONObject(responseBody))
     }
 
+    suspend fun uploadAvatar(
+        authorizationHeader: String,
+        imageBytes: ByteArray,
+        contentType: String
+    ): AuthUserResponse = withContext(Dispatchers.IO) {
+        val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/auth/me/avatar")
+        val boundary = "UrbanSidequestBoundary${System.currentTimeMillis()}"
+        val connection = endpoint.openConnection() as HttpURLConnection
+        connection.requestMethod = "POST"
+        connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+        connection.readTimeout = READ_TIMEOUT_MILLIS
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("Authorization", authorizationHeader)
+        connection.doOutput = true
+
+        connection.outputStream.use { outputStream ->
+            writeMultipartFile(outputStream, boundary, "avatar", "avatar.jpg", contentType, imageBytes)
+            outputStream.write("--$boundary--\r\n".toByteArray(StandardCharsets.UTF_8))
+        }
+
+        val responseBody = readBody(connection)
+        if (connection.responseCode !in HTTP_SUCCESS_RANGE) {
+            throw IllegalStateException(parseErrorMessage(responseBody, "头像更新失败，请稍后重试"))
+        }
+        parseAuthUser(JSONObject(responseBody))
+    }
+
     private fun readBody(connection: HttpURLConnection): String {
         val inputStream = if (connection.responseCode in HTTP_SUCCESS_RANGE) {
             connection.inputStream
@@ -76,17 +105,34 @@ class AuthApi {
         }
     }
 
-    private fun parseErrorMessage(responseBody: String): String {
+    private fun parseErrorMessage(responseBody: String, fallback: String = "登录失败，请稍后重试"): String {
         if (responseBody.isBlank()) {
-            return "登录失败，请稍后重试"
+            return fallback
         }
         return runCatching {
             val json = JSONObject(responseBody)
             json.optString("detail")
                 .ifBlank { json.optString("message") }
                 .ifBlank { json.optString("error") }
-                .ifBlank { "登录失败，请稍后重试" }
-        }.getOrDefault("登录失败，请稍后重试")
+                .ifBlank { fallback }
+        }.getOrDefault(fallback)
+    }
+
+    private fun writeMultipartFile(
+        outputStream: OutputStream,
+        boundary: String,
+        name: String,
+        fileName: String,
+        contentType: String,
+        bytes: ByteArray
+    ) {
+        outputStream.write("--$boundary\r\n".toByteArray(StandardCharsets.UTF_8))
+        outputStream.write(
+            "Content-Disposition: form-data; name=\"$name\"; filename=\"$fileName\"\r\n".toByteArray(StandardCharsets.UTF_8)
+        )
+        outputStream.write("Content-Type: $contentType\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
+        outputStream.write(bytes)
+        outputStream.write("\r\n".toByteArray(StandardCharsets.UTF_8))
     }
 
     private fun parseAuthUser(json: JSONObject): AuthUserResponse {

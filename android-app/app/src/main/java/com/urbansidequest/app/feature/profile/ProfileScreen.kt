@@ -1,5 +1,10 @@
 package com.urbansidequest.app.feature.profile
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -24,11 +29,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.Assignment
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.BusinessCenter
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.PowerSettingsNew
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,12 +54,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.urbansidequest.app.BuildConfig
 import com.urbansidequest.app.R
 import com.urbansidequest.app.domain.model.ProfileLevel
 import com.urbansidequest.app.domain.model.ProfileStats
@@ -73,7 +94,11 @@ import com.urbansidequest.app.ui.theme.InfoCyan
 import com.urbansidequest.app.ui.theme.InfoCyanSurface
 import com.urbansidequest.app.ui.theme.WarningAmber
 import com.urbansidequest.app.ui.theme.WarningSurface
+import androidx.compose.ui.graphics.vector.ImageVector
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.floor
+import java.net.URL
 
 data class ExplorationPreferenceAnswers(
     val interestCodes: Set<String> = emptySet(),
@@ -123,11 +148,13 @@ private data class QuestionnaireOption(
 @Composable
 fun ProfileScreen(
     nickname: String = "",
+    avatarUrl: String = "",
     completedRouteCount: Int = 0,
     travelDistanceMeters: Long = 0L,
     routeInteractions: Map<String, RouteInteractionState> = emptyMap(),
     explorationStreakDays: Int = 0,
     preferenceAnswers: ExplorationPreferenceAnswers? = null,
+    onAvatarSelected: (Uri) -> Unit = {},
     onOpenQuestionnaire: () -> Unit = {},
     onOpenFavoriteRoutes: () -> Unit = {},
     onOpenDiscover: () -> Unit = {},
@@ -144,70 +171,50 @@ fun ProfileScreen(
             preferenceAnswers = preferenceAnswers
         )
     }
-    val level = remember(stats) { resolveProfileLevel(stats) }
     val achievements = remember(stats) { buildAchievements(stats) }
-    val displayNickname = nickname.ifBlank { "城市探索者" }
+    val level = remember(stats) { resolveProfileLevel(stats) }
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            onAvatarSelected(uri)
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppBackground)
+            .background(Color(0xFFF8FAFC))
     ) {
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(start = 16.dp, top = 18.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            UrbanScreenTitle(
-                eyebrow = "我的资产",
-                title = "${displayNickname}的城市资产"
-            )
+            ProfileTopActions()
             ProfileHeaderCard(
-                nickname = displayNickname,
+                nickname = nickname,
+                avatarUrl = avatarUrl,
                 level = level,
-                stats = stats
+                stats = stats,
+                onAvatarClick = { avatarPicker.launch("image/*") }
             )
 
             PreferenceSurveyCard(
-                profileConfidence = stats.profileConfidence,
-                preferenceAnswers = preferenceAnswers,
                 onClick = onOpenQuestionnaire
             )
 
-            AchievementCollectionCard(achievements = achievements)
-
-            UrbanListContainer {
-                AssetRow(
-                    title = "收藏路线",
-                    description = "${stats.favoriteRoutes} 条已收藏路线，路线库里可继续查看和复走",
-                    action = "进入",
-                    onClick = onOpenFavoriteRoutes
-                )
-                AssetRow(
-                    title = "完成路线",
-                    description = "${stats.completedRoutes} 次路线完成，累计 ${formatKilometers(stats.travelDistanceMeters)} 公里出行",
-                    action = "查看",
-                    onClick = onOpenRoutes
-                )
-                AssetRow(
-                    title = "路线反馈",
-                    description = "${stats.likedRoutes} 次喜欢，${stats.dislikedRoutes} 次不喜欢，用于校准路线判断",
-                    action = "记录"
-                )
-                AssetRow(
-                    title = "帮助中心",
-                    description = "查看路线生成、地图选区和打卡反馈的常见问题",
-                    action = "帮助"
-                )
-            }
-
-            UrbanSecondaryButton(
-                text = "退出登录",
-                onClick = onLogout
+            ProfileMenuCard(
+                earnedAchievements = achievements.count { it.earned },
+                totalAchievements = achievements.size,
+                onOpenAssets = onOpenRoutes,
+                onOpenRoutes = onOpenFavoriteRoutes
             )
+
+            LogoutCard(onClick = onLogout)
             Spacer(modifier = Modifier.height(4.dp))
         }
 
@@ -223,121 +230,500 @@ fun ProfileScreen(
 }
 
 @Composable
+private fun ProfileTopActions() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ProfileTopIcon(
+            imageVector = Icons.Outlined.Notifications,
+            contentDescription = "通知"
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        ProfileTopIcon(
+            imageVector = Icons.Outlined.Settings,
+            contentDescription = "设置"
+        )
+    }
+}
+
+@Composable
+private fun ProfileTopIcon(
+    imageVector: ImageVector,
+    contentDescription: String
+) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clickable(onClick = {}),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(25.dp),
+            tint = Color(0xFF121B23)
+        )
+    }
+}
+
+@Composable
 private fun ProfileHeaderCard(
     nickname: String,
+    avatarUrl: String,
     level: ProfileLevel,
-    stats: ProfileStats
+    stats: ProfileStats,
+    onAvatarClick: () -> Unit
 ) {
-    UrbanTaskCard {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(22.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                modifier = Modifier.size(58.dp),
-                shape = CircleShape,
-                color = DeepTeal,
-                border = BorderStroke(2.dp, AppSurface)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = nickname.take(1).ifBlank { "城" },
-                        color = AppSurface,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            ProfileAvatar(
+                avatarUrl = avatarUrl,
+                fallbackText = avatarFallbackText(nickname),
+                onClick = onAvatarClick
+            )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Text(
-                    text = nickname,
-                    color = AppText,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    UrbanBadge(text = "城市探索者", style = UrbanBadgeStyle.Reward)
-                    UrbanBadge(text = "Lv.12", style = UrbanBadgeStyle.RouteA)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "城市探索者",
+                        color = Color(0xFF16212A),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = 22.sp,
+                            lineHeight = 29.sp
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    LevelBadge(level = level)
                 }
                 Text(
-                    text = "当前标志：Lv.${level.number} ${level.title}",
-                    color = AppTextMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = "持续探索这座城市",
+                    color = Color(0xFF7D8B99),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp
+                    )
                 )
             }
         }
-        UrbanMetricGrid(
+        ProfileStatsRow(
             items = listOf(
-                stats.completedRoutes.toString() to "完成路线",
-                formatKilometers(stats.travelDistanceMeters) to "出行公里",
-                stats.favoriteRoutes.toString() to "收藏路线",
-                stats.explorationStreakDays.toString() to "连续天数"
+                ProfileMetric(stats.completedRoutes.toString(), "完成路线"),
+                ProfileMetric(formatKilometers(stats.travelDistanceMeters), "出行距离(km)"),
+                ProfileMetric(stats.favoriteRoutes.toString(), "收藏路线"),
+                ProfileMetric(stats.explorationStreakDays.toString(), "连续天数")
             )
         )
-        LevelProgressCard(level = level)
+    }
+}
+
+@Composable
+private fun ProfileAvatar(
+    avatarUrl: String,
+    fallbackText: String,
+    onClick: () -> Unit
+) {
+    val resolvedAvatarUrl = remember(avatarUrl) { resolveProfileAvatarUrl(avatarUrl) }
+    var bitmap by remember(resolvedAvatarUrl) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(resolvedAvatarUrl) {
+        bitmap = null
+        if (resolvedAvatarUrl.isBlank()) {
+            return@LaunchedEffect
+        }
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = URL(resolvedAvatarUrl).openConnection().apply {
+                    connectTimeout = 6_000
+                    readTimeout = 10_000
+                }
+                connection.getInputStream().use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream)
+                }
+            }.getOrNull()
+        }
+    }
+
+    Surface(
+        modifier = Modifier
+            .size(92.dp)
+            .clickable(onClick = onClick),
+        shape = CircleShape,
+        color = Color(0xFFE6EEF7)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = "头像",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    text = fallbackText,
+                    color = Color(0xFFFFFFFF),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LevelBadge(level: ProfileLevel) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xFFE8F0FF)
+    ) {
+        Text(
+            text = "Lv.${level.number}",
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            color = Color(0xFF226BFF),
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            ),
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+private fun avatarFallbackText(nickname: String): String {
+    val trimmedName = nickname.trim()
+    return trimmedName.firstOrNull()?.toString() ?: "城"
+}
+
+private fun resolveProfileAvatarUrl(avatarUrl: String): String {
+    val trimmedUrl = avatarUrl.trim()
+    if (trimmedUrl.isBlank()) {
+        return ""
+    }
+    val baseUrl = BuildConfig.MINIO_IMAGE_BASE_URL.trimEnd('/')
+    if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
+        val existingPath = runCatching { URL(trimmedUrl).path }.getOrNull()
+        if (!existingPath.isNullOrBlank() && existingPath.startsWith("/urban-sidequest-shares/")) {
+            return "$baseUrl$existingPath"
+        }
+        return trimmedUrl
+    }
+    val imagePath = if (trimmedUrl.startsWith("/")) trimmedUrl else "/$trimmedUrl"
+    return "$baseUrl$imagePath"
+}
+
+private data class ProfileMetric(
+    val value: String,
+    val label: String
+)
+
+@Composable
+private fun ProfileStatsRow(items: List<ProfileMetric>) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEachIndexed { index, item ->
+            ProfileMetricItem(
+                modifier = Modifier.weight(1f),
+                value = item.value,
+                label = item.label
+            )
+            if (index < items.lastIndex) {
+                Box(
+                    modifier = Modifier
+                        .height(34.dp)
+                        .width(1.dp)
+                        .background(Color(0xFFE0E6EC))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileMetricItem(
+    modifier: Modifier = Modifier,
+    value: String,
+    label: String
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = value,
+            color = Color(0xFF111820),
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = 23.sp,
+                lineHeight = 28.sp
+            ),
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = label,
+            color = Color(0xFF5F6B77),
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
 @Composable
 private fun PreferenceSurveyCard(
-    profileConfidence: Double,
-    preferenceAnswers: ExplorationPreferenceAnswers?,
     onClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .height(78.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        color = InfoCyanSurface,
-        border = BorderStroke(1.dp, InfoCyan.copy(alpha = 0.26f))
+        shape = RoundedCornerShape(8.dp),
+        color = Color(0xFFEDF5FF),
+        border = BorderStroke(1.dp, Color(0xFFC9DAFF))
     ) {
         Row(
-            modifier = Modifier.padding(start = 14.dp, top = 12.dp, end = 10.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(start = 18.dp, top = 10.dp, end = 14.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    UrbanBadge(text = "探索偏好问卷", style = UrbanBadgeStyle.Reward)
-                    UrbanBadge(text = "${(profileConfidence * 100).toInt()}%")
-                }
                 Text(
-                    text = if (profileConfidence >= 1.0) "探索偏好已完成" else "让路线更贴近你的节奏",
-                    color = AppText,
-                    style = MaterialTheme.typography.titleSmall,
+                    text = "探索偏好问卷",
+                    color = Color(0xFF1D5ED8),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 18.sp,
+                        lineHeight = 24.sp
+                    ),
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = profileSummary(preferenceAnswers, profileConfidence),
-                    color = AppTextMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
+                    text = "让路线更懂你",
+                    color = Color(0xFF54677B),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    ),
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
-                )
-                UrbanPrimaryButton(
-                    text = if (preferenceAnswers == null) "开始问卷" else "更新偏好",
-                    onClick = onClick
                 )
             }
             Image(
                 painter = painterResource(id = R.drawable.illustration_preference_survey),
                 contentDescription = null,
                 modifier = Modifier
-                    .width(112.dp)
-                    .height(82.dp),
+                    .width(92.dp)
+                    .height(66.dp),
                 contentScale = ContentScale.Fit
+            )
+            Surface(
+                shape = RoundedCornerShape(17.dp),
+                color = Color(0xFF1264F4)
+            ) {
+                Text(
+                    text = "去填写",
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp
+                    ),
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileMenuCard(
+    earnedAchievements: Int,
+    totalAchievements: Int,
+    onOpenAssets: () -> Unit,
+    onOpenRoutes: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0xFFE3E8EE))
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            ProfileMenuRow(
+                icon = Icons.Outlined.EmojiEvents,
+                title = "成就墙",
+                trailingText = "$earnedAchievements / $totalAchievements"
+            )
+            ProfileDivider()
+            ProfileMenuRow(
+                icon = Icons.Outlined.BusinessCenter,
+                title = "城市资产",
+                subtitle = "地图选区 · 打卡点 · 笔记",
+                onClick = onOpenAssets
+            )
+            ProfileDivider()
+            ProfileMenuRow(
+                icon = Icons.AutoMirrored.Outlined.Assignment,
+                title = "我的路线",
+                subtitle = "已保存和收藏的路线",
+                onClick = onOpenRoutes
+            )
+            ProfileDivider()
+            ProfileMenuRow(
+                icon = Icons.Outlined.ChatBubbleOutline,
+                title = "我的反馈",
+                subtitle = "帮助我们做得更好"
+            )
+            ProfileDivider()
+            ProfileMenuRow(
+                icon = Icons.AutoMirrored.Outlined.HelpOutline,
+                title = "帮助与反馈"
+            )
+            ProfileDivider()
+            ProfileMenuRow(
+                icon = Icons.Outlined.Info,
+                title = "关于城市副本"
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 56.dp),
+        thickness = 1.dp,
+        color = Color(0xFFE9EEF3)
+    )
+}
+
+@Composable
+private fun ProfileMenuRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    trailingText: String? = null,
+    onClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (subtitle == null) 55.dp else 65.dp)
+            .then(if (onClick == null) Modifier else Modifier.clickable(onClick = onClick))
+            .padding(start = 18.dp, end = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(23.dp),
+            tint = Color(0xFF172635)
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = title,
+                color = Color(0xFF182633),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp
+                ),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    color = Color(0xFF8390A0),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (trailingText != null) {
+            Text(
+                text = trailingText,
+                color = Color(0xFF536174),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                ),
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = Color(0xFF738092)
+        )
+    }
+}
+
+@Composable
+private fun LogoutCard(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0xFFE3E8EE))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.PowerSettingsNew,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = Color(0xFFF02722)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "退出登录",
+                color = Color(0xFFF02722),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp
+                ),
+                fontWeight = FontWeight.Bold
             )
         }
     }

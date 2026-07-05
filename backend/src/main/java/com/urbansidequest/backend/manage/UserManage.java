@@ -32,4 +32,12 @@ public class UserManage extends ServiceImpl<UserMapper, UserPO> {
             throw new IllegalStateException("用户路线资产更新失败");
         }
     }
+
+    public UserPO updateAvatarUrl(UUID userId, String avatarUrl) {
+        int updatedCount = this.baseMapper.updateAvatarUrl(userId, avatarUrl);
+        if (updatedCount != 1) {
+            throw new IllegalStateException("用户头像更新失败");
+        }
+        return this.findById(userId).orElseThrow();
+    }
 }

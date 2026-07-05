@@ -83,4 +83,16 @@ public interface UserMapper extends BaseMapper<UserPO> {
             @Param("userId") UUID userId,
             @Param("distanceMeters") long distanceMeters
     );
+
+    @Update("""
+            UPDATE users
+            SET
+                avatar_url = #{avatarUrl},
+                updated_at = now()
+            WHERE id = #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+            """)
+    int updateAvatarUrl(
+            @Param("userId") UUID userId,
+            @Param("avatarUrl") String avatarUrl
+    );
 }

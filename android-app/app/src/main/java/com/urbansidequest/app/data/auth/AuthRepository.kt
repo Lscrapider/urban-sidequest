@@ -28,6 +28,16 @@ class AuthRepository(
         return authApi.fetchCurrentUser(authorizationHeader = authorizationHeader)
     }
 
+    suspend fun uploadAvatar(imageBytes: ByteArray, contentType: String): AuthUserResponse {
+        val authorizationHeader = authSessionStore.getAuthorizationHeader()
+            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        return authApi.uploadAvatar(
+            authorizationHeader = authorizationHeader,
+            imageBytes = imageBytes,
+            contentType = contentType
+        )
+    }
+
     fun isLoggedIn(): Boolean {
         return authSessionStore.hasAccessToken()
     }
