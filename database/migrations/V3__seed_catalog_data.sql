@@ -1,65 +1,3 @@
--- 标签体系重构：拆分用户标签目录、POI 召回计划与 POI 自身语义。
-
-ALTER TABLE interest_tag_catalog
-    ADD COLUMN IF NOT EXISTS parent_tag_code VARCHAR(64),
-    ADD COLUMN IF NOT EXISTS tag_level VARCHAR(32) NOT NULL DEFAULT 'ROOT',
-    ADD COLUMN IF NOT EXISTS selectable BOOLEAN NOT NULL DEFAULT TRUE,
-    ADD COLUMN IF NOT EXISTS max_sibling_selected INTEGER,
-    ADD COLUMN IF NOT EXISTS rollup_tag_codes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-    ADD COLUMN IF NOT EXISTS catalog_version VARCHAR(32) NOT NULL DEFAULT 'tag_catalog_v1_1';
-
-CREATE INDEX IF NOT EXISTS idx_interest_tag_catalog_parent ON interest_tag_catalog (parent_tag_code);
-CREATE INDEX IF NOT EXISTS idx_interest_tag_catalog_selectable ON interest_tag_catalog (enabled, selectable);
-
-CREATE TABLE IF NOT EXISTS poi_recall_plan_config (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    plan_code VARCHAR(96) NOT NULL UNIQUE,
-    plan_version VARCHAR(32) NOT NULL DEFAULT 'poi_recall_v1_1',
-    plan_type VARCHAR(32) NOT NULL,
-    trigger_type VARCHAR(32) NOT NULL,
-    trigger_value VARCHAR(96),
-    tag_code VARCHAR(64),
-    amap_type_codes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-    amap_keywords TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-    role_hint VARCHAR(32) NOT NULL DEFAULT 'ANCHOR',
-    category_group_hint VARCHAR(64) NOT NULL DEFAULT 'UNKNOWN',
-    intent_tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-    priority INTEGER NOT NULL DEFAULT 0,
-    enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    reason_seed VARCHAR(255),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_poi_recall_plan_config_tag
-    ON poi_recall_plan_config (enabled, plan_type, tag_code);
-
-CREATE INDEX IF NOT EXISTS idx_poi_recall_plan_config_type
-    ON poi_recall_plan_config (enabled, plan_type, priority);
-
-ALTER TABLE poi_semantic_mapping
-    ADD COLUMN IF NOT EXISTS exact_typecodes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-    ADD COLUMN IF NOT EXISTS primary_category_group VARCHAR(64),
-    ADD COLUMN IF NOT EXISTS meal_candidate BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS rest_candidate BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS local_experience_candidate BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS mapping_version VARCHAR(32) NOT NULL DEFAULT 'poi_semantic_v1_1';
-
--- 旧映射使用了粗前缀和 LOCAL/NIGHT/REST category，目标态先禁用，避免污染新语义。
-UPDATE poi_semantic_mapping
-SET enabled = FALSE,
-    updated_at = now()
-WHERE mapping_code IN (
-    'SCENIC_LANDMARK',
-    'MUSEUM_EXHIBITION',
-    'FOOD_LOCAL',
-    'COFFEE_REST',
-    'SHOPPING_DISTRICT',
-    'NIGHT_MARKET_VIEW',
-    'LOCAL_LIFE_BLOCK',
-    'QUIET_PARK'
-);
-
 INSERT INTO interest_tag_catalog (
     tag_code,
     display_name,
@@ -205,9 +143,6 @@ SET plan_type = EXCLUDED.plan_type,
     enabled = TRUE,
     updated_at = now();
 
-DELETE FROM poi_recall_plan_config
-WHERE plan_code = 'INTEREST_EVENT_CONCERT_LIVE';
-
 INSERT INTO poi_recall_plan_config (
     plan_code,
     plan_type,
@@ -349,11 +284,167 @@ SET display_name = EXCLUDED.display_name,
     enabled = EXCLUDED.enabled,
     updated_at = now();
 
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urban_sidequest') THEN
-        GRANT SELECT ON poi_recall_plan_config TO urban_sidequest;
-        GRANT SELECT ON interest_tag_catalog TO urban_sidequest;
-        GRANT SELECT ON poi_semantic_mapping TO urban_sidequest;
-    END IF;
-END $$;
+INSERT INTO baidu_poi_semantic_mapping (
+    mapping_code,
+    display_name,
+    baidu_primary_tags,
+    baidu_secondary_tags,
+    baidu_type_values,
+    keyword_patterns,
+    category_group,
+    interest_tag_codes,
+    is_classic,
+    is_local,
+    is_photo_friendly,
+    is_night_friendly,
+    is_quiet,
+    is_hidden_gem,
+    weather_sensitivity,
+    priority
+)
+VALUES
+    (
+        'BAIDU_SCENIC_LANDMARK',
+        '百度经典景区与地标',
+        ARRAY['旅游景点', '行政地标', '自然地物'],
+        ARRAY['公园', '动物园', '植物园', '游乐园', '水族馆', '海滨浴场', '文物古迹', '教堂', '风景区', '景点', '寺庙', '商圈', '山峰', '水系'],
+        ARRAY['scope'],
+        ARRAY['景点', '公园', '地标', '广场', '观景', '风景区', '文物古迹', '寺庙', '教堂', '商圈'],
+        'SCENIC',
+        ARRAY['SCENIC', 'PHOTO'],
+        TRUE,
+        FALSE,
+        TRUE,
+        FALSE,
+        FALSE,
+        FALSE,
+        1.00,
+        10
+    ),
+    (
+        'BAIDU_MUSEUM_EXHIBITION',
+        '百度博物馆与展馆',
+        ARRAY['旅游景点', '教育培训', '文化传媒'],
+        ARRAY['博物馆', '科技馆', '图书馆', '美术馆', '展览馆', '文化宫', '新闻出版', '艺术团体'],
+        ARRAY['scope', 'education', 'enterprise'],
+        ARRAY['博物馆', '展览馆', '美术馆', '纪念馆', '科技馆', '图书馆', '文化宫'],
+        'CULTURE',
+        ARRAY['MUSEUM', 'PHOTO'],
+        TRUE,
+        FALSE,
+        TRUE,
+        FALSE,
+        TRUE,
+        FALSE,
+        0.00,
+        20
+    ),
+    (
+        'BAIDU_FOOD_LOCAL',
+        '百度本地餐饮与小吃',
+        ARRAY['美食'],
+        ARRAY['中餐厅', '外国餐厅', '小吃快餐店', '蛋糕甜品店', '酒吧', '其他'],
+        ARRAY['cater'],
+        ARRAY['本地菜', '小吃', '老字号', '夜市', '美食街', '特色菜', '中餐厅', '小吃快餐店'],
+        'FOOD',
+        ARRAY['FOOD', 'LOCAL'],
+        FALSE,
+        TRUE,
+        FALSE,
+        TRUE,
+        FALSE,
+        FALSE,
+        0.00,
+        30
+    ),
+    (
+        'BAIDU_COFFEE_REST',
+        '百度咖啡甜品与休息',
+        ARRAY['美食'],
+        ARRAY['咖啡厅', '茶座', '蛋糕甜品店'],
+        ARRAY['cater'],
+        ARRAY['咖啡', '咖啡厅', '甜品', '蛋糕', '茶座', '茶馆', '书店'],
+        'REST',
+        ARRAY['COFFEE'],
+        FALSE,
+        FALSE,
+        FALSE,
+        FALSE,
+        TRUE,
+        FALSE,
+        0.00,
+        40
+    ),
+    (
+        'BAIDU_SHOPPING_DISTRICT',
+        '百度购物商圈与步行街',
+        ARRAY['购物', '行政地标'],
+        ARRAY['购物中心', '百货商场', '超市', '便利店', '商铺', '市场', '商圈'],
+        ARRAY['shopping'],
+        ARRAY['商场', '购物中心', '百货', '步行街', '街区', '市场', '商圈'],
+        'SHOPPING',
+        ARRAY['SHOPPING', 'LOCAL'],
+        FALSE,
+        TRUE,
+        TRUE,
+        TRUE,
+        FALSE,
+        FALSE,
+        0.20,
+        50
+    ),
+    (
+        'BAIDU_NIGHT_MARKET_VIEW',
+        '百度夜市夜景',
+        ARRAY['美食', '旅游景点', '休闲娱乐'],
+        ARRAY['酒吧', '休闲广场', '风景区', '景点', '小吃快餐店'],
+        ARRAY['cater', 'scope', 'life'],
+        ARRAY['夜市', '夜景', '夜游', '观景台', '酒吧街', '酒吧'],
+        'NIGHT',
+        ARRAY['NIGHT', 'FOOD', 'PHOTO'],
+        FALSE,
+        TRUE,
+        TRUE,
+        TRUE,
+        FALSE,
+        TRUE,
+        0.70,
+        60
+    ),
+    (
+        'BAIDU_LOCAL_LIFE_BLOCK',
+        '百度本地生活街区',
+        ARRAY['生活服务', '购物', '行政地标', '房地产'],
+        ARRAY['市场', '商铺', '商圈', '住宅区', '居民委员会', '公共厕所', '照相馆', '报刊亭'],
+        ARRAY['life', 'shopping'],
+        ARRAY['老街', '街巷', '市集', '社区', '胡同', '弄堂', '市场', '商铺', '居民区'],
+        'LOCAL',
+        ARRAY['LOCAL', 'PHOTO'],
+        FALSE,
+        TRUE,
+        TRUE,
+        FALSE,
+        FALSE,
+        TRUE,
+        0.60,
+        70
+    ),
+    (
+        'BAIDU_QUIET_PARK',
+        '百度安静公园绿地',
+        ARRAY['旅游景点', '绿地', '自然地物'],
+        ARRAY['公园', '植物园', '水系', '绿地公园', '绿化带', '湖沼', '山峰'],
+        ARRAY['scope'],
+        ARRAY['公园', '绿地', '湿地', '湖', '植物园'],
+        'SCENIC',
+        ARRAY['SCENIC'],
+        FALSE,
+        FALSE,
+        TRUE,
+        FALSE,
+        TRUE,
+        FALSE,
+        1.00,
+        80
+    )
+ON CONFLICT (mapping_code) DO NOTHING;
