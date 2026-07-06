@@ -21,9 +21,9 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
-import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 class RouteApi {
@@ -149,25 +149,22 @@ class RouteApi {
         requestId: String,
         routeCode: String,
         shareText: String,
-        imageBytes: ByteArray,
         authorizationHeader: String
     ): RouteShare = withContext(Dispatchers.IO) {
         try {
             val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history/$requestId/routes/$routeCode/share")
-            val boundary = "UrbanSidequestBoundary${System.currentTimeMillis()}"
             val connection = endpoint.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
             connection.readTimeout = READ_TIMEOUT_MILLIS
-            connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Authorization", authorizationHeader)
             connection.doOutput = true
 
+            val requestBody = "shareText=${URLEncoder.encode(shareText, StandardCharsets.UTF_8.name())}"
             connection.outputStream.use { outputStream ->
-                writeMultipartText(outputStream, boundary, "shareText", shareText)
-                writeMultipartFile(outputStream, boundary, "image", "route-share.jpg", "image/jpeg", imageBytes)
-                outputStream.write("--$boundary--\r\n".toByteArray(StandardCharsets.UTF_8))
+                outputStream.write(requestBody.toByteArray(StandardCharsets.UTF_8))
             }
 
             val responseBody = readBody(connection)
@@ -497,7 +494,9 @@ class RouteApi {
             title = json.getString("title"),
             totalDurationMinutes = json.getInt("totalDurationMinutes"),
             totalDistanceMeters = json.getInt("totalDistanceMeters"),
-            riskLevel = json.getString("riskLevel")
+            riskLevel = json.getString("riskLevel"),
+            stopCount = json.optInt("stopCount", 0),
+            mapSnapshotUrl = json.optNullableString("mapSnapshotUrl")
         )
     }
 
@@ -773,33 +772,4 @@ private fun String?.toRouteReaction(): RouteReaction? {
         "DISLIKED" -> RouteReaction.Disliked
         else -> null
     }
-}
-
-private fun writeMultipartText(
-    outputStream: OutputStream,
-    boundary: String,
-    name: String,
-    value: String
-) {
-    outputStream.write("--$boundary\r\n".toByteArray(StandardCharsets.UTF_8))
-    outputStream.write("Content-Disposition: form-data; name=\"$name\"\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
-    outputStream.write(value.toByteArray(StandardCharsets.UTF_8))
-    outputStream.write("\r\n".toByteArray(StandardCharsets.UTF_8))
-}
-
-private fun writeMultipartFile(
-    outputStream: OutputStream,
-    boundary: String,
-    name: String,
-    fileName: String,
-    contentType: String,
-    bytes: ByteArray
-) {
-    outputStream.write("--$boundary\r\n".toByteArray(StandardCharsets.UTF_8))
-    outputStream.write(
-        "Content-Disposition: form-data; name=\"$name\"; filename=\"$fileName\"\r\n".toByteArray(StandardCharsets.UTF_8)
-    )
-    outputStream.write("Content-Type: $contentType\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
-    outputStream.write(bytes)
-    outputStream.write("\r\n".toByteArray(StandardCharsets.UTF_8))
 }

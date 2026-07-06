@@ -21,17 +21,17 @@ public class RouteShareManage extends ServiceImpl<RouteShareMapper, RouteSharePO
 
     public RouteSharePO upsert(
             UUID userId,
-            UUID requestId,
+            UUID candidateSetId,
             String routeCode,
             String shareText,
             String imageUrl,
             String imageObjectKey
     ) {
-        int updatedCount = this.baseMapper.upsertShare(userId, requestId, routeCode, shareText, imageUrl, imageObjectKey);
+        int updatedCount = this.baseMapper.upsertShare(userId, candidateSetId, routeCode, shareText, imageUrl, imageObjectKey);
         if (updatedCount < 1) {
             throw new IllegalStateException("路线分享保存失败");
         }
-        return Optional.ofNullable(this.baseMapper.selectByUserRoute(userId, requestId, routeCode))
+        return Optional.ofNullable(this.baseMapper.selectByUserRoute(userId, candidateSetId, routeCode))
                 .orElseThrow(() -> new IllegalStateException("路线分享读取失败"));
     }
 }

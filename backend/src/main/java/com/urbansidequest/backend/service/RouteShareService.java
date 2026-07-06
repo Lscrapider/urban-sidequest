@@ -5,7 +5,6 @@ import com.urbansidequest.backend.domain.vo.RouteGenerationVO;
 import com.urbansidequest.backend.domain.vo.RouteShareVO;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.web.multipart.MultipartFile;
 
 public interface RouteShareService {
 
@@ -13,13 +12,12 @@ public interface RouteShareService {
 
     RouteShareVO shareCompletedRoute(
             AuthenticatedUser authenticatedUser,
-            UUID requestId,
+            UUID candidateSetId,
             String routeCode,
-            String shareText,
-            MultipartFile image
+            String shareText
     );
 
     RouteGenerationVO getSharedRoute(UUID shareId);
 
-    byte[] buildRouteStaticMap(AuthenticatedUser authenticatedUser, UUID requestId, String routeCode);
+    byte[] buildRouteStaticMap(AuthenticatedUser authenticatedUser, UUID candidateSetId, String routeCode);
 }

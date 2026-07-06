@@ -17,8 +17,8 @@ public class RouteExecutionPO {
     @TableField("user_id")
     private UUID userId;
 
-    @TableField("request_id")
-    private UUID requestId;
+    @TableField("candidate_set_id")
+    private UUID candidateSetId;
 
     @TableField("route_code")
     private String routeCode;
@@ -31,6 +31,12 @@ public class RouteExecutionPO {
 
     @TableField("completed_at")
     private Instant completedAt;
+
+    @TableField("map_snapshot_url")
+    private String mapSnapshotUrl;
+
+    @TableField("map_snapshot_object_key")
+    private String mapSnapshotObjectKey;
 
     @TableField("created_at")
     private Instant createdAt;
@@ -54,12 +60,12 @@ public class RouteExecutionPO {
         this.userId = userId;
     }
 
-    public UUID getRequestId() {
-        return this.requestId;
+    public UUID getCandidateSetId() {
+        return this.candidateSetId;
     }
 
-    public void setRequestId(UUID requestId) {
-        this.requestId = requestId;
+    public void setCandidateSetId(UUID candidateSetId) {
+        this.candidateSetId = candidateSetId;
     }
 
     public String getRouteCode() {
@@ -92,6 +98,22 @@ public class RouteExecutionPO {
 
     public void setCompletedAt(Instant completedAt) {
         this.completedAt = completedAt;
+    }
+
+    public String getMapSnapshotUrl() {
+        return this.mapSnapshotUrl;
+    }
+
+    public void setMapSnapshotUrl(String mapSnapshotUrl) {
+        this.mapSnapshotUrl = mapSnapshotUrl;
+    }
+
+    public String getMapSnapshotObjectKey() {
+        return this.mapSnapshotObjectKey;
+    }
+
+    public void setMapSnapshotObjectKey(String mapSnapshotObjectKey) {
+        this.mapSnapshotObjectKey = mapSnapshotObjectKey;
     }
 
     public Instant getCreatedAt() {

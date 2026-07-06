@@ -376,9 +376,7 @@ private fun UrbanSidequestApp() {
         routeActionScope.launch {
             isRouteShareSubmitting = true
             runCatching {
-                val staticMapBytes = routeRepository.fetchRouteSharePreviewMap(requestId, routeCode)
-                val jpegBytes = compressRouteShareImage(staticMapBytes)
-                routeRepository.shareCompletedRoute(requestId, routeCode, shareText, jpegBytes)
+                routeRepository.shareCompletedRoute(requestId, routeCode, shareText)
             }.onSuccess {
                 routeShareNotice = RouteShareNotice.Completed
                 refreshRouteShares()
@@ -769,15 +767,6 @@ private fun RouteGeneration.onlyRoute(routeCode: String?): RouteGeneration {
         routes = listOf(route),
         activeRouteCode = routeCode
     )
-}
-
-private fun compressRouteShareImage(imageBytes: ByteArray): ByteArray {
-    val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-        ?: throw IllegalStateException("分享地图图片解析失败")
-    return ByteArrayOutputStream().use { outputStream ->
-        bitmap.compress(Bitmap.CompressFormat.JPEG, ROUTE_SHARE_JPEG_QUALITY, outputStream)
-        outputStream.toByteArray()
-    }
 }
 
 private fun buildProfileAvatarJpeg(context: Context, avatarUri: Uri): ByteArray {

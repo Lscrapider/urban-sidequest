@@ -16,8 +16,8 @@ public class RouteSharePO {
     @TableField("user_id")
     private UUID userId;
 
-    @TableField("request_id")
-    private UUID requestId;
+    @TableField("candidate_set_id")
+    private UUID candidateSetId;
 
     @TableField("route_code")
     private String routeCode;
@@ -53,12 +53,12 @@ public class RouteSharePO {
         this.userId = userId;
     }
 
-    public UUID getRequestId() {
-        return this.requestId;
+    public UUID getCandidateSetId() {
+        return this.candidateSetId;
     }
 
-    public void setRequestId(UUID requestId) {
-        this.requestId = requestId;
+    public void setCandidateSetId(UUID candidateSetId) {
+        this.candidateSetId = candidateSetId;
     }
 
     public String getRouteCode() {

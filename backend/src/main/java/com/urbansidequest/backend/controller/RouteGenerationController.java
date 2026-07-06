@@ -66,9 +66,9 @@ public class RouteGenerationController {
     @GetMapping("/history/{requestId}")
     public RouteGenerationVO historyDetail(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID requestId
+            @PathVariable("requestId") UUID candidateSetId
     ) {
-        return this.routeHistoryService.getHistoryDetail(authenticatedUser, requestId);
+        return this.routeHistoryService.getHistoryDetail(authenticatedUser, candidateSetId);
     }
 
     @GetMapping("/active")
@@ -79,28 +79,28 @@ public class RouteGenerationController {
     @PostMapping("/history/{requestId}/active-route")
     public RouteGenerationVO activateRoute(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID requestId,
+            @PathVariable("requestId") UUID candidateSetId,
             @Valid @RequestBody RouteActiveParam param
     ) {
-        return this.routeHistoryService.activateRoute(authenticatedUser, requestId, param);
+        return this.routeHistoryService.activateRoute(authenticatedUser, candidateSetId, param);
     }
 
     @PostMapping("/history/{requestId}/active-route/complete")
     public RouteGenerationVO completeActiveRoute(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID requestId,
+            @PathVariable("requestId") UUID candidateSetId,
             @Valid @RequestBody RouteActiveParam param
     ) {
-        return this.routeHistoryService.completeActiveRoute(authenticatedUser, requestId, param);
+        return this.routeHistoryService.completeActiveRoute(authenticatedUser, candidateSetId, param);
     }
 
     @PostMapping("/history/{requestId}/routes/{routeCode}/interaction")
     public RouteInteractionVO saveInteraction(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID requestId,
+            @PathVariable("requestId") UUID candidateSetId,
             @PathVariable String routeCode,
             @Valid @RequestBody RouteInteractionParam param
     ) {
-        return this.routeInteractionService.saveInteraction(authenticatedUser, requestId, routeCode, param);
+        return this.routeInteractionService.saveInteraction(authenticatedUser, candidateSetId, routeCode, param);
     }
 }

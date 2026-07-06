@@ -56,8 +56,7 @@ class RouteRepository(
     suspend fun shareCompletedRoute(
         requestId: String,
         routeCode: String,
-        shareText: String,
-        imageBytes: ByteArray
+        shareText: String
     ): RouteShare {
         val authorizationHeader = authSessionStore.getAuthorizationHeader()
             ?: throw IllegalStateException("登录状态已失效，请重新登录")
@@ -65,7 +64,6 @@ class RouteRepository(
             requestId = requestId,
             routeCode = routeCode,
             shareText = shareText,
-            imageBytes = imageBytes,
             authorizationHeader = authorizationHeader
         )
     }

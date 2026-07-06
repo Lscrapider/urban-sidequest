@@ -12,7 +12,7 @@ public interface RouteInteractionService {
 
     RouteInteractionVO saveInteraction(
             AuthenticatedUser authenticatedUser,
-            UUID requestId,
+            UUID candidateSetId,
             String routeCode,
             RouteInteractionParam param
     );

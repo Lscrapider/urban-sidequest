@@ -17,14 +17,14 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
     @Insert("""
             INSERT INTO route_execution (
                 user_id,
-                request_id,
+                candidate_set_id,
                 route_code,
                 execution_status,
                 started_at
             )
             VALUES (
                 #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
-                #{requestId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
+                #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
                 #{routeCode},
                 'IN_PROGRESS',
                 now()
@@ -32,7 +32,7 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
             """)
     int insertInProgress(
             @Param("userId") UUID userId,
-            @Param("requestId") UUID requestId,
+            @Param("candidateSetId") UUID candidateSetId,
             @Param("routeCode") String routeCode
     );
 
@@ -51,13 +51,13 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
                 completed_at = now(),
                 updated_at = now()
             WHERE user_id = #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
-              AND request_id = #{requestId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+              AND candidate_set_id = #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
               AND route_code = #{routeCode}
               AND execution_status = 'IN_PROGRESS'
             """)
     int completeInProgress(
             @Param("userId") UUID userId,
-            @Param("requestId") UUID requestId,
+            @Param("candidateSetId") UUID candidateSetId,
             @Param("routeCode") String routeCode
     );
 
@@ -65,11 +65,13 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
             SELECT
                 id,
                 user_id,
-                request_id,
+                candidate_set_id,
                 route_code,
                 execution_status,
                 started_at,
                 completed_at,
+                map_snapshot_url,
+                map_snapshot_object_key,
                 created_at,
                 updated_at
             FROM route_execution
@@ -81,11 +83,13 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
     @Results(id = "RouteExecutionResult", value = {
             @Result(column = "id", property = "id", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "user_id", property = "userId", typeHandler = PostgresUuidTypeHandler.class),
-            @Result(column = "request_id", property = "requestId", typeHandler = PostgresUuidTypeHandler.class),
+            @Result(column = "candidate_set_id", property = "candidateSetId", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "route_code", property = "routeCode"),
             @Result(column = "execution_status", property = "executionStatus"),
             @Result(column = "started_at", property = "startedAt"),
             @Result(column = "completed_at", property = "completedAt"),
+            @Result(column = "map_snapshot_url", property = "mapSnapshotUrl"),
+            @Result(column = "map_snapshot_object_key", property = "mapSnapshotObjectKey"),
             @Result(column = "created_at", property = "createdAt"),
             @Result(column = "updated_at", property = "updatedAt")
     })
@@ -96,18 +100,20 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
             SELECT
                 id,
                 user_id,
-                request_id,
+                candidate_set_id,
                 route_code,
                 execution_status,
                 started_at,
                 completed_at,
+                map_snapshot_url,
+                map_snapshot_object_key,
                 created_at,
                 updated_at
             FROM (
                 SELECT
                     *,
                     row_number() OVER (
-                        PARTITION BY request_id
+                        PARTITION BY candidate_set_id
                         ORDER BY
                             CASE execution_status
                                 WHEN 'IN_PROGRESS' THEN 0
@@ -118,9 +124,9 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
                     ) AS row_num
                 FROM route_execution
                 WHERE user_id = #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
-                  AND request_id IN
-                  <foreach collection="requestIds" item="requestId" open="(" separator="," close=")">
-                      #{requestId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+                  AND candidate_set_id IN
+                  <foreach collection="candidateSetIds" item="candidateSetId" open="(" separator="," close=")">
+                      #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
                   </foreach>
             ) ranked_execution
             WHERE row_num = 1
@@ -129,33 +135,37 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
     @Results(id = "RouteExecutionLatestResult", value = {
             @Result(column = "id", property = "id", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "user_id", property = "userId", typeHandler = PostgresUuidTypeHandler.class),
-            @Result(column = "request_id", property = "requestId", typeHandler = PostgresUuidTypeHandler.class),
+            @Result(column = "candidate_set_id", property = "candidateSetId", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "route_code", property = "routeCode"),
             @Result(column = "execution_status", property = "executionStatus"),
             @Result(column = "started_at", property = "startedAt"),
             @Result(column = "completed_at", property = "completedAt"),
+            @Result(column = "map_snapshot_url", property = "mapSnapshotUrl"),
+            @Result(column = "map_snapshot_object_key", property = "mapSnapshotObjectKey"),
             @Result(column = "created_at", property = "createdAt"),
             @Result(column = "updated_at", property = "updatedAt")
     })
-    List<RouteExecutionPO> selectLatestByRequestIds(
+    List<RouteExecutionPO> selectLatestByCandidateSetIds(
             @Param("userId") UUID userId,
-            @Param("requestIds") List<UUID> requestIds
+            @Param("candidateSetIds") List<UUID> candidateSetIds
     );
 
     @Select("""
             SELECT
                 id,
                 user_id,
-                request_id,
+                candidate_set_id,
                 route_code,
                 execution_status,
                 started_at,
                 completed_at,
+                map_snapshot_url,
+                map_snapshot_object_key,
                 created_at,
                 updated_at
             FROM route_execution
             WHERE user_id = #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
-              AND request_id = #{requestId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+              AND candidate_set_id = #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
             ORDER BY
                 CASE execution_status
                     WHEN 'IN_PROGRESS' THEN 0
@@ -168,16 +178,36 @@ public interface RouteExecutionMapper extends BaseMapper<RouteExecutionPO> {
     @Results(id = "RouteExecutionRequestResult", value = {
             @Result(column = "id", property = "id", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "user_id", property = "userId", typeHandler = PostgresUuidTypeHandler.class),
-            @Result(column = "request_id", property = "requestId", typeHandler = PostgresUuidTypeHandler.class),
+            @Result(column = "candidate_set_id", property = "candidateSetId", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "route_code", property = "routeCode"),
             @Result(column = "execution_status", property = "executionStatus"),
             @Result(column = "started_at", property = "startedAt"),
             @Result(column = "completed_at", property = "completedAt"),
+            @Result(column = "map_snapshot_url", property = "mapSnapshotUrl"),
+            @Result(column = "map_snapshot_object_key", property = "mapSnapshotObjectKey"),
             @Result(column = "created_at", property = "createdAt"),
             @Result(column = "updated_at", property = "updatedAt")
     })
-    RouteExecutionPO selectLatestByRequestId(
+    RouteExecutionPO selectLatestByCandidateSetId(
             @Param("userId") UUID userId,
-            @Param("requestId") UUID requestId
+            @Param("candidateSetId") UUID candidateSetId
+    );
+
+    @Update("""
+            UPDATE route_execution
+            SET map_snapshot_url = #{mapSnapshotUrl},
+                map_snapshot_object_key = #{mapSnapshotObjectKey},
+                updated_at = now()
+            WHERE user_id = #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+              AND candidate_set_id = #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+              AND route_code = #{routeCode}
+              AND execution_status = 'COMPLETED'
+            """)
+    int updateMapSnapshot(
+            @Param("userId") UUID userId,
+            @Param("candidateSetId") UUID candidateSetId,
+            @Param("routeCode") String routeCode,
+            @Param("mapSnapshotUrl") String mapSnapshotUrl,
+            @Param("mapSnapshotObjectKey") String mapSnapshotObjectKey
     );
 }

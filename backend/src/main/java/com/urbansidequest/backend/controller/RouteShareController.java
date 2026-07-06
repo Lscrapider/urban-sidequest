@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/routes")
@@ -43,26 +42,22 @@ public class RouteShareController {
     )
     public ResponseEntity<byte[]> routeSharePreviewMap(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID requestId,
+            @PathVariable("requestId") UUID candidateSetId,
             @PathVariable String routeCode
     ) {
         return ResponseEntity
                 .ok()
                 .contentType(MediaType.IMAGE_PNG)
-                .body(this.routeShareService.buildRouteStaticMap(authenticatedUser, requestId, routeCode));
+                .body(this.routeShareService.buildRouteStaticMap(authenticatedUser, candidateSetId, routeCode));
     }
 
-    @PostMapping(
-            value = "/history/{requestId}/routes/{routeCode}/share",
-            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
-    )
+    @PostMapping("/history/{requestId}/routes/{routeCode}/share")
     public RouteShareVO shareCompletedRoute(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID requestId,
+            @PathVariable("requestId") UUID candidateSetId,
             @PathVariable String routeCode,
-            @RequestParam("shareText") String shareText,
-            @RequestParam("image") MultipartFile image
+            @RequestParam("shareText") String shareText
     ) {
-        return this.routeShareService.shareCompletedRoute(authenticatedUser, requestId, routeCode, shareText, image);
+        return this.routeShareService.shareCompletedRoute(authenticatedUser, candidateSetId, routeCode, shareText);
     }
 }

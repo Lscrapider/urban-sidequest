@@ -26,11 +26,25 @@ public class RouteShareImageObjectStore {
         this.properties = properties;
     }
 
-    public StoredRouteShareImage putShareImage(UUID userId, UUID requestId, String routeCode, byte[] imageBytes, String contentType) {
+    public StoredRouteShareImage putShareImage(UUID userId, UUID candidateSetId, String routeCode, byte[] imageBytes, String contentType) {
         if (imageBytes.length > this.properties.getMaxImageSize().toBytes()) {
             throw new IllegalArgumentException("分享图片过大，请重新生成后再分享");
         }
-        String objectKey = this.shareImageObjectKey(userId, requestId, routeCode);
+        String objectKey = this.shareImageObjectKey(userId, candidateSetId, routeCode);
+        this.putImageObject(objectKey, imageBytes, contentType);
+        return new StoredRouteShareImage(objectKey, this.publicUrl(objectKey));
+    }
+
+    public StoredRouteShareImage putMapSnapshotImage(UUID userId, UUID candidateSetId, String routeCode, byte[] imageBytes) {
+        if (imageBytes.length > this.properties.getMaxImageSize().toBytes()) {
+            throw new IllegalArgumentException("路线地图快照过大");
+        }
+        String objectKey = this.mapSnapshotObjectKey(userId, candidateSetId, routeCode);
+        this.putImageObject(objectKey, imageBytes, "image/png");
+        return new StoredRouteShareImage(objectKey, this.publicUrl(objectKey));
+    }
+
+    private void putImageObject(String objectKey, byte[] imageBytes, String contentType) {
         try {
             this.minioClient.putObject(
                     PutObjectArgs.builder()
@@ -43,16 +57,26 @@ public class RouteShareImageObjectStore {
         } catch (Exception exception) {
             throw new IllegalStateException("分享路线图片写入 MinIO 失败: " + objectKey, exception);
         }
-        return new StoredRouteShareImage(objectKey, this.publicUrl(objectKey));
     }
 
-    private String shareImageObjectKey(UUID userId, UUID requestId, String routeCode) {
+    private String shareImageObjectKey(UUID userId, UUID candidateSetId, String routeCode) {
         String datePath = DateTimeFormatter.ofPattern("yyyy/MM/dd").format(OffsetDateTime.now());
         return "%s/%s/user=%s/%s-%s.jpg".formatted(
                 this.prefix(),
                 datePath,
                 userId,
-                requestId,
+                candidateSetId,
+                routeCode
+        );
+    }
+
+    private String mapSnapshotObjectKey(UUID userId, UUID candidateSetId, String routeCode) {
+        String datePath = DateTimeFormatter.ofPattern("yyyy/MM/dd").format(OffsetDateTime.now());
+        return "%s/%s/user=%s/snapshot-%s-%s.png".formatted(
+                this.prefix(),
+                datePath,
+                userId,
+                candidateSetId,
                 routeCode
         );
     }

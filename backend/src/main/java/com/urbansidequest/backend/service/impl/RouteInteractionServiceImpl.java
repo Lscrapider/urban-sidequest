@@ -4,7 +4,6 @@ import com.urbansidequest.backend.config.AuthenticatedUser;
 import com.urbansidequest.backend.domain.enums.RouteInteractionReaction;
 import com.urbansidequest.backend.domain.enums.RoutePreferenceFeedbackLabel;
 import com.urbansidequest.backend.domain.param.RouteInteractionParam;
-import com.urbansidequest.backend.domain.po.RouteGenerationHistoryPO;
 import com.urbansidequest.backend.domain.po.RouteInteractionPO;
 import com.urbansidequest.backend.domain.vo.RouteGenerationVO;
 import com.urbansidequest.backend.domain.vo.RouteInteractionVO;
@@ -46,11 +45,11 @@ public class RouteInteractionServiceImpl implements RouteInteractionService {
     @Override
     public RouteInteractionVO saveInteraction(
             AuthenticatedUser authenticatedUser,
-            UUID requestId,
+            UUID candidateSetId,
             String routeCode,
             RouteInteractionParam param
     ) {
-        UUID candidateSetId = this.validateRoute(authenticatedUser.id(), requestId, routeCode);
+        this.validateRoute(authenticatedUser.id(), candidateSetId, routeCode);
         boolean favorite = param.getFavorite() != null && param.getFavorite();
         RoutePreferenceFeedbackLabel feedbackLabel = this.resolveFeedbackLabel(favorite, param.getReaction());
         this.routeInteractionManage.upsert(
@@ -79,16 +78,15 @@ public class RouteInteractionServiceImpl implements RouteInteractionService {
         return null;
     }
 
-    private UUID validateRoute(UUID userId, UUID requestId, String routeCode) {
-        RouteGenerationHistoryPO history = this.routeGenerationHistoryManage.findByUserAndRequestId(userId, requestId)
+    private void validateRoute(UUID userId, UUID candidateSetId, String routeCode) {
+        RouteGenerationVO routeGeneration = this.routeGenerationHistoryManage
+                .findRouteGenerationByUserAndCandidateSetId(userId, candidateSetId)
                 .orElseThrow(() -> new IllegalArgumentException("路线历史不存在"));
-        RouteGenerationVO routeGeneration = this.routeGenerationHistoryManage.toRouteGenerationVO(history);
         boolean routeExists = routeGeneration.routes().stream()
                 .anyMatch(route -> route.routeCode().equals(routeCode));
         if (!routeExists) {
             throw new IllegalArgumentException("路线不属于当前历史记录");
         }
-        return history.getCandidateSetId();
     }
 
     private RouteInteractionVO toVO(RouteInteractionPO interaction) {

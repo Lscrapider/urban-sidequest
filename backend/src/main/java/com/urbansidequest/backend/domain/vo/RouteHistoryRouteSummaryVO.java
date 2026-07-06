@@ -9,6 +9,7 @@ public record RouteHistoryRouteSummaryVO(
         int totalDurationMinutes,
         int totalDistanceMeters,
         RiskLevel riskLevel,
-        int stopCount
+        int stopCount,
+        String mapSnapshotUrl
 ) {
 }

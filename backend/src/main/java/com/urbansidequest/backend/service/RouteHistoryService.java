@@ -11,11 +11,11 @@ public interface RouteHistoryService {
 
     List<RouteHistoryGroupVO> listHistory(AuthenticatedUser authenticatedUser, int pageNum, int pageSize);
 
-    RouteGenerationVO getHistoryDetail(AuthenticatedUser authenticatedUser, UUID requestId);
+    RouteGenerationVO getHistoryDetail(AuthenticatedUser authenticatedUser, UUID candidateSetId);
 
     RouteGenerationVO getActiveRoute(AuthenticatedUser authenticatedUser);
 
-    RouteGenerationVO activateRoute(AuthenticatedUser authenticatedUser, UUID requestId, RouteActiveParam param);
+    RouteGenerationVO activateRoute(AuthenticatedUser authenticatedUser, UUID candidateSetId, RouteActiveParam param);
 
-    RouteGenerationVO completeActiveRoute(AuthenticatedUser authenticatedUser, UUID requestId, RouteActiveParam param);
+    RouteGenerationVO completeActiveRoute(AuthenticatedUser authenticatedUser, UUID candidateSetId, RouteActiveParam param);
 }

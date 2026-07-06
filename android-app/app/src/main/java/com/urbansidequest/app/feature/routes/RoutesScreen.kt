@@ -1,5 +1,7 @@
 package com.urbansidequest.app.feature.routes
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -27,12 +29,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -54,6 +60,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.annotation.DrawableRes
+import com.urbansidequest.app.BuildConfig
 import com.urbansidequest.app.R
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
@@ -77,9 +84,12 @@ import com.urbansidequest.app.ui.theme.AreaGreen
 import com.urbansidequest.app.ui.theme.InfoCyan
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.WarningAmber
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.net.URL
 
 private val RouteBlue = Color(0xFF0B5CFF)
 private val RouteBlueSurface = Color(0xFFEAF3FF)
@@ -99,6 +109,7 @@ fun RoutesScreen(
     onOpenProfile: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(RouteLibraryTab.Generated) }
+    var generatedFilter by remember { mutableStateOf(GeneratedRouteFilter.All) }
     var shareTarget by remember { mutableStateOf<WalkedShareTarget?>(null) }
     var shareText by remember { mutableStateOf(DEFAULT_SHARE_TEXT) }
     val activeGroup = historyGroups.firstOrNull {
@@ -111,20 +122,21 @@ fun RoutesScreen(
             null
         }
     }
-    val generatedGroups = historyGroups.filter { group ->
-        group.requestId != activeGroup?.requestId && group.executionStatus != "COMPLETED"
+    val generatedBaseGroups = historyGroups.filter { group ->
+        group.requestId != activeGroup?.requestId
     }
+    val generatedGroups = generatedBaseGroups.filter(generatedFilter::matches)
     val visibleGroups = when (selectedTab) {
         RouteLibraryTab.Generated -> generatedGroups
         RouteLibraryTab.Walked -> walkedGroups
     }
-    val generatedRouteCount = generatedGroups.sumOf { group -> group.routes.size }
+    val generatedRouteCount = generatedBaseGroups.sumOf { group -> group.routes.size }
     val walkedRouteCount = walkedGroups.sumOf { group -> group.routes.size }
     val latestGeneratedGroup = generatedGroups.firstOrNull { group ->
         group.generationStatus == "SUCCESS" && group.routes.isNotEmpty()
     }
-    val generatingCount = generatedGroups.count(::isGeneratingHistory)
-    val failedCount = generatedGroups.count { group -> group.generationStatus == "FAILED" }
+    val generatingCount = generatedBaseGroups.count(::isGeneratingHistory)
+    val failedCount = generatedBaseGroups.count { group -> group.generationStatus == "FAILED" }
 
     Column(
         modifier = Modifier
@@ -244,10 +256,10 @@ fun RoutesScreen(
                         )
                     }
                     item {
-                        SectionHeader(
+                        GeneratedFilterSectionHeader(
                             title = selectedTab.sectionTitle,
-                            trailingText = "最新生成",
-                            showDropdown = true
+                            selectedFilter = generatedFilter,
+                            onSelectFilter = { generatedFilter = it }
                         )
                     }
                     items(
@@ -698,6 +710,62 @@ private fun SectionHeader(
 }
 
 @Composable
+private fun GeneratedFilterSectionHeader(
+    title: String,
+    selectedFilter: GeneratedRouteFilter,
+    onSelectFilter: (GeneratedRouteFilter) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = title, color = AppText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Box {
+            Row(
+                modifier = Modifier.clickable { expanded = true },
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = selectedFilter.label,
+                    color = RouteBlue,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                RouteLibraryImageIcon(
+                    iconRes = R.drawable.icon_routes_chevron_down,
+                    contentDescription = "过滤生成结果",
+                    modifier = Modifier.size(14.dp),
+                    tint = RouteBlue
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                GeneratedRouteFilter.values().forEach { filter ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = filter.label,
+                                color = AppText,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        },
+                        onClick = {
+                            onSelectFilter(filter)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LatestGeneratedGroupCard(
     group: RouteHistoryGroup,
     onOpenGroup: () -> Unit,
@@ -944,7 +1012,7 @@ private fun WalkedRouteRow(
         ) {
             WalkedRouteMapThumbnail(
                 modifier = Modifier.size(width = 118.dp, height = 96.dp),
-                routeCode = route.routeCode
+                route = route
             )
             Column(
                 modifier = Modifier.weight(1f),
@@ -981,7 +1049,7 @@ private fun WalkedRouteRow(
                 ) {
                     RouteMetaItem(iconRes = R.drawable.icon_routes_location, text = formatCompactDistance(route.totalDistanceMeters))
                     RouteMetaItem(iconRes = R.drawable.icon_routes_clock, text = formatDuration(route.totalDurationMinutes))
-                    RouteMetaItem(iconRes = R.drawable.icon_routes_flag, text = "— 个点")
+                    RouteMetaItem(iconRes = R.drawable.icon_routes_flag, text = formatStopCount(route.stopCount))
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1102,20 +1170,61 @@ private fun WalkedSummaryMetric(
 
 @Composable
 private fun WalkedRouteMapThumbnail(
-    routeCode: String,
+    route: RouteHistoryRouteSummary,
     modifier: Modifier = Modifier
 ) {
+    val snapshotUrl = route.mapSnapshotUrl
+    val resolvedSnapshotUrl = remember(snapshotUrl) {
+        snapshotUrl?.let(::resolveRouteMapSnapshotUrl)
+    }
+    var bitmap by remember(resolvedSnapshotUrl) { mutableStateOf<Bitmap?>(null) }
+    var isLoadFinished by remember(resolvedSnapshotUrl) { mutableStateOf(false) }
+    LaunchedEffect(resolvedSnapshotUrl) {
+        bitmap = null
+        isLoadFinished = false
+        if (resolvedSnapshotUrl != null) {
+            bitmap = withContext(Dispatchers.IO) {
+                runCatching {
+                    val connection = URL(resolvedSnapshotUrl).openConnection().apply {
+                        connectTimeout = 6_000
+                        readTimeout = 10_000
+                    }
+                    connection.getInputStream().use { inputStream ->
+                        BitmapFactory.decodeStream(inputStream)
+                    }
+                }.getOrNull()
+            }
+        }
+        isLoadFinished = true
+    }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(AppSurfaceMuted)
+            .background(AppSurfaceMuted),
+        contentAlignment = Alignment.Center
     ) {
-        Image(
-            painter = painterResource(R.drawable.route_thumb_placeholder),
-            contentDescription = "路线${routeCode}地图缩略图",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = "路线${route.routeCode}地图缩略图",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Image(
+                painter = painterResource(R.drawable.route_thumb_placeholder),
+                contentDescription = "路线${route.routeCode}地图缩略图",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            if (resolvedSnapshotUrl != null && !isLoadFinished) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(AppSurface.copy(alpha = 0.36f))
+                )
+            }
+        }
     }
 }
 
@@ -1360,7 +1469,7 @@ private fun RouteHistoryRouteChip(
             )
             RouteChipMetricLine(
                 iconRes = R.drawable.icon_routes_flag,
-                text = "${routePlaceholderStopCount(route)} 个点"
+                text = formatStopCount(route.stopCount)
             )
         }
     }
@@ -1477,19 +1586,31 @@ private fun routeChipAccentColor(routeCode: String): Color {
     }
 }
 
-private fun routePlaceholderStopCount(route: RouteHistoryRouteSummary): Int {
-    return when (route.routeCode.uppercase()) {
-        "A" -> 12
-        "B" -> 10
-        "C" -> 9
-        else -> 8
-    }
-}
-
 private fun RouteHistoryGroup.withOnlyActiveRoute(): RouteHistoryGroup? {
     val walkedRouteCode = this.activeRouteCode ?: return null
     val walkedRoute = this.routes.firstOrNull { route -> route.routeCode == walkedRouteCode } ?: return null
     return this.copy(routes = listOf(walkedRoute))
+}
+
+private fun formatStopCount(stopCount: Int): String {
+    return if (stopCount > 0) {
+        "$stopCount 个点"
+    } else {
+        "— 个点"
+    }
+}
+
+private fun resolveRouteMapSnapshotUrl(imageUrl: String): String {
+    val baseUrl = BuildConfig.MINIO_IMAGE_BASE_URL.trimEnd('/')
+    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+        val existingPath = runCatching { URL(imageUrl).path }.getOrNull()
+        if (!existingPath.isNullOrBlank() && existingPath.startsWith("/urban-sidequest-shares/")) {
+            return "$baseUrl$existingPath"
+        }
+        return imageUrl
+    }
+    val imagePath = if (imageUrl.startsWith("/")) imageUrl else "/$imageUrl"
+    return "$baseUrl$imagePath"
 }
 
 private fun formatHistorySubtitle(group: RouteHistoryGroup): String {
@@ -1587,4 +1708,22 @@ private enum class RouteLibraryTab(
         emptyTitle = "还没有走完路线",
         emptyDescription = "完成最后一个打卡点后，路线会沉淀到这里。"
     )
+}
+
+private enum class GeneratedRouteFilter(val label: String) {
+    All("全部"),
+    Ready("未开始"),
+    Completed("已完成"),
+    Generating("生成中"),
+    Failed("失败");
+
+    fun matches(group: RouteHistoryGroup): Boolean {
+        return when (this) {
+            All -> true
+            Ready -> group.generationStatus == "SUCCESS" && group.executionStatus == "GENERATED"
+            Completed -> group.generationStatus == "SUCCESS" && group.executionStatus == "COMPLETED"
+            Generating -> isGeneratingHistory(group)
+            Failed -> group.generationStatus == "FAILED"
+        }
+    }
 }

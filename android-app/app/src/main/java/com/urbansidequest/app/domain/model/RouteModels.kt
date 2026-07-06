@@ -102,7 +102,9 @@ data class RouteHistoryRouteSummary(
     val title: String,
     val totalDurationMinutes: Int,
     val totalDistanceMeters: Int,
-    val riskLevel: String
+    val riskLevel: String,
+    val stopCount: Int = 0,
+    val mapSnapshotUrl: String? = null
 )
 
 data class RouteShare(

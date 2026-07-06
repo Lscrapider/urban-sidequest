@@ -17,7 +17,7 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
             SELECT
                 id,
                 user_id,
-                request_id,
+                candidate_set_id,
                 route_code,
                 share_text,
                 image_url,
@@ -31,7 +31,7 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
     @Results(id = "RouteShareResult", value = {
             @Result(column = "id", property = "id", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "user_id", property = "userId", typeHandler = PostgresUuidTypeHandler.class),
-            @Result(column = "request_id", property = "requestId", typeHandler = PostgresUuidTypeHandler.class),
+            @Result(column = "candidate_set_id", property = "candidateSetId", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "route_code", property = "routeCode"),
             @Result(column = "share_text", property = "shareText"),
             @Result(column = "image_url", property = "imageUrl"),
@@ -45,7 +45,7 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
             SELECT
                 id,
                 user_id,
-                request_id,
+                candidate_set_id,
                 route_code,
                 share_text,
                 image_url,
@@ -58,7 +58,7 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
     @Results(id = "RouteShareResultById", value = {
             @Result(column = "id", property = "id", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "user_id", property = "userId", typeHandler = PostgresUuidTypeHandler.class),
-            @Result(column = "request_id", property = "requestId", typeHandler = PostgresUuidTypeHandler.class),
+            @Result(column = "candidate_set_id", property = "candidateSetId", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "route_code", property = "routeCode"),
             @Result(column = "share_text", property = "shareText"),
             @Result(column = "image_url", property = "imageUrl"),
@@ -71,7 +71,7 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
     @Insert("""
             INSERT INTO route_shares (
                 user_id,
-                request_id,
+                candidate_set_id,
                 route_code,
                 share_text,
                 image_url,
@@ -79,13 +79,13 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
             )
             VALUES (
                 #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
-                #{requestId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
+                #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
                 #{routeCode},
                 #{shareText},
                 #{imageUrl},
                 #{imageObjectKey}
             )
-            ON CONFLICT (user_id, request_id, route_code) DO UPDATE SET
+            ON CONFLICT (user_id, candidate_set_id, route_code) DO UPDATE SET
                 share_text = EXCLUDED.share_text,
                 image_url = EXCLUDED.image_url,
                 image_object_key = EXCLUDED.image_object_key,
@@ -93,7 +93,7 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
             """)
     int upsertShare(
             @Param("userId") UUID userId,
-            @Param("requestId") UUID requestId,
+            @Param("candidateSetId") UUID candidateSetId,
             @Param("routeCode") String routeCode,
             @Param("shareText") String shareText,
             @Param("imageUrl") String imageUrl,
@@ -104,7 +104,7 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
             SELECT
                 id,
                 user_id,
-                request_id,
+                candidate_set_id,
                 route_code,
                 share_text,
                 image_url,
@@ -113,13 +113,13 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
                 updated_at
             FROM route_shares
             WHERE user_id = #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
-              AND request_id = #{requestId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+              AND candidate_set_id = #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
               AND route_code = #{routeCode}
             """)
     @Results(id = "RouteShareResultByUserRoute", value = {
             @Result(column = "id", property = "id", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "user_id", property = "userId", typeHandler = PostgresUuidTypeHandler.class),
-            @Result(column = "request_id", property = "requestId", typeHandler = PostgresUuidTypeHandler.class),
+            @Result(column = "candidate_set_id", property = "candidateSetId", typeHandler = PostgresUuidTypeHandler.class),
             @Result(column = "route_code", property = "routeCode"),
             @Result(column = "share_text", property = "shareText"),
             @Result(column = "image_url", property = "imageUrl"),
@@ -129,7 +129,7 @@ public interface RouteShareMapper extends BaseMapper<RouteSharePO> {
     })
     RouteSharePO selectByUserRoute(
             @Param("userId") UUID userId,
-            @Param("requestId") UUID requestId,
+            @Param("candidateSetId") UUID candidateSetId,
             @Param("routeCode") String routeCode
     );
 }

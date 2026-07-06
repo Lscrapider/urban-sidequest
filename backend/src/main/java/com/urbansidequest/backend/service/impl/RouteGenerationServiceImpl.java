@@ -27,7 +27,8 @@ public class RouteGenerationServiceImpl implements RouteGenerationService {
 
     @Override
     public RouteGenerationVO generate(AuthenticatedUser authenticatedUser, RouteGenerateParam generateParam) {
-        RouteGenerationContext context = new RouteGenerationContext(UUID.randomUUID(), authenticatedUser.id(), generateParam);
+        UUID candidateSetId = UUID.randomUUID();
+        RouteGenerationContext context = new RouteGenerationContext(candidateSetId, candidateSetId, authenticatedUser.id(), generateParam);
         this.routeGenerationPipeline.execute(context);
         return this.routeGenerationConverter.toRouteGenerationVO(context);
     }
