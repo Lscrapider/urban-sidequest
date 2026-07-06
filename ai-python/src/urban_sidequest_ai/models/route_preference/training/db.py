@@ -6,6 +6,8 @@ from typing import Any
 
 from urban_sidequest_ai.env_loader import load_runtime_env
 
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
+
 
 @dataclass(frozen=True)
 class DatabaseConfig:
@@ -38,7 +40,7 @@ def load_database_config() -> DatabaseConfig:
         "URBAN_SIDEQUEST_AI_DB_DSN",
         "DATABASE_URL",
     )
-    connect_timeout = _required_int_env("ROUTE_PREF_DB_CONNECT_TIMEOUT")
+    connect_timeout = _int_env_or_default("ROUTE_PREF_DB_CONNECT_TIMEOUT", DEFAULT_CONNECT_TIMEOUT_SECONDS)
     if dsn:
         return DatabaseConfig(dsn=dsn, connect_timeout=connect_timeout)
     return DatabaseConfig(
@@ -75,3 +77,8 @@ def _required_env(key: str) -> str:
 
 def _required_int_env(key: str) -> int:
     return int(_required_env(key))
+
+
+def _int_env_or_default(key: str, default_value: int) -> int:
+    value = _env_first(key)
+    return default_value if value is None else int(value)

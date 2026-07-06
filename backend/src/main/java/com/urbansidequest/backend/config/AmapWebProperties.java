@@ -65,8 +65,9 @@ public class AmapWebProperties {
      * 实际可用的 key 列表：优先用 {@link #keys}，为空则回退到单 {@link #key}，均去除空白项。
      */
     public List<String> effectiveKeys() {
-        if (CollUtil.isNotEmpty(this.keys)) {
-            return this.keys.stream().filter(StrUtil::isNotBlank).distinct().toList();
+        List<String> effectiveKeys = this.keys.stream().filter(StrUtil::isNotBlank).distinct().toList();
+        if (CollUtil.isNotEmpty(effectiveKeys)) {
+            return effectiveKeys;
         }
         return StrUtil.isBlank(this.key) ? List.of() : List.of(this.key);
     }

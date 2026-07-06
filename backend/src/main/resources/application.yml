@@ -2,16 +2,16 @@ spring:
   application:
     name: urban-sidequest-backend
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    active: dev
   ai:
     openai:
       api-key: ${NEW_API_KEY}
       base-url: ${ROUTE_LLM_BASE_URL}
       chat:
-        completions-path: ${ROUTE_LLM_COMPLETIONS_PATH}
+        completions-path: /chat/completions
         options:
-          model: ${ROUTE_LLM_MODEL}
-          temperature: ${ROUTE_LLM_TEMPERATURE}
+          model: urben-route-generate
+          temperature: 0.2
           response-format:
             type: JSON_OBJECT
   datasource:
@@ -20,13 +20,17 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD}
   data:
     redis:
-      host: ${SPRING_REDIS_HOST}
-      port: ${SPRING_REDIS_PORT}
-      connect-timeout: ${SPRING_REDIS_CONNECT_TIMEOUT:500ms}
-      timeout: ${SPRING_REDIS_TIMEOUT:200ms}
+      url: ${SPRING_REDIS_URL}
+      username: ${SPRING_REDIS_USERNAME:}
+      password: ${SPRING_REDIS_PASSWORD:}
+      connect-timeout: 500ms
+      timeout: 200ms
+  http:
+    client:
+      read-timeout: 1000s
 
 server:
-  port: ${SERVER_PORT}
+  port: 8080
 
 management:
   endpoints:
@@ -36,44 +40,45 @@ management:
 
 amap:
   web:
-    key: ${AMAP_WEB_KEY}
-    base-url: ${AMAP_WEB_BASE_URL}
-    connect-timeout: ${AMAP_WEB_CONNECT_TIMEOUT}
-    read-timeout: ${AMAP_WEB_READ_TIMEOUT}
-    key-qps: ${AMAP_WEB_KEY_QPS}
+    key: ${AMAP_WEB_KEY:}
+    keys: ${AMAP_WEB_KEYS:}
+    base-url: https://restapi.amap.com
+    connect-timeout: 3s
+    read-timeout: 8s
+    key-qps: 2.8
 baidu:
   map:
     ak: ${BAIDU_MAP_AK}
-    base-url: ${BAIDU_MAP_BASE_URL}
-    connect-timeout: ${BAIDU_MAP_CONNECT_TIMEOUT}
-    read-timeout: ${BAIDU_MAP_READ_TIMEOUT}
+    base-url: https://api.map.baidu.com
+    connect-timeout: 3s
+    read-timeout: 8s
 poi:
   search:
-    provider: ${POI_SEARCH_PROVIDER}
+    provider: amap
     mix:
-      amap-weight: ${POI_SEARCH_MIX_AMAP_WEIGHT}
-      baidu-weight: ${POI_SEARCH_MIX_BAIDU_WEIGHT}
+      amap-weight: 1
+      baidu-weight: 5
 route:
   scoring:
-    config-path: ${ROUTE_SCORING_CONFIG_PATH:}
+    config-path: ${ROUTE_SCORING_CONFIG_PATH}
   preference:
     training:
       storage:
         endpoint: ${ROUTE_PREF_MINIO_ENDPOINT}
-        bucket: ${ROUTE_PREF_MINIO_BUCKET}
+        bucket: urban-sidequest-training
         access-key: ${ROUTE_PREF_MINIO_ACCESS_KEY}
         secret-key: ${ROUTE_PREF_MINIO_SECRET_KEY}
-        secure: ${ROUTE_PREF_MINIO_SECURE:false}
-        prefix: ${ROUTE_PREF_MINIO_PREFIX:route-preference}
-        write-enabled: ${ROUTE_PREF_MINIO_WRITE_ENABLED:true}
+        secure: false
+        prefix: route-preference
+        write-enabled: true
   share:
     storage:
-      bucket: ${ROUTE_SHARE_MINIO_BUCKET:urban-sidequest-shares}
-      prefix: ${ROUTE_SHARE_MINIO_PREFIX:route-share}
-      max-image-size: ${ROUTE_SHARE_MAX_IMAGE_SIZE:2MB}
+      bucket: urban-sidequest-shares
+      prefix: route-share
+      max-image-size: 2MB
 auth:
   jwt:
-    issuer: ${AUTH_JWT_ISSUER}
+    issuer: urban-sidequest
     secret: ${AUTH_JWT_SECRET}
-    access-token-validity-seconds: ${AUTH_JWT_ACCESS_TOKEN_VALIDITY_SECONDS}
+    access-token-validity-seconds: 86400
   dev-verification-code: ${AUTH_DEV_VERIFICATION_CODE}

@@ -8,6 +8,10 @@ import os
 from urban_sidequest_ai.env_loader import load_runtime_env
 
 DEFAULT_NEW_API_KEY_ENV = "NEW_API_KEY"
+DEFAULT_BACKEND_TIMEOUT_SECONDS = 1000
+DEFAULT_LLM_PROVIDER = "new-api"
+DEFAULT_LLM_MODEL = "urben-mock-user"
+DEFAULT_LLM_COMPLETIONS_PATH = "/chat/completions"
 
 
 @dataclass(frozen=True)
@@ -62,7 +66,7 @@ def load_config(path: Path | None = None, require_api_key: bool = True) -> AppCo
         auth_token=_env_first("BACKEND_AUTH_TOKEN"),
         login_phone=_env_first("BACKEND_LOGIN_PHONE"),
         login_code=_env_first("BACKEND_LOGIN_CODE"),
-        timeout_seconds=_required_int_env("BACKEND_TIMEOUT_SECONDS"),
+        timeout_seconds=_int_env_or_default("BACKEND_TIMEOUT_SECONDS", DEFAULT_BACKEND_TIMEOUT_SECONDS),
     )
 
     llm_pool = _load_llm_pool(require_api_key)
@@ -120,11 +124,11 @@ def _load_llm_config(require_api_key: bool) -> LlmConfig:
     if not api_key and require_api_key:
         raise ValueError(f"环境变量 {DEFAULT_NEW_API_KEY_ENV} 未配置")
     return LlmConfig(
-        provider=_required_env("ROUTE_LLM_PROVIDER"),
+        provider=_env_first("ROUTE_LLM_PROVIDER") or DEFAULT_LLM_PROVIDER,
         base_url=_required_env("ROUTE_LLM_BASE_URL").rstrip("/"),
         api_key=str(api_key or ""),
-        model=_required_env("ROUTE_LLM_MODEL"),
-        completions_path=_required_env("ROUTE_LLM_COMPLETIONS_PATH"),
+        model=_env_first("ROUTE_LLM_MODEL") or DEFAULT_LLM_MODEL,
+        completions_path=_env_first("ROUTE_LLM_COMPLETIONS_PATH") or DEFAULT_LLM_COMPLETIONS_PATH,
     )
 
 
@@ -169,8 +173,9 @@ def _required_env(key: str) -> str:
     return value
 
 
-def _required_int_env(key: str) -> int:
-    return int(_required_env(key))
+def _int_env_or_default(key: str, default_value: int) -> int:
+    value = _env_first(key)
+    return default_value if value is None else int(value)
 
 
 def _load_raw_config(path: Path | None) -> dict:
