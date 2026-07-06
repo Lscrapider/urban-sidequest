@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 
 val DeepTeal = Color(0xFF0B4FAD)
 val DeepTealDark = Color(0xFF062B63)
+val ActionBlue = Color(0xFF1677FF)
 val RouteTeal = Color(0xFF1373E6)
 val RouteSecondary = Color(0xFF607D8B)
 val AreaGreen = Color(0xFF22C55E)

@@ -23,14 +23,12 @@ class AuthRepository(
     }
 
     suspend fun fetchCurrentUser(): AuthUserResponse {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return authApi.fetchCurrentUser(authorizationHeader = authorizationHeader)
     }
 
     suspend fun uploadAvatar(imageBytes: ByteArray, contentType: String): AuthUserResponse {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return authApi.uploadAvatar(
             authorizationHeader = authorizationHeader,
             imageBytes = imageBytes,

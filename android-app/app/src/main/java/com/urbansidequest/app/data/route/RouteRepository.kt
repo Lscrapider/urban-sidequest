@@ -14,8 +14,7 @@ class RouteRepository(
 ) {
 
     suspend fun generateRoute(request: RouteGenerateRequest): RouteGeneration {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.generateRoute(
             request = request,
             authorizationHeader = authorizationHeader
@@ -23,20 +22,17 @@ class RouteRepository(
     }
 
     suspend fun fetchRouteHistory(): List<RouteHistoryGroup> {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.fetchRouteHistory(authorizationHeader = authorizationHeader)
     }
 
     suspend fun fetchRouteShares(): List<RouteShare> {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.fetchRouteShares(authorizationHeader = authorizationHeader)
     }
 
     suspend fun fetchSharedRoute(shareId: String): RouteGeneration {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.fetchSharedRoute(
             shareId = shareId,
             authorizationHeader = authorizationHeader
@@ -44,8 +40,7 @@ class RouteRepository(
     }
 
     suspend fun fetchRouteSharePreviewMap(requestId: String, routeCode: String): ByteArray {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.fetchRouteSharePreviewMap(
             requestId = requestId,
             routeCode = routeCode,
@@ -58,8 +53,7 @@ class RouteRepository(
         routeCode: String,
         shareText: String
     ): RouteShare {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.shareCompletedRoute(
             requestId = requestId,
             routeCode = routeCode,
@@ -69,8 +63,7 @@ class RouteRepository(
     }
 
     suspend fun fetchRouteInteractions(): Map<String, RouteInteractionState> {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.fetchRouteInteractions(authorizationHeader = authorizationHeader)
             .associate { interaction ->
                 "${interaction.candidateSetId}:${interaction.routeCode}" to interaction.state
@@ -82,8 +75,7 @@ class RouteRepository(
         routeCode: String,
         interaction: RouteInteractionState
     ): RouteInteractionState {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.saveRouteInteraction(
             requestId = requestId,
             routeCode = routeCode,
@@ -93,8 +85,7 @@ class RouteRepository(
     }
 
     suspend fun fetchRouteHistoryDetail(requestId: String): RouteGeneration {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.fetchRouteHistoryDetail(
             requestId = requestId,
             authorizationHeader = authorizationHeader
@@ -102,14 +93,12 @@ class RouteRepository(
     }
 
     suspend fun fetchActiveRoute(): RouteGeneration? {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.fetchActiveRoute(authorizationHeader = authorizationHeader)
     }
 
     suspend fun activateRoute(requestId: String, routeCode: String): RouteGeneration {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.activateRoute(
             requestId = requestId,
             routeCode = routeCode,
@@ -118,8 +107,7 @@ class RouteRepository(
     }
 
     suspend fun completeActiveRoute(requestId: String, routeCode: String): RouteGeneration {
-        val authorizationHeader = authSessionStore.getAuthorizationHeader()
-            ?: throw IllegalStateException("登录状态已失效，请重新登录")
+        val authorizationHeader = authSessionStore.requireAuthorizationHeader()
         return routeApi.completeActiveRoute(
             requestId = requestId,
             routeCode = routeCode,

@@ -47,6 +47,7 @@
 ## Android / Jetpack Compose 开发
 
 - 当前项目为 Android Kotlin + Jetpack Compose 应用时，必须按 Android 原生应用思路开发。
+- 严厉禁止手画 icon，必须使用 image generator 插件生成
 - 不要套用 Web / Vue / 后台管理系统的页面结构和交互习惯。
 - UI 默认基于 Material 3 和 Compose Material3 组件体系实现。
 - 优先使用已有主题、颜色、字体、Shape、Spacing 和组件封装。

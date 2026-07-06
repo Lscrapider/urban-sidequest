@@ -1,11 +1,6 @@
 package com.urbansidequest.app.ui.components
 
 import androidx.annotation.DrawableRes
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -25,12 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -39,10 +29,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.urbansidequest.app.R
+import com.urbansidequest.app.ui.theme.ActionBlue
 import com.urbansidequest.app.ui.theme.AppBorder
 import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppTextMuted
-import com.urbansidequest.app.ui.theme.DeepTeal
 
 enum class UrbanDestination {
     Discover,
@@ -63,7 +53,7 @@ fun UrbanBottomNavigationBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(78.dp),
+            .height(68.dp),
         color = AppSurface
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -76,7 +66,7 @@ fun UrbanBottomNavigationBar(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxSize(),
@@ -130,76 +120,28 @@ private fun UrbanNavigationItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val selectionSpec = tween<Float>(
-        durationMillis = urbanMotionDuration(UrbanMotion.SelectionMillis),
-        easing = FastOutSlowInEasing
-    )
-    val colorSpec = tween<Color>(
-        durationMillis = urbanMotionDuration(UrbanMotion.SelectionMillis),
-        easing = FastOutSlowInEasing
-    )
-    val contentColor by animateColorAsState(
-        targetValue = if (selected) DeepTeal else AppTextMuted,
-        animationSpec = colorSpec,
-        label = "navigation_content_color"
-    )
-    val selectedProgress by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = selectionSpec,
-        label = "navigation_icon_crossfade"
-    )
-    val iconScale by animateFloatAsState(
-        targetValue = if (selected) 1.06f else 1f,
-        animationSpec = selectionSpec,
-        label = "navigation_icon_scale"
-    )
-    val iconOffsetY by animateDpAsState(
-        targetValue = if (selected) (-2).dp else 0.dp,
-        animationSpec = tween(
-            durationMillis = urbanMotionDuration(UrbanMotion.SelectionMillis),
-            easing = FastOutSlowInEasing
-        ),
-        label = "navigation_icon_offset"
-    )
+    val contentColor = if (selected) ActionBlue else AppTextMuted
+    val iconRes = if (selected) selectedIconRes else unselectedIconRes
 
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .sizeIn(minWidth = 64.dp, minHeight = 48.dp)
+            .sizeIn(minWidth = 64.dp, minHeight = 56.dp)
             .semantics {
                 role = Role.Tab
                 this.selected = selected
             }
             .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 1.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
     ) {
-        Box(
+        Image(
+            painter = painterResource(iconRes),
+            contentDescription = null,
             modifier = Modifier
-                .offset(y = iconOffsetY)
-                .size(29.dp)
-                .graphicsLayer {
-                    scaleX = iconScale
-                    scaleY = iconScale
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(unselectedIconRes),
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(1f - selectedProgress)
-            )
-            Image(
-                painter = painterResource(selectedIconRes),
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(selectedProgress)
-            )
-        }
+                .size(34.dp)
+        )
         Text(
             text = text,
             color = contentColor,

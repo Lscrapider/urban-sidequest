@@ -34,6 +34,11 @@ class AuthSessionStore(context: Context) {
         return "$tokenType $accessToken"
     }
 
+    fun requireAuthorizationHeader(): String {
+        return getAuthorizationHeader()
+            ?: throw IllegalStateException(AuthErrorMessages.AUTH_EXPIRED)
+    }
+
     private companion object {
         private const val PREFERENCES_NAME = "auth_session"
         private const val KEY_TOKEN_TYPE = "token_type"

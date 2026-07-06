@@ -1,6 +1,7 @@
 package com.urbansidequest.app.data.api
 
 import com.urbansidequest.app.BuildConfig
+import com.urbansidequest.app.data.auth.AuthErrorMessages
 import com.urbansidequest.app.domain.model.GeneratedRoute
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteArea
@@ -614,7 +615,7 @@ class RouteApi {
 
     private fun parseErrorMessage(responseCode: Int, responseBody: String): String {
         if (responseCode == HTTP_UNAUTHORIZED || responseCode == HTTP_FORBIDDEN) {
-            return "登录状态已失效，请重新登录"
+            return AuthErrorMessages.AUTH_EXPIRED
         }
         if (responseBody.isBlank()) {
             return "路线生成失败，请稍后重试"
