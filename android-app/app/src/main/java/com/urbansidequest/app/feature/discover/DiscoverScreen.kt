@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -67,16 +66,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.amap.api.location.AMapLocation
-import com.amap.api.location.AMapLocationClient
-import com.amap.api.location.AMapLocationClientOption
-import com.amap.api.services.weather.LocalWeatherForecastResult
-import com.amap.api.services.weather.LocalWeatherLive
-import com.amap.api.services.weather.LocalWeatherLiveResult
-import com.amap.api.services.weather.WeatherSearch
-import com.amap.api.services.weather.WeatherSearchQuery
-import com.urbansidequest.app.BuildConfig
 import com.urbansidequest.app.R
+import com.urbansidequest.app.data.discover.DiscoverRepository
+import com.urbansidequest.app.data.image.RemoteImageRepository
+import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteShare
 import com.urbansidequest.app.ui.components.EmptyState
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
@@ -86,15 +79,10 @@ import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.net.URL
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.collectLatest
 import java.time.LocalDate
-
-private data class DiscoverCityWeather(
-    val cityName: String = "北京",
-    val weatherText: String = "晴转多云 28°C"
-)
 
 private data class DiscoverRouteMeta(
     val icon: ImageVector,
@@ -102,34 +90,33 @@ private data class DiscoverRouteMeta(
 )
 
 @Composable
-fun DiscoverScreen(
-    nickname: String = "",
-    completedRouteCount: Int = 0,
-    travelDistanceMeters: Long = 0L,
-    explorationStreakDays: Int = 0,
-    routeShares: List<RouteShare> = emptyList(),
-    isRouteSharesLoading: Boolean = false,
-    routeSharesError: String? = null,
-    onOpenShare: (RouteShare) -> Unit = {},
-    onOpenMap: () -> Unit = {},
-    onOpenRoutes: () -> Unit = {},
-    onOpenProfile: () -> Unit = {}
+fun DiscoverRoute(
+    discoverRepository: DiscoverRepository,
+    onOpenSharedRoute: (RouteGeneration, String) -> Unit,
+    onAuthenticationExpired: () -> Unit,
+    onOpenMap: () -> Unit,
+    onOpenRoutes: () -> Unit,
+    onOpenProfile: () -> Unit
 ) {
     val context = LocalContext.current
-    var cityWeather by remember { mutableStateOf(DiscoverCityWeather()) }
+    val discoverViewModel: DiscoverViewModel = viewModel(
+        factory = DiscoverViewModelFactory(discoverRepository)
+    )
+    val uiState by discoverViewModel.uiState.collectAsStateWithLifecycle()
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
-            loadDiscoverCityWeather(context) { cityWeather = it }
+            discoverViewModel.refreshCityWeather()
         }
     }
 
     LaunchedEffect(Unit) {
+        discoverViewModel.refreshRouteShares()
         if (context.hasDiscoverLocationPermission()) {
-            loadDiscoverCityWeather(context) { cityWeather = it }
+            discoverViewModel.refreshCityWeather()
         } else {
             locationPermissionLauncher.launch(
                 arrayOf(
@@ -139,6 +126,34 @@ fun DiscoverScreen(
             )
         }
     }
+
+    LaunchedEffect(discoverViewModel) {
+        discoverViewModel.events.collectLatest { event ->
+            when (event) {
+                DiscoverEvent.AuthenticationExpired -> onAuthenticationExpired()
+                is DiscoverEvent.OpenSharedRoute -> onOpenSharedRoute(event.routeGeneration, event.routeCode)
+            }
+        }
+    }
+
+    DiscoverScreen(
+        uiState = uiState,
+        onOpenShare = discoverViewModel::openShare,
+        onOpenMap = onOpenMap,
+        onOpenRoutes = onOpenRoutes,
+        onOpenProfile = onOpenProfile
+    )
+}
+
+@Composable
+fun DiscoverScreen(
+    uiState: DiscoverUiState,
+    onOpenShare: (RouteShare) -> Unit,
+    onOpenMap: () -> Unit,
+    onOpenRoutes: () -> Unit,
+    onOpenProfile: () -> Unit
+) {
+    val cityWeather = uiState.cityWeather
 
     Column(
         modifier = Modifier
@@ -169,21 +184,21 @@ fun DiscoverScreen(
             }
 
             when {
-                isRouteSharesLoading -> item(span = { GridItemSpan(maxLineSpan) }) {
+                uiState.isRouteSharesLoading -> item(span = { GridItemSpan(maxLineSpan) }) {
                     EmptyState(
                         title = "正在加载路线",
                         description = "正在同步大家走完后分享的城市路线。",
                         illustrationResId = R.drawable.illustration_empty_routes
                     )
                 }
-                routeSharesError != null -> item(span = { GridItemSpan(maxLineSpan) }) {
+                uiState.routeSharesError != null || uiState.openShareError != null -> item(span = { GridItemSpan(maxLineSpan) }) {
                     EmptyState(
                         title = "路线加载失败",
-                        description = routeSharesError,
+                        description = uiState.routeSharesError ?: uiState.openShareError.orEmpty(),
                         illustrationResId = R.drawable.illustration_empty_routes
                     )
                 }
-                routeShares.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
+                uiState.routeShares.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
                     EmptyState(
                         title = "还没有路线",
                         description = "走完路线后可以从走过路线里分享，发现页会展示真实地图缩略图和路线信息。",
@@ -191,7 +206,7 @@ fun DiscoverScreen(
                     )
                 }
                 else -> items(
-                    items = routeShares,
+                    items = uiState.routeShares,
                     key = { it.shareId }
                 ) { share ->
                     DiscoverRouteGridCard(
@@ -637,7 +652,12 @@ private fun RouteShareImage(
     fixedAspectRatio: Float? = null,
     contentScale: ContentScale = ContentScale.Fit
 ) {
-    val resolvedImageUrl = remember(imageUrl) { resolveRouteShareImageUrl(imageUrl) }
+    val resolvedImageUrl = remember(imageUrl) {
+        RemoteImageRepository.resolveImageUrl(
+            imageUrl = imageUrl,
+            minioRewritePrefix = ROUTE_SHARE_IMAGE_MINIO_PREFIX
+        )
+    }
     var bitmap by remember(resolvedImageUrl) { mutableStateOf<Bitmap?>(null) }
     var isLoadFinished by remember(resolvedImageUrl) { mutableStateOf(false) }
     val imageAspectRatio = remember(bitmap, resolvedImageUrl) {
@@ -646,17 +666,10 @@ private fun RouteShareImage(
     LaunchedEffect(resolvedImageUrl) {
         bitmap = null
         isLoadFinished = false
-        bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                val connection = URL(resolvedImageUrl).openConnection().apply {
-                    connectTimeout = 6_000
-                    readTimeout = 10_000
-                }
-                connection.getInputStream().use { inputStream ->
-                    BitmapFactory.decodeStream(inputStream)
-                }
-            }.getOrNull()
-        }
+        bitmap = RemoteImageRepository.loadBitmap(
+            imageUrl = imageUrl,
+            minioRewritePrefix = ROUTE_SHARE_IMAGE_MINIO_PREFIX
+        )
         isLoadFinished = true
     }
 
@@ -711,19 +724,6 @@ private fun formatShareDuration(durationMinutes: Int?): String? {
     }
 }
 
-private fun resolveRouteShareImageUrl(imageUrl: String): String {
-    val baseUrl = BuildConfig.MINIO_IMAGE_BASE_URL.trimEnd('/')
-    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-        val existingPath = runCatching { URL(imageUrl).path }.getOrNull()
-        if (!existingPath.isNullOrBlank() && existingPath.startsWith("/urban-sidequest-shares/")) {
-            return "$baseUrl$existingPath"
-        }
-        return imageUrl
-    }
-    val imagePath = if (imageUrl.startsWith("/")) imageUrl else "/$imageUrl"
-    return "$baseUrl$imagePath"
-}
-
 private fun routeShareImageAspectRatio(bitmap: Bitmap?, imageUrl: String): Float {
     val rawAspectRatio = if (bitmap != null && bitmap.height > 0) {
         bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -759,111 +759,8 @@ private fun Context.hasDiscoverLocationPermission(): Boolean {
     ) == PackageManager.PERMISSION_GRANTED ||
         ContextCompat.checkSelfPermission(
             this,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-}
-
-private fun loadDiscoverCityWeather(
-    context: Context,
-    onResult: (DiscoverCityWeather) -> Unit
-) {
-    val appContext = context.applicationContext
-    fun resolveWeather(cityName: String, adCode: String?) {
-        queryDiscoverWeather(
-            context = appContext,
-            cityQuery = adCode.orEmpty().ifBlank { cityName },
-            cityName = cityName,
-            onResult = onResult
-        )
-    }
-
-    runCatching {
-        val locationClient = AMapLocationClient(appContext)
-        val locationOption = AMapLocationClientOption().apply {
-            locationMode = AMapLocationClientOption.AMapLocationMode.Hight_Accuracy
-            isOnceLocation = true
-            isOnceLocationLatest = true
-            isNeedAddress = true
-            httpTimeOut = DISCOVER_LOCATION_TIMEOUT_MILLIS
-        }
-        locationClient.setLocationOption(locationOption)
-        locationClient.setLocationListener { location ->
-            if (location != null && location.errorCode == AMapLocation.LOCATION_SUCCESS) {
-                val cityName = normalizeDiscoverCityName(location.city, location.province)
-                resolveWeather(cityName, location.adCode)
-            } else {
-                resolveWeather("北京", null)
-            }
-            locationClient.stopLocation()
-            locationClient.onDestroy()
-        }
-        locationClient.startLocation()
-    }.onFailure {
-        resolveWeather("北京", null)
-    }
-}
-
-private fun queryDiscoverWeather(
-    context: Context,
-    cityQuery: String,
-    cityName: String,
-    onResult: (DiscoverCityWeather) -> Unit
-) {
-    runCatching {
-        val weatherSearch = WeatherSearch(context.applicationContext)
-        weatherSearch.setQuery(
-            WeatherSearchQuery(
-                cityQuery,
-                WeatherSearchQuery.WEATHER_TYPE_LIVE
-            )
-        )
-        weatherSearch.setOnWeatherSearchListener(
-            object : WeatherSearch.OnWeatherSearchListener {
-                override fun onWeatherLiveSearched(
-                    result: LocalWeatherLiveResult?,
-                    resultCode: Int
-                ) {
-                    val weather = if (resultCode == AMAP_SUCCESS_CODE) {
-                        result?.liveResult
-                    } else {
-                        null
-                    }
-                    onResult(
-                        DiscoverCityWeather(
-                            cityName = normalizeDiscoverCityName(
-                                weather?.city,
-                                cityName
-                            ),
-                            weatherText = weather.toDiscoverWeatherText()
-                        )
-                    )
-                }
-
-                override fun onWeatherForecastSearched(
-                    result: LocalWeatherForecastResult?,
-                    resultCode: Int
-                ) = Unit
-            }
-        )
-        weatherSearch.searchWeatherAsyn()
-    }.onFailure {
-        onResult(DiscoverCityWeather(cityName = cityName))
-    }
-}
-
-private fun LocalWeatherLive?.toDiscoverWeatherText(): String {
-    val weather = this?.weather.orEmpty()
-    val temperature = this?.temperature.orEmpty()
-    if (weather.isNotBlank() && temperature.isNotBlank()) {
-        return "$weather ${temperature}°C"
-    }
-    return when {
-        weather.contains("雨") || weather.contains("雪") || weather.contains("沙") || weather.contains("霾") -> {
-            "天气不太适合长时间步行"
-        }
-        weather.isBlank() -> "晴转多云 28°C"
-        else -> weather
-    }
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun formatDiscoverDate(): String {
@@ -871,19 +768,6 @@ private fun formatDiscoverDate(): String {
     return "${today.monthValue}月${today.dayOfMonth}日"
 }
 
-private fun normalizeDiscoverCityName(
-    city: String?,
-    fallback: String?
-): String {
-    val rawName = city.orEmpty().ifBlank { fallback.orEmpty() }.ifBlank { "北京" }
-    return rawName
-        .removeSuffix("市")
-        .removeSuffix("省")
-        .removeSuffix("自治区")
-        .removeSuffix("特别行政区")
-}
-
-private const val AMAP_SUCCESS_CODE = 1000
-private const val DISCOVER_LOCATION_TIMEOUT_MILLIS = 5_000L
 private const val MIN_ROUTE_SHARE_IMAGE_ASPECT_RATIO = 0.86f
 private const val MAX_ROUTE_SHARE_IMAGE_ASPECT_RATIO = 1.62f
+private const val ROUTE_SHARE_IMAGE_MINIO_PREFIX = "/urban-sidequest-shares/"

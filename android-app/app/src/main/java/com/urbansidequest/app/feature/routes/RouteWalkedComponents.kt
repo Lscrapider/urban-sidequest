@@ -1,7 +1,6 @@
 package com.urbansidequest.app.feature.routes
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -35,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.urbansidequest.app.R
+import com.urbansidequest.app.data.image.RemoteImageRepository
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
 import com.urbansidequest.app.ui.components.UrbanBadge
@@ -44,9 +44,6 @@ import com.urbansidequest.app.ui.theme.AppSurface
 import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.net.URL
 
 @Composable
 internal fun WalkedRouteRow(
@@ -233,25 +230,23 @@ private fun WalkedRouteMapThumbnail(
 ) {
     val snapshotUrl = route.mapSnapshotUrl
     val resolvedSnapshotUrl = remember(snapshotUrl) {
-        snapshotUrl?.let(::resolveRouteMapSnapshotUrl)
+        snapshotUrl?.let { url ->
+            RemoteImageRepository.resolveImageUrl(
+                imageUrl = url,
+                minioRewritePrefix = ROUTE_SHARE_IMAGE_MINIO_PREFIX
+            )
+        }
     }
     var bitmap by remember(resolvedSnapshotUrl) { mutableStateOf<Bitmap?>(null) }
     var isLoadFinished by remember(resolvedSnapshotUrl) { mutableStateOf(false) }
     LaunchedEffect(resolvedSnapshotUrl) {
         bitmap = null
         isLoadFinished = false
-        if (resolvedSnapshotUrl != null) {
-            bitmap = withContext(Dispatchers.IO) {
-                runCatching {
-                    val connection = URL(resolvedSnapshotUrl).openConnection().apply {
-                        connectTimeout = 6_000
-                        readTimeout = 10_000
-                    }
-                    connection.getInputStream().use { inputStream ->
-                        BitmapFactory.decodeStream(inputStream)
-                    }
-                }.getOrNull()
-            }
+        if (snapshotUrl != null) {
+            bitmap = RemoteImageRepository.loadBitmap(
+                imageUrl = snapshotUrl,
+                minioRewritePrefix = ROUTE_SHARE_IMAGE_MINIO_PREFIX
+            )
         }
         isLoadFinished = true
     }
@@ -285,6 +280,8 @@ private fun WalkedRouteMapThumbnail(
         }
     }
 }
+
+private const val ROUTE_SHARE_IMAGE_MINIO_PREFIX = "/urban-sidequest-shares/"
 
 @Composable
 private fun RouteMetaItem(

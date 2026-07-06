@@ -36,6 +36,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -81,7 +82,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlin.math.sin
 
 @Composable
-fun MapSelectScreen(
+internal fun MapSelectScreen(
     routeGeneration: RouteGeneration? = null,
     initialVisibleRouteCode: String? = null,
     routeInteractions: Map<String, RouteInteractionState> = emptyMap(),
@@ -97,34 +98,31 @@ fun MapSelectScreen(
     onOpenDiscover: () -> Unit = {},
     onOpenRoutes: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
-    routeConfigViewModel: RouteConfigViewModel = viewModel()
+    routeConfigViewModel: RouteConfigViewModel = viewModel(),
+    mapSelectViewModel: MapSelectViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val routeConfigUiState by routeConfigViewModel.uiState.collectAsStateWithLifecycle()
+    val mapUiState by mapSelectViewModel.uiState.collectAsStateWithLifecycle()
     val configSubmitScope = rememberCoroutineScope()
-    var generationPanelMode by remember { mutableStateOf(MapGenerationPanelMode.Range) }
-    var rangeSelectionMode by remember { mutableStateOf(RangeSelectionMode.Auto) }
-    var generationPanelMessage by remember { mutableStateOf<String?>(null) }
     var mapController by remember { mutableStateOf<AMap?>(null) }
-    var currentLocation by remember { mutableStateOf(DefaultMapCenter) }
-    var isSearchActive by remember { mutableStateOf(false) }
-    var searchText by remember { mutableStateOf("") }
-    var searchSuggestions by remember { mutableStateOf<List<PlaceSearchSuggestion>>(emptyList()) }
-    var isSearching by remember { mutableStateOf(false) }
-    var selectedRouteIndex by remember { mutableStateOf<Int?>(DEFAULT_VISIBLE_ROUTE_INDEX) }
-    var visibleRouteIndexes by remember { mutableStateOf(setOf(DEFAULT_VISIBLE_ROUTE_INDEX)) }
-    var routeSheetProgress by remember { mutableStateOf(0f) }
-    var routeSheetHiddenProgress by remember { mutableStateOf(0f) }
-    var routeSheetDragOffset by remember { mutableStateOf(0f) }
-    var selectedStopPayload by remember { mutableStateOf<RouteStopMarkerPayload?>(null) }
-    var selectedSegmentPayload by remember { mutableStateOf<RouteSegmentPolylinePayload?>(null) }
-    var completedStopIds by remember(routeGeneration?.requestId, routeGeneration?.activeRouteCode) {
-        mutableStateOf<Set<String>>(emptySet())
-    }
-    var dismissedCheckInStopId by remember(routeGeneration?.requestId, routeGeneration?.activeRouteCode) {
-        mutableStateOf<String?>(null)
-    }
     val focusManager = LocalFocusManager.current
+    val generationPanelMode = mapUiState.generationPanelMode
+    val rangeSelectionMode = mapUiState.rangeSelectionMode
+    val generationPanelMessage = mapUiState.generationPanelMessage
+    val currentLocation = mapUiState.currentLocation
+    val isSearchActive = mapUiState.isSearchActive
+    val searchText = mapUiState.searchText
+    val searchSuggestions = mapUiState.searchSuggestions
+    val isSearching = mapUiState.isSearching
+    val selectedRouteIndex = mapUiState.selectedRouteIndex
+    val visibleRouteIndexes = mapUiState.visibleRouteIndexes
+    val routeSheetProgress = mapUiState.routeSheetProgress
+    val routeSheetHiddenProgress = mapUiState.routeSheetHiddenProgress
+    val selectedStopPayload = mapUiState.selectedStopPayload
+    val selectedSegmentPayload = mapUiState.selectedSegmentPayload
+    val completedStopIds = mapUiState.completedStopIds
+    val dismissedCheckInStopId = mapUiState.dismissedCheckInStopId
     val routes = routeGeneration?.routes.orEmpty()
     val selectedCenter = GeoPoint(
         longitudeGcj02 = currentLocation.longitude,
@@ -154,98 +152,45 @@ fun MapSelectScreen(
         distanceToTargetMeters <= CHECK_IN_RADIUS_METERS &&
         dismissedCheckInStopId != currentTargetStop.id
 
+    DisposableEffect(mapSelectViewModel) {
+        onDispose {
+            mapSelectViewModel.resetUiState()
+        }
+    }
+
     fun resetRouteSheet() {
-        routeSheetProgress = 0f
-        routeSheetHiddenProgress = 0f
-        routeSheetDragOffset = 0f
+        mapSelectViewModel.resetRouteSheet()
     }
 
     fun hideRouteSheet() {
-        routeSheetProgress = 0f
-        routeSheetHiddenProgress = 1f
-        routeSheetDragOffset = 0f
+        mapSelectViewModel.hideRouteSheet()
     }
 
     fun dragRouteSheet(drag: Float) {
-        routeSheetDragOffset += drag
-        if (drag > 0f) {
-            if (routeSheetProgress > 0f) {
-                routeSheetProgress = (routeSheetProgress - drag / ROUTE_SHEET_DRAG_RANGE_PX)
-                    .coerceIn(0f, 1f)
-            } else {
-                routeSheetHiddenProgress = (routeSheetHiddenProgress + drag / ROUTE_SHEET_HIDE_DRAG_RANGE_PX)
-                    .coerceIn(0f, 1f)
-            }
-        } else {
-            if (routeSheetHiddenProgress > 0f) {
-                routeSheetHiddenProgress = (routeSheetHiddenProgress + drag / ROUTE_SHEET_HIDE_DRAG_RANGE_PX)
-                    .coerceIn(0f, 1f)
-            } else {
-                routeSheetProgress = (routeSheetProgress - drag / ROUTE_SHEET_DRAG_RANGE_PX)
-                    .coerceIn(0f, 1f)
-            }
-        }
+        mapSelectViewModel.dragRouteSheet(drag)
     }
 
     fun settleRouteSheet() {
-        when {
-            routeSheetDragOffset > ROUTE_SHEET_COLLAPSE_DRAG_PX && routeSheetProgress > 0.02f -> {
-                routeSheetProgress = 0f
-                routeSheetHiddenProgress = 0f
-            }
-            routeSheetDragOffset > ROUTE_SHEET_COLLAPSE_DRAG_PX -> {
-                routeSheetProgress = 0f
-                routeSheetHiddenProgress = 1f
-            }
-            routeSheetDragOffset < -ROUTE_SHEET_COLLAPSE_DRAG_PX && routeSheetHiddenProgress > 0f -> {
-                routeSheetHiddenProgress = 0f
-                routeSheetProgress = 0f
-            }
-            routeSheetHiddenProgress >= ROUTE_SHEET_SNAP_THRESHOLD -> {
-                routeSheetHiddenProgress = 1f
-                routeSheetProgress = 0f
-            }
-            routeSheetProgress >= ROUTE_SHEET_SNAP_THRESHOLD -> {
-                routeSheetHiddenProgress = 0f
-                routeSheetProgress = 1f
-            }
-            else -> {
-                routeSheetHiddenProgress = 0f
-                routeSheetProgress = 0f
-            }
-        }
-        routeSheetDragOffset = 0f
+        mapSelectViewModel.settleRouteSheet()
     }
 
     fun moveToLocation(location: LatLng, zoom: Float = 16f) {
-        currentLocation = location
+        mapSelectViewModel.moveToLocation(location)
         mapController?.animateCamera(CameraUpdateFactory.newLatLngZoom(location, zoom))
     }
 
     fun focusStop(routeIndex: Int, stop: RouteStop) {
-        selectedRouteIndex = routeIndex
-        visibleRouteIndexes = setOf(routeIndex)
-        generationPanelMode = MapGenerationPanelMode.RouteDetail
-        selectedStopPayload = RouteStopMarkerPayload(routeIndex = routeIndex, stop = stop)
-        selectedSegmentPayload = null
-        hideRouteSheet()
+        mapSelectViewModel.focusStop(routeIndex, stop)
         moveToLocation(stop.location.toLatLng(), 17f)
     }
 
     fun focusSegment(payload: RouteSegmentPolylinePayload) {
-        selectedRouteIndex = payload.routeIndex
-        visibleRouteIndexes = setOf(payload.routeIndex)
-        selectedSegmentPayload = payload
-        selectedStopPayload = null
-        hideRouteSheet()
+        mapSelectViewModel.focusSegment(payload)
     }
 
     fun checkInStop(stop: RouteStop) {
         val nextCompletedStopIds = completedStopIds + stop.id
-        completedStopIds = nextCompletedStopIds
-        dismissedCheckInStopId = null
-        selectedStopPayload = null
-        selectedSegmentPayload = null
+        mapSelectViewModel.completeStop(stop)
         if (selectedRouteStops.lastOrNull()?.id == stop.id) {
             routeGeneration?.requestId?.let { requestId ->
                 selectedRoute?.routeCode?.let { routeCode ->
@@ -257,9 +202,7 @@ fun MapSelectScreen(
                 routeStop.id != stop.id && routeStop.id !in nextCompletedStopIds
             }
             if (nextStop != null && selectedRoutePosition != null) {
-                selectedRouteIndex = selectedRoutePosition
-                visibleRouteIndexes = setOf(selectedRoutePosition)
-                generationPanelMode = MapGenerationPanelMode.RouteDetail
+                mapSelectViewModel.selectRoute(selectedRoutePosition)
                 moveToLocation(nextStop.location.toLatLng(), 16f)
             }
         }
@@ -305,7 +248,7 @@ fun MapSelectScreen(
         routeConfigViewModel.events.collectLatest { event ->
             when (event) {
                 is RouteConfigEvent.RouteGenerationSubmitted -> {
-                    generationPanelMessage = null
+                    mapSelectViewModel.setGenerationPanelMessage(null)
                     onSubmitRouteGeneration(event.request)
                 }
             }
@@ -321,60 +264,33 @@ fun MapSelectScreen(
         }
     }
 
-    LaunchedEffect(isRouteExecutionMode, currentTargetStop?.id) {
-        if (!isRouteExecutionMode || currentTargetStop == null) {
-            return@LaunchedEffect
-        }
-        // 开发期间不启用
-        while (false) {
-            if (context.hasLocationPermission()) {
-                requestCurrentLocation()
-            }
-            delay(ROUTE_LOCATION_REFRESH_MILLIS)
-        }
-    }
-
     LaunchedEffect(routeGeneration?.requestId, routes.size, initialVisibleRouteCode, activeRouteIndex, isRouteExecutionMode) {
         val initialRouteIndex = initialVisibleRouteCode
             ?.let { routeCode -> routes.indexOfFirst { route -> route.routeCode == routeCode } }
             ?.takeIf { it >= 0 }
             ?: activeRouteIndex
             ?: DEFAULT_VISIBLE_ROUTE_INDEX
-        selectedRouteIndex = if (routes.isNotEmpty()) initialRouteIndex else null
-        visibleRouteIndexes = if (routes.isNotEmpty()) setOf(initialRouteIndex) else emptySet()
-        resetRouteSheet()
-        selectedStopPayload = null
-        selectedSegmentPayload = null
-        if (routeGeneration != null) {
-            generationPanelMode = if (routes.isEmpty()) {
-                MapGenerationPanelMode.Range
-            } else {
-                MapGenerationPanelMode.RouteDetail
-            }
-            generationPanelMessage = null
-        } else if (generationPanelMode == MapGenerationPanelMode.RouteDetail) {
-            generationPanelMode = MapGenerationPanelMode.Range
-        }
+        mapSelectViewModel.syncRouteGeneration(
+            routeGeneration = routeGeneration,
+            routeCount = routes.size,
+            initialRouteIndex = initialRouteIndex
+        )
     }
 
     LaunchedEffect(searchText, currentLocation) {
         val keyword = searchText.trim()
         if (!isSearchActive || keyword.length < 2) {
-            searchSuggestions = emptyList()
-            isSearching = false
+            mapSelectViewModel.clearSearchSuggestions()
             return@LaunchedEffect
         }
-        isSearching = true
+        mapSelectViewModel.startSearch()
         delay(250)
         searchAmapInputTips(
             context = context,
             keyword = keyword,
             location = currentLocation,
             onResult = { resultKeyword, suggestions ->
-                if (resultKeyword == searchText.trim()) {
-                    searchSuggestions = suggestions
-                    isSearching = false
-                }
+                mapSelectViewModel.applySearchSuggestions(resultKeyword, suggestions)
             }
         )
     }
@@ -410,20 +326,15 @@ fun MapSelectScreen(
             searchText = searchText,
             suggestions = searchSuggestions,
             isSearching = isSearching,
-            onSearchFocus = { isSearchActive = true },
-            onSearchTextChange = { searchText = it },
+            onSearchFocus = mapSelectViewModel::activateSearch,
+            onSearchTextChange = mapSelectViewModel::changeSearchText,
             onCancelSearch = {
-                isSearchActive = false
-                searchText = ""
-                searchSuggestions = emptyList()
-                isSearching = false
+                mapSelectViewModel.cancelSearch()
                 focusManager.clearFocus()
             },
             onSelectSuggestion = { suggestion ->
                 moveToLocation(suggestion.location)
-                searchText = suggestion.name
-                searchSuggestions = emptyList()
-                isSearchActive = false
+                mapSelectViewModel.selectSuggestion(suggestion)
                 focusManager.clearFocus()
             }
         )
@@ -449,12 +360,7 @@ fun MapSelectScreen(
                 selectedRouteIndex = selectedRouteIndex,
                 visibleRouteIndexes = visibleRouteIndexes,
                 onSelectRoute = { routeIndex ->
-                    visibleRouteIndexes = setOf(routeIndex)
-                    selectedRouteIndex = routeIndex
-                    generationPanelMode = MapGenerationPanelMode.RouteDetail
-                    resetRouteSheet()
-                    selectedStopPayload = null
-                    selectedSegmentPayload = null
+                    mapSelectViewModel.selectRoute(routeIndex)
                 }
             )
         }
@@ -501,7 +407,7 @@ fun MapSelectScreen(
                     RouteSegmentPopup(
                         routeColor = routeColor(payload.routeIndex),
                         payload = payload,
-                        onClose = { selectedSegmentPayload = null }
+                        onClose = mapSelectViewModel::closeSegmentPopup
                     )
                 }
                 selectedStopPayload?.let { payload ->
@@ -516,7 +422,7 @@ fun MapSelectScreen(
                         },
                         showStopDistanceFallback = !isRouteExecutionMode,
                         onLocate = { focusStop(payload.routeIndex, payload.stop) },
-                        onClose = { selectedStopPayload = null }
+                        onClose = mapSelectViewModel::closeStopPopup
                     )
                 }
                 if (isRouteExecutionMode) {
@@ -560,7 +466,7 @@ fun MapSelectScreen(
                                 canCheckIn = shouldShowCheckInPrompt,
                                 onShowDetail = { focusStop(selectedRoutePosition, currentTargetStop) },
                                 onCheckIn = { checkInStop(currentTargetStop) },
-                                onUnableToArrive = { dismissedCheckInStopId = currentTargetStop.id },
+                                onUnableToArrive = { mapSelectViewModel.dismissCheckIn(currentTargetStop.id) },
                                 onFinishEarly = finishActiveRoute,
                                 onSelectStop = { stop -> focusStop(selectedRoutePosition, stop) },
                                 onSelectSegment = { originStop, destinationStop ->
@@ -595,8 +501,8 @@ fun MapSelectScreen(
                             )
                         },
                         onExpand = {
-                            selectedStopPayload = null
-                            selectedSegmentPayload = null
+                            mapSelectViewModel.closeStopPopup()
+                            mapSelectViewModel.closeSegmentPopup()
                             resetRouteSheet()
                         },
                         onDrag = { drag -> dragRouteSheet(drag) },
@@ -643,12 +549,12 @@ fun MapSelectScreen(
                     isSubmitting = isRouteGenerationSubmitting,
                     routeConfigViewModel = routeConfigViewModel,
                     onClose = {
-                        generationPanelMode = MapGenerationPanelMode.RouteDetail
-                        generationPanelMessage = null
+                        mapSelectViewModel.showRouteDetailPanel()
                     },
                     onSubmit = {
-                        generationPanelMessage = routeConfigUiState.validateMapRouteCondition()
-                        if (generationPanelMessage == null) {
+                        val message = routeConfigUiState.validateMapRouteCondition()
+                        mapSelectViewModel.setGenerationPanelMessage(message)
+                        if (message == null) {
                             configSubmitScope.launch {
                                 routeConfigViewModel.submitRouteGeneration(
                                     routeRepositoryAvailable = routeRepositoryAvailable,
@@ -696,12 +602,12 @@ fun MapSelectScreen(
                                 isSubmitting = isRouteGenerationSubmitting,
                                 routeConfigViewModel = routeConfigViewModel,
                                 onClose = {
-                                    generationPanelMode = MapGenerationPanelMode.Range
-                                    generationPanelMessage = null
+                                    mapSelectViewModel.showRangePanel()
                                 },
                                 onSubmit = {
-                                    generationPanelMessage = routeConfigUiState.validateMapRouteCondition()
-                                    if (generationPanelMessage == null) {
+                                    val message = routeConfigUiState.validateMapRouteCondition()
+                                    mapSelectViewModel.setGenerationPanelMessage(message)
+                                    if (message == null) {
                                         configSubmitScope.launch {
                                             routeConfigViewModel.submitRouteGeneration(
                                                 routeRepositoryAvailable = routeRepositoryAvailable,
@@ -720,24 +626,19 @@ fun MapSelectScreen(
                                 message = generationPanelMessage,
                                 isSubmitting = isRouteGenerationSubmitting,
                                 onOpenConditions = {
-                                    generationPanelMode = MapGenerationPanelMode.Conditions
-                                    generationPanelMessage = null
+                                    mapSelectViewModel.showConditionsPanel()
                                 },
                                 onSelectAutoRange = {
-                                    rangeSelectionMode = RangeSelectionMode.Auto
-                                    generationPanelMessage = null
+                                    mapSelectViewModel.selectAutoRange()
                                 },
                                 onSelectManualRange = {
-                                    rangeSelectionMode = RangeSelectionMode.Manual
-                                    generationPanelMessage = null
+                                    mapSelectViewModel.selectManualRange()
                                 },
                                 onUndoManualPoint = {
-                                    rangeSelectionMode = RangeSelectionMode.Manual
-                                    generationPanelMessage = "手绘点位调整稍后接入，当前展示预览范围。"
+                                    mapSelectViewModel.selectManualRange("手绘点位调整稍后接入，当前展示预览范围。")
                                 },
                                 onResetManualRange = {
-                                    rangeSelectionMode = RangeSelectionMode.Manual
-                                    generationPanelMessage = "已重置手绘预览范围。"
+                                    mapSelectViewModel.selectManualRange("已重置手绘预览范围。")
                                 }
                             )
                         }

@@ -1,7 +1,5 @@
 package com.urbansidequest.app.feature.routes
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -37,7 +35,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +45,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -60,7 +57,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.annotation.DrawableRes
-import com.urbansidequest.app.BuildConfig
 import com.urbansidequest.app.R
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.domain.model.RouteHistoryRouteSummary
@@ -84,19 +80,18 @@ import com.urbansidequest.app.ui.theme.AreaGreen
 import com.urbansidequest.app.ui.theme.InfoCyan
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.WarningAmber
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.net.URL
 
 private val RouteBlue = Color(0xFF0B5CFF)
 private val RouteBlueSurface = Color(0xFFEAF3FF)
 private val RouteBlueBorder = Color(0xFF78A9FF)
 
 @Composable
-fun RoutesScreen(
+internal fun RoutesScreen(
     historyGroups: List<RouteHistoryGroup> = emptyList(),
     isLoading: Boolean = false,
     errorMessage: String? = null,
@@ -106,12 +101,19 @@ fun RoutesScreen(
     onRefreshHistory: () -> Unit = {},
     onOpenDiscover: () -> Unit = {},
     onOpenMap: () -> Unit = {},
-    onOpenProfile: () -> Unit = {}
+    onOpenProfile: () -> Unit = {},
+    routesViewModel: RoutesViewModel = viewModel()
 ) {
-    var selectedTab by remember { mutableStateOf(RouteLibraryTab.Generated) }
-    var generatedFilter by remember { mutableStateOf(GeneratedRouteFilter.All) }
-    var shareTarget by remember { mutableStateOf<WalkedShareTarget?>(null) }
-    var shareText by remember { mutableStateOf(DEFAULT_SHARE_TEXT) }
+    val uiState by routesViewModel.uiState.collectAsStateWithLifecycle()
+    val selectedTab = uiState.selectedTab
+    val generatedFilter = uiState.generatedFilter
+    val shareTarget = uiState.shareTarget
+    val shareText = uiState.shareText
+    DisposableEffect(routesViewModel) {
+        onDispose {
+            routesViewModel.resetUiState()
+        }
+    }
     val activeGroup = historyGroups.firstOrNull {
         it.generationStatus == "SUCCESS" && it.executionStatus == "IN_PROGRESS" && it.activeRouteCode != null
     }
@@ -196,7 +198,7 @@ fun RoutesScreen(
                         selectedTab = selectedTab,
                         generatedCount = generatedRouteCount,
                         walkedCount = walkedRouteCount,
-                        onSelectTab = { selectedTab = it }
+                        onSelectTab = routesViewModel::selectTab
                     )
                 }
                 if (visibleGroups.isEmpty()) {
@@ -229,8 +231,9 @@ fun RoutesScreen(
                                 route = route,
                                 onOpenRoute = { onOpenHistoryRoute(group.requestId, route.routeCode) },
                                 onShareRoute = {
-                                    shareTarget = WalkedShareTarget(group.requestId, route.routeCode, route.title)
-                                    shareText = DEFAULT_SHARE_TEXT
+                                    routesViewModel.openShareDialog(
+                                        WalkedShareTarget(group.requestId, route.routeCode, route.title)
+                                    )
                                 }
                             )
                         }
@@ -259,7 +262,7 @@ fun RoutesScreen(
                         GeneratedFilterSectionHeader(
                             title = selectedTab.sectionTitle,
                             selectedFilter = generatedFilter,
-                            onSelectFilter = { generatedFilter = it }
+                            onSelectFilter = routesViewModel::selectGeneratedFilter
                         )
                     }
                     items(
@@ -301,11 +304,11 @@ fun RoutesScreen(
         WalkedRouteShareDialog(
             routeTitle = target.routeTitle,
             shareText = shareText,
-            onShareTextChange = { value -> shareText = value.take(MAX_SHARE_TEXT_LENGTH) },
-            onDismiss = { shareTarget = null },
+            onShareTextChange = routesViewModel::changeShareText,
+            onDismiss = routesViewModel::dismissShareDialog,
             onConfirm = {
                 onShareWalkedRoute(target.requestId, target.routeCode, shareText)
-                shareTarget = null
+                routesViewModel.dismissShareDialog()
             }
         )
     }
@@ -1071,12 +1074,6 @@ private fun RouteHistoryGroupRow(
         }
     }
 }
-
-private data class WalkedShareTarget(
-    val requestId: String,
-    val routeCode: String,
-    val routeTitle: String
-)
 
 @Composable
 private fun RouteHistoryRouteChip(

@@ -1,7 +1,6 @@
 package com.urbansidequest.app.feature.profile
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,10 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.Image
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.urbansidequest.app.BuildConfig
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.net.URL
+import com.urbansidequest.app.data.image.RemoteImageRepository
 
 @Composable
 internal fun ProfileAvatar(
@@ -35,7 +31,12 @@ internal fun ProfileAvatar(
     fallbackText: String,
     onClick: () -> Unit
 ) {
-    val resolvedAvatarUrl = remember(avatarUrl) { resolveProfileAvatarUrl(avatarUrl) }
+    val resolvedAvatarUrl = remember(avatarUrl) {
+        RemoteImageRepository.resolveImageUrl(
+            imageUrl = avatarUrl,
+            minioRewritePrefix = PROFILE_AVATAR_MINIO_REWRITE_PREFIX
+        )
+    }
     var bitmap by remember(resolvedAvatarUrl) { mutableStateOf<Bitmap?>(null) }
 
     LaunchedEffect(resolvedAvatarUrl) {
@@ -43,17 +44,10 @@ internal fun ProfileAvatar(
         if (resolvedAvatarUrl.isBlank()) {
             return@LaunchedEffect
         }
-        bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                val connection = URL(resolvedAvatarUrl).openConnection().apply {
-                    connectTimeout = 6_000
-                    readTimeout = 10_000
-                }
-                connection.getInputStream().use { inputStream ->
-                    BitmapFactory.decodeStream(inputStream)
-                }
-            }.getOrNull()
-        }
+        bitmap = RemoteImageRepository.loadBitmap(
+            imageUrl = avatarUrl,
+            minioRewritePrefix = PROFILE_AVATAR_MINIO_REWRITE_PREFIX
+        )
     }
 
     Surface(
@@ -88,19 +82,4 @@ internal fun avatarFallbackText(nickname: String): String {
     return trimmedName.firstOrNull()?.toString() ?: "城"
 }
 
-private fun resolveProfileAvatarUrl(avatarUrl: String): String {
-    val trimmedUrl = avatarUrl.trim()
-    if (trimmedUrl.isBlank()) {
-        return ""
-    }
-    val baseUrl = BuildConfig.MINIO_IMAGE_BASE_URL.trimEnd('/')
-    if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
-        val existingPath = runCatching { URL(trimmedUrl).path }.getOrNull()
-        if (!existingPath.isNullOrBlank() && existingPath.startsWith("/urban-sidequest-shares/")) {
-            return "$baseUrl$existingPath"
-        }
-        return trimmedUrl
-    }
-    val imagePath = if (trimmedUrl.startsWith("/")) trimmedUrl else "/$trimmedUrl"
-    return "$baseUrl$imagePath"
-}
+private const val PROFILE_AVATAR_MINIO_REWRITE_PREFIX = "/urban-sidequest-shares/"

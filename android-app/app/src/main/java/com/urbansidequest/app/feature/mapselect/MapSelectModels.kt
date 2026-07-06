@@ -36,7 +36,6 @@ internal const val ROUTE_SHEET_COLLAPSE_DRAG_PX = 32f
 internal const val ROUTE_SHEET_PEEK_HANDLE_HEIGHT_PX = 48f
 internal const val CHECK_IN_RADIUS_METERS = 200
 internal const val EARTH_RADIUS_METERS = 6_371_000.0
-internal const val ROUTE_LOCATION_REFRESH_MILLIS = 15_000L
 internal const val IMAGE_CONNECT_TIMEOUT_MILLIS = 3_000
 internal const val IMAGE_READ_TIMEOUT_MILLIS = 8_000
 internal val RouteSwitcherShape = RoundedCornerShape(14.dp)

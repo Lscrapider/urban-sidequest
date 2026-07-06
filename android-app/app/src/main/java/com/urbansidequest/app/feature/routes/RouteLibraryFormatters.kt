@@ -1,14 +1,12 @@
 package com.urbansidequest.app.feature.routes
 
 import androidx.compose.ui.graphics.Color
-import com.urbansidequest.app.BuildConfig
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
 import com.urbansidequest.app.ui.components.UrbanBadgeStyle
 import com.urbansidequest.app.ui.theme.AreaGreen
 import com.urbansidequest.app.ui.theme.InfoCyan
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.WarningAmber
-import java.net.URL
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -115,19 +113,6 @@ internal fun formatStopCount(stopCount: Int): String {
     } else {
         "— 个点"
     }
-}
-
-internal fun resolveRouteMapSnapshotUrl(imageUrl: String): String {
-    val baseUrl = BuildConfig.MINIO_IMAGE_BASE_URL.trimEnd('/')
-    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-        val existingPath = runCatching { URL(imageUrl).path }.getOrNull()
-        if (!existingPath.isNullOrBlank() && existingPath.startsWith("/urban-sidequest-shares/")) {
-            return "$baseUrl$existingPath"
-        }
-        return imageUrl
-    }
-    val imagePath = if (imageUrl.startsWith("/")) imageUrl else "/$imageUrl"
-    return "$baseUrl$imagePath"
 }
 
 internal fun formatHistorySubtitle(group: RouteHistoryGroup): String {

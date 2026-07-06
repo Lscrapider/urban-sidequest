@@ -2,7 +2,6 @@ package com.urbansidequest.app.feature.mapselect
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -68,6 +67,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.amap.api.maps.model.Circle
 import com.amap.api.maps.model.Polyline
 import com.urbansidequest.app.R
+import com.urbansidequest.app.data.image.RemoteImageRepository
 import com.urbansidequest.app.domain.model.RouteSegment
 import com.urbansidequest.app.domain.model.RouteStop
 import com.urbansidequest.app.ui.components.UrbanChip
@@ -78,9 +78,6 @@ import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.WarningAmber
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.net.URL
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -368,17 +365,11 @@ internal fun RemotePoiImage(
     var isLoadFinished by remember(imageUrl) { mutableStateOf(false) }
     LaunchedEffect(imageUrl) {
         isLoadFinished = false
-        bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                val connection = URL(imageUrl).openConnection().apply {
-                    connectTimeout = IMAGE_CONNECT_TIMEOUT_MILLIS
-                    readTimeout = IMAGE_READ_TIMEOUT_MILLIS
-                }
-                connection.getInputStream().use { inputStream ->
-                    BitmapFactory.decodeStream(inputStream)
-                }
-            }.getOrNull()
-        }
+        bitmap = RemoteImageRepository.loadBitmap(
+            imageUrl = imageUrl,
+            connectTimeoutMillis = IMAGE_CONNECT_TIMEOUT_MILLIS,
+            readTimeoutMillis = IMAGE_READ_TIMEOUT_MILLIS
+        )
         isLoadFinished = true
     }
     Box(
