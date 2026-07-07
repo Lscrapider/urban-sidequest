@@ -12,6 +12,7 @@ pipeline {
         ENV_FILE_PATH = '.env'
         DOCKER_NETWORK_NAME = 'database-common-network'
         HEALTH_URL = 'http://127.0.0.1:8082/urban-api/api/health'
+        ROUTE_SCORING_CONFIG_FILE = '/opt/urban-sidequest/config/private/route-scoring.yml'
     }
 
     stages {
@@ -107,6 +108,18 @@ pipeline {
             steps {
                 sh '''
                     docker compose --env-file "$ENV_FILE_PATH" -f "$COMPOSE_FILE_PATH" config --quiet
+                '''
+            }
+        }
+
+        stage('Validate Runtime Files') {
+            steps {
+                sh '''
+                    if [ ! -f "$ROUTE_SCORING_CONFIG_FILE" ]; then
+                        echo "ERROR: Route scoring config file is missing: $ROUTE_SCORING_CONFIG_FILE"
+                        echo "Create this file on the Jenkins/deploy server before starting urban-service."
+                        exit 1
+                    fi
                 '''
             }
         }

@@ -10,6 +10,7 @@ services:
     env_file:
       - .env
     environment:
+      ROUTE_SCORING_CONFIG_PATH: /app/config/private/route-scoring.yml
       SPRING_PROFILES_ACTIVE: prod
       TZ: Asia/Shanghai
     ports:
@@ -17,7 +18,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
-      - ./backend/config/private:/app/config/private:ro
+      - /opt/urban-sidequest/config/private/route-scoring.yml:/app/config/private/route-scoring.yml:ro
     restart: unless-stopped
     networks:
       - database-common-network
