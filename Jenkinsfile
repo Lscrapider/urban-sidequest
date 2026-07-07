@@ -120,12 +120,6 @@ pipeline {
             }
         }
 
-        stage('Test') {
-            steps {
-                sh 'mvn -B -f backend/pom.xml test'
-            }
-        }
-
         stage('Build Images') {
             steps {
                 sh '''

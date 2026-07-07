@@ -6,7 +6,7 @@ COPY backend/pom.xml backend/pom.xml
 RUN mvn -B -f backend/pom.xml -DskipTests dependency:go-offline
 
 COPY backend/src backend/src
-RUN mvn -B -f backend/pom.xml -DskipTests package
+RUN mvn -B -f backend/pom.xml package
 
 FROM eclipse-temurin:17-jre
 
