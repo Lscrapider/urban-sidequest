@@ -155,7 +155,10 @@ pipeline {
                         fi
                         sleep 2
                     done
-                    curl -fsS "$HEALTH_URL"
+                    echo "ERROR: urban-service health check failed: $HEALTH_URL"
+                    docker compose --env-file "$ENV_FILE_PATH" -f "$COMPOSE_FILE_PATH" ps urban-service
+                    docker compose --env-file "$ENV_FILE_PATH" -f "$COMPOSE_FILE_PATH" logs --tail=200 urban-service
+                    exit 1
                 '''
             }
         }
