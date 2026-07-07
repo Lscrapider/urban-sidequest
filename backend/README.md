@@ -28,7 +28,7 @@ SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
 健康检查：
 
 ```bash
-curl http://localhost:8080/api/health
+curl http://localhost:8082/urban-api/api/health
 ```
 
 ## 分层约定

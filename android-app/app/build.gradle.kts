@@ -37,7 +37,7 @@ android {
         versionName = "0.1.0"
         val backendBaseUrl = envValue("BACKEND_BASE_URL")
             ?: localBackendBaseUrl
-            ?: "http://10.0.2.2:8080"
+            ?: "http://10.0.2.2:8082/urban-api"
         val minioImageBaseUrl = envValue("MINIO_IMAGE_BASE_URL")
             ?: localMinioImageBaseUrl
             ?: "http://10.0.2.2:9000"

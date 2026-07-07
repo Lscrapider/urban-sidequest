@@ -35,7 +35,7 @@
 业务 dev 配置写入 `android-app/local.properties.dev`，该文件不提交：
 
 ```properties
-backend.base.url=http://10.0.2.2:8080
+backend.base.url=http://10.0.2.2:8082/urban-api
 minio.image.base.url=http://10.0.2.2:9000
 amap.api.key=你的高德 Android Key
 ```
