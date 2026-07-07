@@ -9,9 +9,13 @@ services:
     container_name: urban-service
     env_file:
       - .env
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "8082:8082"
     volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
       - ./backend/config/private:/app/config/private:ro
     restart: unless-stopped
     networks:
@@ -23,6 +27,7 @@ services:
       dockerfile: database/init/Dockerfile
     image: urban-sidequest-postgres-init:local
     environment:
+      TZ: Asia/Shanghai
       COMMON_POSTGRES_HOST: ${COMMON_POSTGRES_HOST:-common-postgres}
       COMMON_POSTGRES_PORT: ${COMMON_POSTGRES_PORT:-5432}
       COMMON_POSTGRES_DB: ${COMMON_POSTGRES_DB:-postgres}
@@ -31,6 +36,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-urban_sidequest}
       POSTGRES_USER: ${POSTGRES_USER:-urban_sidequest}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urban_sidequest_dev}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     command: ["python3", "/app/database/init_database.py"]
     networks:
       - database-common-network
@@ -39,6 +47,7 @@ services:
     image: minio/mc:latest
     entrypoint: ["/bin/sh"]
     environment:
+      TZ: Asia/Shanghai
       MINIO_ENDPOINT: ${COMMON_MINIO_ENDPOINT:-http://common-minio:9000}
       MINIO_ROOT_USER: ${COMMON_MINIO_ROOT_USER:-minio-root}
       MINIO_ROOT_PASSWORD: ${COMMON_MINIO_ROOT_PASSWORD:-minio-root-password}
@@ -50,6 +59,8 @@ services:
       URBAN_SHARE_MINIO_PREFIX: ${URBAN_SHARE_MINIO_PREFIX:-route-share}
       URBAN_SHARE_MINIO_POLICY: ${URBAN_SHARE_MINIO_POLICY:-urban-sidequest-share-rw}
     volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
       - ./scripts/minio:/scripts/minio:ro
     command: ["/scripts/minio/init_urban_sidequest_training_storage.sh"]
     networks:
@@ -58,7 +69,7 @@ services:
 networks:
   database-common-network:
     external: true
-    name: docker-database-common-network
+    name: database-common-network
   minio-common-network:
     external: true
-    name: docker-database-common-network
+    name: database-common-network

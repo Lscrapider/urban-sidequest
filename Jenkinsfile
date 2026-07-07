@@ -10,7 +10,7 @@ pipeline {
     environment {
         COMPOSE_FILE_PATH = 'docker-compose.yml'
         ENV_FILE_PATH = '.env'
-        DOCKER_NETWORK_NAME = 'docker-database-common-network'
+        DOCKER_NETWORK_NAME = 'database-common-network'
         HEALTH_URL = 'http://127.0.0.1:8082/urban-api/api/health'
     }
 
