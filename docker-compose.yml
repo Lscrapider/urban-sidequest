@@ -1,6 +1,22 @@
 name: urban-sidequest
 
 services:
+  urban-service:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: urban-sidequest-backend:local
+    container_name: urban-service
+    env_file:
+      - .env
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./backend/config/private:/app/config/private:ro
+    restart: unless-stopped
+    networks:
+      - database-common-network
+
   postgres-init:
     build:
       context: .
