@@ -13,6 +13,7 @@ import com.urbansidequest.app.data.profile.ProfileAvatarImageEncoder
 import com.urbansidequest.app.data.route.RouteErrorMapper
 import com.urbansidequest.app.data.route.RouteRepository
 import com.urbansidequest.app.domain.model.GeoPoint
+import com.urbansidequest.app.domain.model.DiscoverMapLaunchRequest
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteInteractionState
 import com.urbansidequest.app.domain.model.RouteReaction
@@ -189,6 +190,19 @@ internal class UrbanSidequestViewModel(
                 }
             }
         }
+    }
+
+    fun openDiscoverExploreMap(request: DiscoverMapLaunchRequest) {
+        mutableUiState.update { state ->
+            state.clearMapSelectionState().copy(
+                discoverMapLaunchRequest = request,
+                screenStack = listOf(AppScreen.Map)
+            )
+        }
+    }
+
+    fun consumeDiscoverMapLaunchRequest() {
+        mutableUiState.update { it.copy(discoverMapLaunchRequest = null) }
     }
 
     fun requestRouteHistoryRefresh() {
@@ -426,6 +440,9 @@ internal class UrbanSidequestViewModel(
     }
 
     private suspend fun enrichRouteCityInfo(request: RouteGenerateRequest): RouteGenerateRequest {
+        if (!request.routeCityName.isNullOrBlank() || !request.routeCityAdcode.isNullOrBlank()) {
+            return request
+        }
         val routeCityInfo = resolveRouteCityInfo(
             context = appContext,
             location = LatLng(request.center.latitudeGcj02, request.center.longitudeGcj02)

@@ -131,6 +131,7 @@ internal fun MapShortcutChip(
 internal fun MapRangeSheet(
     uiState: RouteConfigUiState,
     rangeSelectionMode: RangeSelectionMode,
+    manualVertexCount: Int,
     previewAreaText: String,
     message: String?,
     isSubmitting: Boolean,
@@ -158,7 +159,7 @@ internal fun MapRangeSheet(
                     text = if (rangeSelectionMode == RangeSelectionMode.Auto) {
                         "自动范围 · $previewAreaText"
                     } else {
-                        "圈出想探索的区域"
+                        "手动绘制范围 · 已添加 $manualVertexCount 个顶点"
                     },
                     color = AppText,
                     style = MaterialTheme.typography.titleLarge,
@@ -168,7 +169,7 @@ internal fun MapRangeSheet(
                     text = if (rangeSelectionMode == RangeSelectionMode.Auto) {
                         "系统按时长和交通方式控制可行范围"
                     } else {
-                        "路线优先从选区内挑选地点"
+                        "点击地图依次添加顶点，路线会优先从选区内挑选地点"
                     },
                     color = AppTextMuted,
                     style = MaterialTheme.typography.bodyMedium
@@ -253,7 +254,7 @@ internal fun MapRangeSheet(
                         tint = AppTextMuted
                     )
                     Text(
-                        text = "拖动顶点可调整边界，双击完成闭合",
+                        text = "至少添加 $MIN_MANUAL_POLYGON_VERTEX_COUNT 个顶点后，可配置路线条件",
                         color = AppTextMuted,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold

@@ -17,6 +17,7 @@ internal val DefaultMapCenter = LatLng(39.908722, 116.397499)
 internal val HorizontalScreenPadding = 16.dp
 internal val FloatingMapControlGap = 20.dp
 internal const val DEFAULT_VISIBLE_ROUTE_INDEX = 0
+internal const val MIN_MANUAL_POLYGON_VERTEX_COUNT = 3
 internal const val MAX_VISIBLE_ROUTE_STEPS = 4
 internal val ROUTE_A_COLOR = AndroidColor.rgb(19, 115, 230)
 internal val ROUTE_B_COLOR = AndroidColor.rgb(96, 125, 139)

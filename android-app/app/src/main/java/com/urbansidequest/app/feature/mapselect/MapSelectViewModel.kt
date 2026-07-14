@@ -3,6 +3,10 @@ package com.urbansidequest.app.feature.mapselect
 import androidx.lifecycle.ViewModel
 import com.amap.api.maps.model.LatLng
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
+import com.urbansidequest.app.data.map.RouteCityInfo
+import com.urbansidequest.app.domain.model.DiscoverAnchorSource
+import com.urbansidequest.app.domain.model.DiscoverMapLaunchRequest
+import com.urbansidequest.app.domain.model.DiscoverMapRangeMode
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteStop
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,8 +72,67 @@ internal class MapSelectViewModel : ViewModel() {
         }
     }
 
-    fun moveToLocation(location: LatLng) {
+    fun applyDiscoverMapLaunch(request: DiscoverMapLaunchRequest) {
+        val center = LatLng(
+            request.anchor.center.latitudeGcj02,
+            request.anchor.center.longitudeGcj02
+        )
+        mutableUiState.update {
+            it.copy(
+                generationPanelMode = MapGenerationPanelMode.Range,
+                rangeSelectionMode = when (request.rangeMode) {
+                    DiscoverMapRangeMode.Auto -> RangeSelectionMode.Auto
+                    DiscoverMapRangeMode.Manual -> RangeSelectionMode.Manual
+                },
+                generationPanelMessage = null,
+                currentLocation = center,
+                deviceLocation = if (request.anchor.source == DiscoverAnchorSource.DeviceLocation) center else null,
+                routeCityInfo = request.anchor.routeCityAdcode
+                    ?.let { adcode -> RouteCityInfo(request.anchor.routeCityName, adcode) },
+                manualRangeVertices = emptyList(),
+                hasExplicitExploreAnchor = true
+            )
+        }
+    }
+
+    fun moveMapCenter(location: LatLng) {
         mutableUiState.update { it.copy(currentLocation = location) }
+    }
+
+    fun updateDeviceLocation(location: LatLng) {
+        mutableUiState.update { it.copy(currentLocation = location, deviceLocation = location) }
+    }
+
+    fun addManualRangeVertex(location: LatLng) {
+        mutableUiState.update { state ->
+            if (state.rangeSelectionMode != RangeSelectionMode.Manual) {
+                state
+            } else {
+                state.copy(
+                    manualRangeVertices = state.manualRangeVertices + location,
+                    generationPanelMessage = null
+                )
+            }
+        }
+    }
+
+    fun undoManualRangeVertex() {
+        mutableUiState.update { state ->
+            if (state.manualRangeVertices.isEmpty()) {
+                state.copy(generationPanelMessage = "还没有可撤销的手绘顶点")
+            } else {
+                state.copy(
+                    manualRangeVertices = state.manualRangeVertices.dropLast(1),
+                    generationPanelMessage = null
+                )
+            }
+        }
+    }
+
+    fun resetManualRangeVertices() {
+        mutableUiState.update {
+            it.copy(manualRangeVertices = emptyList(), generationPanelMessage = null)
+        }
     }
 
     fun activateSearch() {
@@ -303,6 +366,10 @@ internal data class MapSelectUiState(
     val rangeSelectionMode: RangeSelectionMode = RangeSelectionMode.Auto,
     val generationPanelMessage: String? = null,
     val currentLocation: LatLng = DefaultMapCenter,
+    val deviceLocation: LatLng? = null,
+    val routeCityInfo: RouteCityInfo? = null,
+    val manualRangeVertices: List<LatLng> = emptyList(),
+    val hasExplicitExploreAnchor: Boolean = false,
     val isSearchActive: Boolean = false,
     val searchText: String = "",
     val searchSuggestions: List<PlaceSearchSuggestion> = emptyList(),

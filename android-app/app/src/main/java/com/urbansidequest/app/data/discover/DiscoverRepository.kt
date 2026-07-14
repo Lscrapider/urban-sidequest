@@ -9,21 +9,32 @@ import com.amap.api.services.weather.LocalWeatherLive
 import com.amap.api.services.weather.LocalWeatherLiveResult
 import com.amap.api.services.weather.WeatherSearch
 import com.amap.api.services.weather.WeatherSearchQuery
+import com.urbansidequest.app.data.region.RegionRepository
 import com.urbansidequest.app.data.route.RouteRepository
 import com.urbansidequest.app.domain.model.DEFAULT_DISCOVER_CITY_NAME
 import com.urbansidequest.app.domain.model.DEFAULT_DISCOVER_WEATHER_TEXT
+import com.urbansidequest.app.domain.model.DiscoverAnchor
+import com.urbansidequest.app.domain.model.DiscoverAnchorSource
 import com.urbansidequest.app.domain.model.DiscoverCityWeather
+import com.urbansidequest.app.domain.model.DiscoverRegion
+import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteShare
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 class DiscoverRepository(
     context: Context,
-    private val routeRepository: RouteRepository
+    private val routeRepository: RouteRepository,
+    private val regionRepository: RegionRepository
 ) {
 
     private val appContext = context.applicationContext
+    private val localStore = DiscoverLocalStore(appContext)
+    private val weatherRequestMutex = Mutex()
 
     suspend fun fetchRouteShares(): List<RouteShare> {
         return routeRepository.fetchRouteShares()
@@ -33,17 +44,57 @@ class DiscoverRepository(
         return routeRepository.fetchSharedRoute(shareId)
     }
 
-    suspend fun loadCityWeather(): DiscoverCityWeather {
-        val locationCity = locateCity().getOrDefault(
-            DiscoverLocatedCity(cityName = DEFAULT_DISCOVER_CITY_NAME, adCode = null)
-        )
-        return queryWeather(
-            cityQuery = locationCity.adCode.orEmpty().ifBlank { locationCity.cityName },
-            fallbackCityName = locationCity.cityName
-        ).getOrDefault(DiscoverCityWeather(cityName = locationCity.cityName))
+    suspend fun fetchRegions(parentAdcode: String?): List<DiscoverRegion> {
+        return regionRepository.fetchRegions(parentAdcode)
     }
 
-    private suspend fun locateCity(): Result<DiscoverLocatedCity> = suspendCancellableCoroutine { continuation ->
+    fun loadSavedManualAnchor(): DiscoverAnchor? {
+        return localStore.readManualAnchor()
+    }
+
+    fun saveManualAnchor(anchor: DiscoverAnchor) {
+        localStore.saveManualAnchor(anchor)
+    }
+
+    fun clearSavedManualAnchor() {
+        localStore.clearManualAnchor()
+    }
+
+    suspend fun locateDeviceAnchor(): DiscoverAnchor {
+        return locateDeviceLocation().getOrThrow()
+    }
+
+    /**
+     * 天气缓存以地区编码为键。无论成功或降级，均写入本次查询时间，确保同一地区两小时内最多发起一次天气请求。
+     */
+    suspend fun loadCityWeather(anchor: DiscoverAnchor): DiscoverCityWeather {
+        return weatherRequestMutex.withLock {
+            val nowMillis = System.currentTimeMillis()
+            localStore.readFreshWeather(anchor.weatherCacheKey, nowMillis)?.let { cached ->
+                return@withLock cached.copy(cityName = anchor.cityName)
+            }
+            val staleWeather = localStore.readStaleWeather(anchor.weatherCacheKey)
+            val weather = withTimeoutOrNull(DISCOVER_WEATHER_QUERY_TIMEOUT_MILLIS) {
+                queryWeather(
+                    cityQuery = anchor.cityAdcode.orEmpty()
+                        .ifBlank { anchor.routeCityAdcode.orEmpty() }
+                        .ifBlank { anchor.cityName },
+                    cityName = anchor.cityName
+                ).getOrNull()
+            } ?: staleWeather ?: DiscoverCityWeather(
+                cityName = anchor.cityName,
+                weatherText = DEFAULT_DISCOVER_WEATHER_TEXT
+            )
+            val cachedWeather = weather.copy(
+                cityName = anchor.cityName,
+                fetchedAtMillis = nowMillis
+            )
+            localStore.saveWeather(anchor.weatherCacheKey, cachedWeather)
+            cachedWeather
+        }
+    }
+
+    private suspend fun locateDeviceLocation(): Result<DiscoverAnchor> = suspendCancellableCoroutine { continuation ->
         runCatching {
             val locationClient = AMapLocationClient(appContext)
             val locationOption = AMapLocationClientOption().apply {
@@ -57,9 +108,14 @@ class DiscoverRepository(
             locationClient.setLocationListener { location ->
                 val result = if (location != null && location.errorCode == AMapLocation.LOCATION_SUCCESS) {
                     Result.success(
-                        DiscoverLocatedCity(
+                        DiscoverAnchor(
                             cityName = normalizeDiscoverCityName(location.city, location.province),
-                            adCode = location.adCode.orEmpty().ifBlank { null }
+                            cityAdcode = location.adCode.orEmpty().ifBlank { null },
+                            center = GeoPoint(
+                                longitudeGcj02 = location.longitude,
+                                latitudeGcj02 = location.latitude
+                            ),
+                            source = DiscoverAnchorSource.DeviceLocation
                         )
                     )
                 } else {
@@ -85,7 +141,7 @@ class DiscoverRepository(
 
     private suspend fun queryWeather(
         cityQuery: String,
-        fallbackCityName: String
+        cityName: String
     ): Result<DiscoverCityWeather> = suspendCancellableCoroutine { continuation ->
         runCatching {
             val weatherSearch = WeatherSearch(appContext)
@@ -106,15 +162,15 @@ class DiscoverRepository(
                         } else {
                             null
                         }
-                        val cityWeather = DiscoverCityWeather(
-                            cityName = normalizeDiscoverCityName(
-                                weather?.city,
-                                fallbackCityName
-                            ),
-                            weatherText = weather.toDiscoverWeatherText()
-                        )
                         if (continuation.isActive) {
-                            continuation.resume(Result.success(cityWeather))
+                            continuation.resume(
+                                Result.success(
+                                    DiscoverCityWeather(
+                                        cityName = cityName,
+                                        weatherText = weather.toDiscoverWeatherText()
+                                    )
+                                )
+                            )
                         }
                     }
 
@@ -132,14 +188,10 @@ class DiscoverRepository(
         }
     }
 
-    private data class DiscoverLocatedCity(
-        val cityName: String,
-        val adCode: String?
-    )
-
     private companion object {
         private const val AMAP_SUCCESS_CODE = 1000
         private const val DISCOVER_LOCATION_TIMEOUT_MILLIS = 5_000L
+        private const val DISCOVER_WEATHER_QUERY_TIMEOUT_MILLIS = 8_000L
     }
 }
 

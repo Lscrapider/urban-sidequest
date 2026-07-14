@@ -60,6 +60,7 @@ import com.urbansidequest.app.R
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
 import com.urbansidequest.app.data.map.searchAmapInputTips
 import com.urbansidequest.app.data.api.RouteGenerateRequest
+import com.urbansidequest.app.domain.model.DiscoverMapLaunchRequest
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteInteractionState
@@ -83,6 +84,7 @@ import kotlin.math.sin
 
 @Composable
 internal fun MapSelectScreen(
+    discoverMapLaunchRequest: DiscoverMapLaunchRequest? = null,
     routeGeneration: RouteGeneration? = null,
     initialVisibleRouteCode: String? = null,
     routeInteractions: Map<String, RouteInteractionState> = emptyMap(),
@@ -98,6 +100,7 @@ internal fun MapSelectScreen(
     onOpenDiscover: () -> Unit = {},
     onOpenRoutes: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
+    onDiscoverMapLaunchConsumed: () -> Unit = {},
     routeConfigViewModel: RouteConfigViewModel = viewModel(),
     mapSelectViewModel: MapSelectViewModel = viewModel()
 ) {
@@ -111,6 +114,8 @@ internal fun MapSelectScreen(
     val rangeSelectionMode = mapUiState.rangeSelectionMode
     val generationPanelMessage = mapUiState.generationPanelMessage
     val currentLocation = mapUiState.currentLocation
+    val deviceLocation = mapUiState.deviceLocation
+    val manualRangeVertices = mapUiState.manualRangeVertices
     val isSearchActive = mapUiState.isSearchActive
     val searchText = mapUiState.searchText
     val searchSuggestions = mapUiState.searchSuggestions
@@ -145,7 +150,7 @@ internal fun MapSelectScreen(
         null
     }
     val distanceToTargetMeters = currentTargetStop?.let { stop ->
-        distanceMeters(currentLocation, stop.location.toLatLng())
+        deviceLocation?.let { location -> distanceMeters(location, stop.location.toLatLng()) }
     }
     val shouldShowCheckInPrompt = currentTargetStop != null &&
         distanceToTargetMeters != null &&
@@ -174,14 +179,19 @@ internal fun MapSelectScreen(
         mapSelectViewModel.settleRouteSheet()
     }
 
-    fun moveToLocation(location: LatLng, zoom: Float = 16f) {
-        mapSelectViewModel.moveToLocation(location)
+    fun moveMapCenter(location: LatLng, zoom: Float = 16f) {
+        mapSelectViewModel.moveMapCenter(location)
+        mapController?.animateCamera(CameraUpdateFactory.newLatLngZoom(location, zoom))
+    }
+
+    fun updateDeviceLocation(location: LatLng, zoom: Float = 16f) {
+        mapSelectViewModel.updateDeviceLocation(location)
         mapController?.animateCamera(CameraUpdateFactory.newLatLngZoom(location, zoom))
     }
 
     fun focusStop(routeIndex: Int, stop: RouteStop) {
         mapSelectViewModel.focusStop(routeIndex, stop)
-        moveToLocation(stop.location.toLatLng(), 17f)
+        moveMapCenter(stop.location.toLatLng(), 17f)
     }
 
     fun focusSegment(payload: RouteSegmentPolylinePayload) {
@@ -203,7 +213,7 @@ internal fun MapSelectScreen(
             }
             if (nextStop != null && selectedRoutePosition != null) {
                 mapSelectViewModel.selectRoute(selectedRoutePosition)
-                moveToLocation(nextStop.location.toLatLng(), 16f)
+                moveMapCenter(nextStop.location.toLatLng(), 16f)
             }
         }
     }
@@ -211,7 +221,7 @@ internal fun MapSelectScreen(
     fun requestCurrentLocation() {
         startSingleAmapLocation(
             context = context,
-            onLocated = ::moveToLocation
+            onLocated = ::updateDeviceLocation
         )
     }
 
@@ -238,8 +248,40 @@ internal fun MapSelectScreen(
         }
     }
 
-    LaunchedEffect(routeGeneration?.requestId, isRouteExecutionMode) {
-        if (routeGeneration == null || isRouteExecutionMode) {
+    var appliedDiscoverMapLaunchId by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(discoverMapLaunchRequest?.launchId) {
+        val request = discoverMapLaunchRequest ?: return@LaunchedEffect
+        if (appliedDiscoverMapLaunchId != request.launchId) {
+            mapSelectViewModel.applyDiscoverMapLaunch(request)
+            if (request.shouldApplyRandomPreset) {
+                routeConfigViewModel.applyDiscoverRandomPreset()
+            }
+            appliedDiscoverMapLaunchId = request.launchId
+        }
+    }
+
+    LaunchedEffect(discoverMapLaunchRequest?.launchId, mapController) {
+        val request = discoverMapLaunchRequest ?: return@LaunchedEffect
+        val map = mapController ?: return@LaunchedEffect
+        val center = LatLng(
+            request.anchor.center.latitudeGcj02,
+            request.anchor.center.longitudeGcj02
+        )
+        map.animateCamera(CameraUpdateFactory.newLatLngZoom(center, 14f))
+        onDiscoverMapLaunchConsumed()
+    }
+
+    LaunchedEffect(
+        routeGeneration?.requestId,
+        isRouteExecutionMode,
+        mapUiState.hasExplicitExploreAnchor,
+        discoverMapLaunchRequest?.launchId
+    ) {
+        if ((routeGeneration == null || isRouteExecutionMode) &&
+            !mapUiState.hasExplicitExploreAnchor &&
+            discoverMapLaunchRequest == null
+        ) {
             locateWithPermission()
         }
     }
@@ -303,18 +345,21 @@ internal fun MapSelectScreen(
         AMapCanvas(
             modifier = Modifier.fillMaxSize(),
             currentLocation = currentLocation,
+            deviceLocation = deviceLocation,
             routeGeneration = routeGeneration,
             selectedRouteIndex = selectedRouteIndex,
             visibleRouteIndexes = visibleRouteIndexes,
             previewRadiusMeters = previewRadiusMeters,
             rangeSelectionMode = rangeSelectionMode,
+            manualRangeVertices = manualRangeVertices,
             onMapReady = { mapController = it },
             onRouteStopClick = { payload ->
                 focusStop(payload.routeIndex, payload.stop)
             },
             onRouteSegmentClick = { payload ->
                 focusSegment(payload)
-            }
+            },
+            onManualRangeVertexAdded = mapSelectViewModel::addManualRangeVertex
         )
 
         MapTopBar(
@@ -333,7 +378,7 @@ internal fun MapSelectScreen(
                 focusManager.clearFocus()
             },
             onSelectSuggestion = { suggestion ->
-                moveToLocation(suggestion.location)
+                moveMapCenter(suggestion.location)
                 mapSelectViewModel.selectSuggestion(suggestion)
                 focusManager.clearFocus()
             }
@@ -558,7 +603,15 @@ internal fun MapSelectScreen(
                             configSubmitScope.launch {
                                 routeConfigViewModel.submitRouteGeneration(
                                     routeRepositoryAvailable = routeRepositoryAvailable,
-                                    selectedCenter = selectedCenter
+                                    selectedCenter = selectedCenter,
+                                    isManualRange = rangeSelectionMode == RangeSelectionMode.Manual,
+                                    manualRangeVertices = manualRangeVertices.map { vertex ->
+                                        GeoPoint(
+                                            longitudeGcj02 = vertex.longitude,
+                                            latitudeGcj02 = vertex.latitude
+                                        )
+                                    },
+                                    routeCityInfo = mapUiState.routeCityInfo
                                 )
                             }
                         }
@@ -611,7 +664,15 @@ internal fun MapSelectScreen(
                                         configSubmitScope.launch {
                                             routeConfigViewModel.submitRouteGeneration(
                                                 routeRepositoryAvailable = routeRepositoryAvailable,
-                                                selectedCenter = selectedCenter
+                                                selectedCenter = selectedCenter,
+                                                isManualRange = rangeSelectionMode == RangeSelectionMode.Manual,
+                                                manualRangeVertices = manualRangeVertices.map { vertex ->
+                                                    GeoPoint(
+                                                        longitudeGcj02 = vertex.longitude,
+                                                        latitudeGcj02 = vertex.latitude
+                                                    )
+                                                },
+                                                routeCityInfo = mapUiState.routeCityInfo
                                             )
                                         }
                                     }
@@ -622,11 +683,20 @@ internal fun MapSelectScreen(
                             MapRangeSheet(
                                 uiState = routeConfigUiState,
                                 rangeSelectionMode = rangeSelectionMode,
+                                manualVertexCount = manualRangeVertices.size,
                                 previewAreaText = previewAreaText,
                                 message = generationPanelMessage,
                                 isSubmitting = isRouteGenerationSubmitting,
                                 onOpenConditions = {
-                                    mapSelectViewModel.showConditionsPanel()
+                                    if (rangeSelectionMode == RangeSelectionMode.Manual &&
+                                        manualRangeVertices.size < MIN_MANUAL_POLYGON_VERTEX_COUNT
+                                    ) {
+                                        mapSelectViewModel.setGenerationPanelMessage(
+                                            "请至少绘制 ${MIN_MANUAL_POLYGON_VERTEX_COUNT} 个顶点"
+                                        )
+                                    } else {
+                                        mapSelectViewModel.showConditionsPanel()
+                                    }
                                 },
                                 onSelectAutoRange = {
                                     mapSelectViewModel.selectAutoRange()
@@ -635,10 +705,10 @@ internal fun MapSelectScreen(
                                     mapSelectViewModel.selectManualRange()
                                 },
                                 onUndoManualPoint = {
-                                    mapSelectViewModel.selectManualRange("手绘点位调整稍后接入，当前展示预览范围。")
+                                    mapSelectViewModel.undoManualRangeVertex()
                                 },
                                 onResetManualRange = {
-                                    mapSelectViewModel.selectManualRange("已重置手绘预览范围。")
+                                    mapSelectViewModel.resetManualRangeVertices()
                                 }
                             )
                         }

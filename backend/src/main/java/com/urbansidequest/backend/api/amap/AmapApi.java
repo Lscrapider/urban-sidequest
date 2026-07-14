@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.urbansidequest.backend.config.AmapWebProperties;
+import com.urbansidequest.backend.domain.dto.AmapAdministrativeRegionDTO;
 import com.urbansidequest.backend.domain.dto.AmapPoiSearchQueryDTO;
 import com.urbansidequest.backend.domain.dto.GeoPointDTO;
 import com.urbansidequest.backend.domain.dto.RoutePlanDTO;
@@ -46,6 +47,8 @@ public class AmapApi {
 
     private static final String EXTENSIONS_BASE = "base";
 
+    private static final int ADMINISTRATIVE_REGION_PAGE_SIZE = 20;
+
     private static final String STATUS_SUCCESS = "1";
 
     private final AmapWebProperties amapWebProperties;
@@ -77,6 +80,80 @@ public class AmapApi {
 
     public boolean isAvailable() {
         return this.amapKeyPool.isAvailable();
+    }
+
+    // ===== 行政区 =====
+
+    /**
+     * 查询高德行政区，并仅保留地区选择所需的一级子节点。
+     *
+     * <p>地区树由服务端持久化缓存，移动端不会直接持有高德 Web Key。
+     */
+    public List<AmapAdministrativeRegionDTO> queryAdministrativeRegions(String keywords) {
+        if (!this.isAvailable()) {
+            throw new IllegalStateException("行政区数据服务暂不可用");
+        }
+        try {
+            JsonNode response = this.getForObjectWithHealthyKey(
+                    key -> this.buildAdministrativeRegionUri(keywords, key),
+                    "行政区查询"
+            );
+            if (response == null || !STATUS_SUCCESS.equals(response.path("status").asText())) {
+                throw new IllegalStateException("行政区数据服务暂不可用");
+            }
+            JsonNode districts = response.path("districts");
+            if (!districts.isArray()) {
+                return List.of();
+            }
+            return java.util.stream.StreamSupport.stream(districts.spliterator(), false)
+                    .map(this::toAdministrativeRegion)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .toList();
+        } catch (RestClientException | IllegalArgumentException exception) {
+            LOGGER.warn("高德行政区查询失败，keywords={}", keywords, exception);
+            throw new IllegalStateException("行政区数据服务暂不可用", exception);
+        }
+    }
+
+    private URI buildAdministrativeRegionUri(String keywords, String key) {
+        return UriComponentsBuilder.fromUriString(this.amapWebProperties.getBaseUrl())
+                .path("/v3/config/district")
+                .queryParam("key", key)
+                .queryParam("keywords", keywords)
+                .queryParam("subdistrict", 1)
+                .queryParam("extensions", EXTENSIONS_BASE)
+                .queryParam("offset", ADMINISTRATIVE_REGION_PAGE_SIZE)
+                .queryParam("page", 1)
+                .build()
+                .toUri();
+    }
+
+    private Optional<AmapAdministrativeRegionDTO> toAdministrativeRegion(JsonNode node) {
+        String adcode = node.path("adcode").asText("").trim();
+        String name = node.path("name").asText("").trim();
+        String center = node.path("center").asText("").trim();
+        String[] coordinates = center.split(",");
+        if (adcode.isBlank() || name.isBlank() || coordinates.length != 2) {
+            return Optional.empty();
+        }
+        try {
+            List<AmapAdministrativeRegionDTO> children = new java.util.ArrayList<>();
+            JsonNode districts = node.path("districts");
+            if (districts.isArray()) {
+                districts.forEach(child -> this.toAdministrativeRegion(child).ifPresent(children::add));
+            }
+            return Optional.of(new AmapAdministrativeRegionDTO(
+                    adcode,
+                    name,
+                    node.path("level").asText("district"),
+                    new java.math.BigDecimal(coordinates[0].trim()),
+                    new java.math.BigDecimal(coordinates[1].trim()),
+                    children
+            ));
+        } catch (NumberFormatException exception) {
+            return Optional.empty();
+        }
     }
 
     // ===== POI 搜索 =====

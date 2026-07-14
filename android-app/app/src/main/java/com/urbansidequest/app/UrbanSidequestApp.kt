@@ -13,12 +13,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.urbansidequest.app.data.api.AuthApi
+import com.urbansidequest.app.data.api.RegionApi
 import com.urbansidequest.app.data.api.RouteApi
 import com.urbansidequest.app.data.auth.AuthRepository
 import com.urbansidequest.app.data.auth.AuthSessionStore
 import com.urbansidequest.app.data.discover.DiscoverRepository
 import com.urbansidequest.app.data.route.RouteErrorMapper
 import com.urbansidequest.app.data.route.RouteRepository
+import com.urbansidequest.app.data.region.RegionRepository
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.feature.discover.DiscoverRoute
 import com.urbansidequest.app.feature.execution.RouteExecutionScreen
@@ -49,10 +51,17 @@ internal fun UrbanSidequestApp() {
             authSessionStore = authSessionStore
         )
     }
+    val regionRepository = remember {
+        RegionRepository(
+            regionApi = RegionApi(),
+            authSessionStore = authSessionStore
+        )
+    }
     val discoverRepository = remember {
         DiscoverRepository(
             context = context,
-            routeRepository = routeRepository
+            routeRepository = routeRepository,
+            regionRepository = regionRepository
         )
     }
     val mainViewModel: UrbanSidequestViewModel = viewModel(
@@ -84,12 +93,14 @@ internal fun UrbanSidequestApp() {
                     discoverRepository = discoverRepository,
                     onOpenSharedRoute = mainViewModel::openSharedRouteOnMap,
                     onAuthenticationExpired = mainViewModel::expireAuth,
+                    onOpenExploreMap = mainViewModel::openDiscoverExploreMap,
                     onOpenMap = mainViewModel::openMapWithActiveRouteFallback,
                     onOpenRoutes = { mainViewModel.pushScreen(AppScreen.Routes) },
                     onOpenProfile = { mainViewModel.pushScreen(AppScreen.Profile) }
                 )
 
                 AppScreen.Map -> MapSelectScreen(
+                    discoverMapLaunchRequest = uiState.discoverMapLaunchRequest,
                     routeGeneration = uiState.latestRouteGeneration,
                     initialVisibleRouteCode = uiState.mapInitialRouteCode,
                     routeInteractions = uiState.routeInteractions,
@@ -104,7 +115,8 @@ internal fun UrbanSidequestApp() {
                     onCompleteRoute = mainViewModel::completeActiveRoute,
                     onOpenDiscover = mainViewModel::replaceWithDiscover,
                     onOpenRoutes = mainViewModel::openRoutesFromMap,
-                    onOpenProfile = mainViewModel::openProfileFromMap
+                    onOpenProfile = mainViewModel::openProfileFromMap,
+                    onDiscoverMapLaunchConsumed = mainViewModel::consumeDiscoverMapLaunchRequest
                 )
 
                 AppScreen.RouteConfig -> RouteConfigScreen(

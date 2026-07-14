@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
+import kotlin.random.Random
 
 class RouteConfigViewModel : ViewModel() {
 
@@ -57,6 +58,27 @@ class RouteConfigViewModel : ViewModel() {
 
     fun selectBudget(option: CodeOption) {
         mutableUiState.update { it.copy(selectedBudget = option) }
+    }
+
+    /** 随机惊喜只复用当前已支持的路线参数，避免引入另一套策略默认值。 */
+    fun applyDiscoverRandomPreset() {
+        val random = Random.Default
+        val randomInterestTags = NonFoodInterestTagOptions
+            .shuffled(random)
+            .take(DISCOVER_RANDOM_INTEREST_TAG_COUNT)
+            .map(InterestTagOption::code)
+            .toSet()
+        mutableUiState.update {
+            it.copy(
+                selectedDeparture = DepartureOptions.random(random),
+                selectedDuration = DurationOptions.random(random),
+                selectedTransport = TransportOptions.random(random),
+                selectedGoal = RouteGoalOptions.random(random),
+                selectedBudget = BudgetOptions.random(random),
+                selectedMealWindows = emptySet(),
+                selectedInterestTags = randomInterestTags
+            ).normalizedForMealAvailability()
+        }
     }
 
     fun toggleMealWindow(code: String) {
@@ -147,7 +169,10 @@ class RouteConfigViewModel : ViewModel() {
 
     suspend fun submitRouteGeneration(
         routeRepositoryAvailable: Boolean,
-        selectedCenter: GeoPoint?
+        selectedCenter: GeoPoint?,
+        isManualRange: Boolean = false,
+        manualRangeVertices: List<GeoPoint> = emptyList(),
+        routeCityInfo: RouteCityInfo? = null
     ) {
         val state = mutableUiState.value
         val validationMessage = state.validateForRouteRequest(
@@ -158,9 +183,22 @@ class RouteConfigViewModel : ViewModel() {
             mutableUiState.update { it.copy(errorMessage = validationMessage) }
             return
         }
+        if (isManualRange && manualRangeVertices.size < MIN_MANUAL_POLYGON_VERTEX_COUNT) {
+            mutableUiState.update { it.copy(errorMessage = "请至少绘制 ${MIN_MANUAL_POLYGON_VERTEX_COUNT} 个顶点") }
+            return
+        }
         val center = selectedCenter ?: return
         mutableUiState.update { it.copy(errorMessage = null) }
-        mutableEvents.emit(RouteConfigEvent.RouteGenerationSubmitted(state.buildRequest(center = center, routeCityInfo = null)))
+        mutableEvents.emit(
+            RouteConfigEvent.RouteGenerationSubmitted(
+                state.buildRequest(
+                    center = center,
+                    routeCityInfo = routeCityInfo,
+                    isManualRange = isManualRange,
+                    manualRangeVertices = manualRangeVertices
+                )
+            )
+        )
     }
 
     private companion object {
@@ -438,14 +476,17 @@ private fun RouteConfigUiState.normalizedForMealAvailability(): RouteConfigUiSta
 
 private fun RouteConfigUiState.buildRequest(
     center: GeoPoint,
-    routeCityInfo: RouteCityInfo?
+    routeCityInfo: RouteCityInfo?,
+    isManualRange: Boolean,
+    manualRangeVertices: List<GeoPoint>
 ): RouteGenerateRequest {
+    val polygon = if (isManualRange) manualRangeVertices.toClosedPolygon() else emptyList()
     return RouteGenerateRequest(
-        areaMode = AREA_MODE_AUTO_RADIUS,
-        areaLabel = "地图选区",
+        areaMode = if (isManualRange) AREA_MODE_MANUAL_POLYGON else AREA_MODE_AUTO_RADIUS,
+        areaLabel = if (isManualRange) "手动绘制区域" else "地图选区",
         center = center,
         radiusMeters = null,
-        areaPolygonGcj02 = emptyList(),
+        areaPolygonGcj02 = polygon,
         adminAdcodes = emptyList(),
         routeCityName = routeCityInfo?.cityName,
         routeCityAdcode = routeCityInfo?.cityAdcode,
@@ -458,6 +499,13 @@ private fun RouteConfigUiState.buildRequest(
         mealWindows = selectedMealWindows.orderedBy(MealWindowOptions),
         mustVisitPoints = mustVisitPoints.map(RouteMustVisitPoint::toMustVisitPointRequest)
     )
+}
+
+private fun List<GeoPoint>.toClosedPolygon(): List<GeoPoint> {
+    if (isEmpty()) {
+        return emptyList()
+    }
+    return if (first() == last()) this else this + first()
 }
 
 private fun PlaceSearchSuggestion.toMustVisitPoint(): RouteMustVisitPoint {
@@ -627,6 +675,9 @@ private val MealWindowDefinitions = listOf(
 
 private const val FOOD_ROOT_TAG = "FOOD"
 private const val AREA_MODE_AUTO_RADIUS = "AUTO_RADIUS"
+private const val AREA_MODE_MANUAL_POLYGON = "MANUAL_POLYGON"
+private const val MIN_MANUAL_POLYGON_VERTEX_COUNT = 3
+private const val DISCOVER_RANDOM_INTEREST_TAG_COUNT = 2
 private const val DEPRECATED_LOW_BUDGET_ROUTE_GOAL = "LOW_BUDGET"
 private const val MIN_ROUTE_DURATION_MINUTES = 60
 private const val MAX_ROUTE_DURATION_MINUTES = 720

@@ -1,6 +1,7 @@
 package com.urbansidequest.app
 
 import com.urbansidequest.app.data.api.AuthUserResponse
+import com.urbansidequest.app.domain.model.DiscoverMapLaunchRequest
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteHistoryGroup
@@ -17,6 +18,7 @@ internal data class UrbanSidequestUiState(
     val isRouteHistoryLoading: Boolean = false,
     val routeHistoryError: String? = null,
     val selectedCenter: GeoPoint? = null,
+    val discoverMapLaunchRequest: DiscoverMapLaunchRequest? = null,
     val routeGenerationNotice: RouteGenerationNotice? = null,
     val isRouteGenerationSubmitting: Boolean = false,
     val routeShareNotice: RouteShareNotice? = null,
@@ -31,7 +33,8 @@ internal data class UrbanSidequestUiState(
         return copy(
             latestRouteGeneration = null,
             mapInitialRouteCode = null,
-            selectedCenter = null
+            selectedCenter = null,
+            discoverMapLaunchRequest = null
         )
     }
 

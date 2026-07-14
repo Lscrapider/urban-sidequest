@@ -1,9 +1,14 @@
 package com.urbansidequest.app.feature.discover
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -24,11 +29,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -39,9 +47,19 @@ import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.Shuffle
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,6 +77,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -66,11 +85,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
 import com.urbansidequest.app.R
 import com.urbansidequest.app.data.discover.DiscoverRepository
 import com.urbansidequest.app.data.image.RemoteImageRepository
 import com.urbansidequest.app.domain.model.RouteGeneration
 import com.urbansidequest.app.domain.model.RouteShare
+import com.urbansidequest.app.domain.model.DiscoverExploreAction
+import com.urbansidequest.app.domain.model.DiscoverMapLaunchRequest
+import com.urbansidequest.app.domain.model.DiscoverRegion
 import com.urbansidequest.app.ui.components.EmptyState
 import com.urbansidequest.app.ui.components.UrbanBottomNavigationBar
 import com.urbansidequest.app.ui.components.UrbanDestination
@@ -80,6 +103,9 @@ import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.collectLatest
 import java.time.LocalDate
@@ -94,11 +120,13 @@ fun DiscoverRoute(
     discoverRepository: DiscoverRepository,
     onOpenSharedRoute: (RouteGeneration, String) -> Unit,
     onAuthenticationExpired: () -> Unit,
+    onOpenExploreMap: (DiscoverMapLaunchRequest) -> Unit,
     onOpenMap: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenProfile: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val discoverViewModel: DiscoverViewModel = viewModel(
         factory = DiscoverViewModelFactory(discoverRepository)
     )
@@ -108,16 +136,14 @@ fun DiscoverRoute(
     ) { grants ->
         val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (granted) {
-            discoverViewModel.refreshCityWeather()
-        }
+        discoverViewModel.onLocationPermissionResult(
+            granted = granted,
+            permanentlyDenied = !granted && context.isDiscoverLocationPermissionPermanentlyDenied()
+        )
     }
 
-    LaunchedEffect(Unit) {
-        discoverViewModel.refreshRouteShares()
-        if (context.hasDiscoverLocationPermission()) {
-            discoverViewModel.refreshCityWeather()
-        } else {
+    LaunchedEffect(uiState.isLocationPermissionRequestPending) {
+        if (uiState.isLocationPermissionRequestPending) {
             locationPermissionLauncher.launch(
                 arrayOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
@@ -127,18 +153,74 @@ fun DiscoverRoute(
         }
     }
 
+    DisposableEffect(lifecycle, discoverViewModel, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                discoverViewModel.onLocationSettingsReturned(context.hasDiscoverLocationPermission())
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        discoverViewModel.initialize(context.hasDiscoverLocationPermission())
+    }
+
     LaunchedEffect(discoverViewModel) {
         discoverViewModel.events.collectLatest { event ->
             when (event) {
                 DiscoverEvent.AuthenticationExpired -> onAuthenticationExpired()
                 is DiscoverEvent.OpenSharedRoute -> onOpenSharedRoute(event.routeGeneration, event.routeCode)
+                is DiscoverEvent.OpenExploreMap -> onOpenExploreMap(event.request)
             }
         }
+    }
+
+    if (uiState.showLocationPermissionPrompt) {
+        DiscoverLocationPermissionDialog(
+            isPermissionDenied = uiState.isLocationPermissionDenied,
+            isPermissionPermanentlyDenied = uiState.isLocationPermissionPermanentlyDenied,
+            onRequestPermission = discoverViewModel::requestLocationPermission,
+            onOpenSettings = {
+                discoverViewModel.openLocationSettings()
+                context.openLocationSettings()
+            },
+            onChooseRegion = discoverViewModel::openRegionPicker,
+            onDismiss = discoverViewModel::dismissLocationPermissionPrompt
+        )
+    }
+
+    if (uiState.isCitySwitcherVisible) {
+        DiscoverCitySwitcherSheet(
+            onDismiss = discoverViewModel::dismissCitySwitcher,
+            onUseCurrentLocation = {
+                discoverViewModel.useCurrentLocation(context.hasDiscoverLocationPermission())
+            },
+            onChooseRegion = discoverViewModel::openRegionPicker
+        )
+    }
+
+    if (uiState.isRegionPickerVisible) {
+        DiscoverRegionPickerSheet(
+            uiState = uiState,
+            onDismiss = discoverViewModel::dismissRegionPicker,
+            onOpenRegion = discoverViewModel::openRegion,
+            onSelectRegion = discoverViewModel::selectRegion,
+            onNavigateUp = discoverViewModel::navigateUpRegion,
+            onSelectCurrentRegion = discoverViewModel::selectCurrentRegion
+        )
     }
 
     DiscoverScreen(
         uiState = uiState,
         onOpenShare = discoverViewModel::openShare,
+        onCitySelectorClick = discoverViewModel::openCitySwitcher,
+        onExploreAction = { action ->
+            discoverViewModel.onExploreAction(action, context.hasDiscoverLocationPermission())
+        },
         onOpenMap = onOpenMap,
         onOpenRoutes = onOpenRoutes,
         onOpenProfile = onOpenProfile
@@ -149,11 +231,25 @@ fun DiscoverRoute(
 fun DiscoverScreen(
     uiState: DiscoverUiState,
     onOpenShare: (RouteShare) -> Unit,
+    onCitySelectorClick: () -> Unit,
+    onExploreAction: (DiscoverExploreAction) -> Unit,
     onOpenMap: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenProfile: () -> Unit
 ) {
     val cityWeather = uiState.cityWeather
+    val cityName = when {
+        uiState.selectedAnchor != null -> uiState.selectedAnchor.cityName
+        uiState.isAnchorLoading -> "正在定位"
+        uiState.isLocationPermissionDenied -> "无权限"
+        else -> "暂未定位"
+    }
+    val weatherText = when {
+        uiState.selectedAnchor != null -> cityWeather.weatherText
+        uiState.isAnchorLoading -> "正在定位城市"
+        uiState.isLocationPermissionDenied -> "选择地区后显示天气"
+        else -> "请开启定位或选择地区"
+    }
 
     Column(
         modifier = Modifier
@@ -171,11 +267,14 @@ fun DiscoverScreen(
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 DiscoverTopSection(
-                    cityName = cityWeather.cityName,
-                    weatherText = cityWeather.weatherText,
-                    onStartFromCurrent = onOpenMap,
-                    onChooseArea = onOpenMap,
-                    onRandomExplore = onOpenMap
+                    cityName = cityName,
+                    weatherText = weatherText,
+                    showCityHero = uiState.selectedAnchor != null,
+                    isAnchorLoading = uiState.isAnchorLoading,
+                    onCitySelectorClick = onCitySelectorClick,
+                    onStartFromCurrent = { onExploreAction(DiscoverExploreAction.StartFromCurrent) },
+                    onChooseArea = { onExploreAction(DiscoverExploreAction.ManualDraw) },
+                    onRandomExplore = { onExploreAction(DiscoverExploreAction.RandomExplore) }
                 )
             }
 
@@ -233,9 +332,222 @@ fun DiscoverScreen(
 }
 
 @Composable
+private fun DiscoverLocationPermissionDialog(
+    isPermissionDenied: Boolean,
+    isPermissionPermanentlyDenied: Boolean,
+    onRequestPermission: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onChooseRegion: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = if (isPermissionDenied) "未获得定位权限" else "允许定位以自动选择城市",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Text("开启定位后会自动切换到当前位置。若暂不授权，也可以手动选择地区继续探索。")
+        },
+        confirmButton = {
+            TextButton(onClick = if (isPermissionPermanentlyDenied) onOpenSettings else onRequestPermission) {
+                Text(if (isPermissionPermanentlyDenied) "去设置" else "开启定位")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onChooseRegion) {
+                Text("选择地区")
+            }
+        }
+    )
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun DiscoverCitySwitcherSheet(
+    onDismiss: () -> Unit,
+    onUseCurrentLocation: () -> Unit,
+    onChooseRegion: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = AppSurface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = 20.dp, top = 4.dp, end = 20.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "切换城市",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = AppText
+            )
+            Text(
+                text = "默认使用当前位置，你也可以手动选择地区。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = AppTextMuted
+            )
+            Button(
+                onClick = onUseCurrentLocation,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("使用当前位置")
+            }
+            TextButton(
+                onClick = onChooseRegion,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("手动选择地区")
+            }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun DiscoverRegionPickerSheet(
+    uiState: DiscoverUiState,
+    onDismiss: () -> Unit,
+    onOpenRegion: (DiscoverRegion) -> Unit,
+    onSelectRegion: (DiscoverRegion) -> Unit,
+    onNavigateUp: () -> Unit,
+    onSelectCurrentRegion: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = AppSurface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = 20.dp, top = 4.dp, end = 20.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "选择地区",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = AppText
+                )
+                TextButton(onClick = onDismiss) {
+                    Text("关闭")
+                }
+            }
+            val currentRegion = uiState.regionPath.lastOrNull()
+            if (currentRegion != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onNavigateUp) {
+                        Text("返回上一级")
+                    }
+                    if (currentRegion.selectable) {
+                        Button(
+                            onClick = onSelectCurrentRegion,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1264F4))
+                        ) {
+                            Text("使用${currentRegion.name}")
+                        }
+                    } else {
+                        Text(
+                            text = "继续选择城市或城区",
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+                Text(
+                    text = uiState.regionPath.joinToString(" · ") { it.name },
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else {
+                Text(
+                    text = "逐级进入省、市、区，也可在任一级直接使用该地区中心。",
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            when {
+                uiState.isRegionsLoading -> Text(
+                    text = "正在加载地区…",
+                    color = AppTextMuted,
+                    modifier = Modifier.padding(vertical = 28.dp)
+                )
+                uiState.regionError != null -> Text(
+                    text = uiState.regionError,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(vertical = 28.dp)
+                )
+                else -> LazyColumn(
+                    modifier = Modifier.height(360.dp)
+                ) {
+                    items(uiState.regions, key = { it.adcode }) { region ->
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = region.name,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { onOpenRegion(region) },
+                                    color = AppText,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (region.selectable) {
+                                        TextButton(onClick = { onSelectRegion(region) }) {
+                                            Text("使用")
+                                        }
+                                    }
+                                    if (region.hasChildren) {
+                                        TextButton(onClick = { onOpenRegion(region) }) {
+                                            Text("进入")
+                                        }
+                                    }
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DiscoverTopSection(
     cityName: String,
     weatherText: String,
+    showCityHero: Boolean,
+    isAnchorLoading: Boolean,
+    onCitySelectorClick: () -> Unit,
     onStartFromCurrent: () -> Unit,
     onChooseArea: () -> Unit,
     onRandomExplore: () -> Unit
@@ -244,11 +556,16 @@ private fun DiscoverTopSection(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        DiscoverHeader(cityName = cityName)
+        DiscoverHeader(
+            cityName = cityName,
+            isAnchorLoading = isAnchorLoading,
+            onClick = onCitySelectorClick
+        )
         DiscoverTabs()
         CityHeroCard(
             cityName = cityName,
-            weatherText = weatherText
+            weatherText = weatherText,
+            showCityHero = showCityHero
         )
         CityActionRow(
             onStartFromCurrent = onStartFromCurrent,
@@ -259,7 +576,11 @@ private fun DiscoverTopSection(
 }
 
 @Composable
-private fun DiscoverHeader(cityName: String) {
+private fun DiscoverHeader(
+    cityName: String,
+    isAnchorLoading: Boolean,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -274,29 +595,52 @@ private fun DiscoverHeader(cityName: String) {
             ),
             fontWeight = FontWeight.Bold
         )
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = AppSurface,
-            border = BorderStroke(1.dp, Color(0xFFD9E1E3))
+        Box(
+            modifier = Modifier
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .semantics {
+                    role = Role.Button
+                    contentDescription = if (isAnchorLoading) {
+                        "正在定位城市"
+                    } else {
+                        "切换城市，当前$cityName"
+                    }
+                }
+                .clickable(enabled = !isAnchorLoading, onClick = onClick),
+            contentAlignment = Alignment.Center
         ) {
-            Row(
-                modifier = Modifier.padding(start = 13.dp, top = 7.dp, end = 9.dp, bottom = 7.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = AppSurface,
+                border = BorderStroke(1.dp, Color(0xFFD9E1E3))
             ) {
-                Text(
-                    text = "城市 · $cityName",
-                    color = AppText,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-                Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = AppText
-                )
+                Row(
+                    modifier = Modifier.padding(start = 13.dp, top = 7.dp, end = 9.dp, bottom = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "城市 · $cityName",
+                        color = AppText,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                    if (isAnchorLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = AppText,
+                            strokeWidth = 1.5.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = AppText
+                        )
+                    }
+                }
             }
         }
     }
@@ -339,7 +683,8 @@ private fun DiscoverTabs() {
 @Composable
 private fun CityHeroCard(
     cityName: String,
-    weatherText: String
+    weatherText: String,
+    showCityHero: Boolean
 ) {
     Box(
         modifier = Modifier
@@ -347,25 +692,33 @@ private fun CityHeroCard(
             .height(164.dp)
             .clip(RoundedCornerShape(8.dp))
     ) {
-            Image(
-                painter = painterResource(id = cityHeroResId(cityName)),
-                contentDescription = "$cityName 城市探索背景",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                AppSurface.copy(alpha = 0.88f),
-                                AppSurface.copy(alpha = 0.44f),
-                                Color.Transparent
+            if (showCityHero) {
+                Image(
+                    painter = painterResource(id = cityHeroResId(cityName)),
+                    contentDescription = "$cityName 城市探索背景",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    AppSurface.copy(alpha = 0.88f),
+                                    AppSurface.copy(alpha = 0.44f),
+                                    Color.Transparent
+                                )
                             )
                         )
-                    )
-            )
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(AppSurfaceMuted)
+                )
+            }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -373,7 +726,7 @@ private fun CityHeroCard(
                 verticalArrangement = Arrangement.Top
             ) {
                 Text(
-                    text = "当前城市",
+                    text = if (showCityHero) "当前城市" else "定位状态",
                     color = AppTextMuted,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold
@@ -391,9 +744,11 @@ private fun CityHeroCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "🌤", fontSize = 17.sp)
+                    if (showCityHero) {
+                        Text(text = "🌤", fontSize = 17.sp)
+                    }
                     Text(
-                        text = "$weatherText · ${formatDiscoverDate()}",
+                        text = if (showCityHero) "$weatherText · ${formatDiscoverDate()}" else weatherText,
                         color = AppText,
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
@@ -423,8 +778,8 @@ private fun CityActionRow(
             onClick = onStartFromCurrent
         )
         CityActionCell(
-            text = "选择地图区域",
-            subtitle = "自由圈选生成",
+            text = "自由绘制区域",
+            subtitle = "手动绘制",
             icon = Icons.Outlined.PinDrop,
             onClick = onChooseArea
         )
@@ -489,7 +844,7 @@ private fun RowScope.CityActionCell(
                         lineHeight = if (primary) 15.sp else 14.sp
                     ),
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+                    maxLines = if (primary) 1 else 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
@@ -761,6 +1116,33 @@ private fun Context.hasDiscoverLocationPermission(): Boolean {
             this,
         Manifest.permission.ACCESS_COARSE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun Context.isDiscoverLocationPermissionPermanentlyDenied(): Boolean {
+    val activity = findActivity() ?: return false
+    return !ActivityCompat.shouldShowRequestPermissionRationale(
+        activity,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) && !ActivityCompat.shouldShowRequestPermissionRationale(
+        activity,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    )
+}
+
+private fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
+}
+
+private fun Context.openLocationSettings() {
+    startActivity(
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", packageName, null)
+        }
+    )
 }
 
 private fun formatDiscoverDate(): String {

@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -58,24 +59,33 @@ import kotlin.math.roundToInt
 internal fun AMapCanvas(
     modifier: Modifier = Modifier,
     currentLocation: LatLng,
+    deviceLocation: LatLng?,
     routeGeneration: RouteGeneration?,
     selectedRouteIndex: Int?,
     visibleRouteIndexes: Set<Int>,
     previewRadiusMeters: Int,
     rangeSelectionMode: RangeSelectionMode,
+    manualRangeVertices: List<LatLng>,
     onMapReady: (AMap) -> Unit,
     onRouteStopClick: (RouteStopMarkerPayload) -> Unit,
-    onRouteSegmentClick: (RouteSegmentPolylinePayload) -> Unit
+    onRouteSegmentClick: (RouteSegmentPolylinePayload) -> Unit,
+    onManualRangeVertexAdded: (LatLng) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var currentLocationMarker by remember { mutableStateOf<Marker?>(null) }
     var previewAreaCircle by remember { mutableStateOf<Circle?>(null) }
     var previewAreaPolygon by remember { mutableStateOf<Polygon?>(null) }
+    var manualRangePolyline by remember { mutableStateOf<Polyline?>(null) }
+    val manualRangeMarkers = remember { mutableListOf<Marker>() }
     val routePolylines = remember { mutableListOf<Polyline>() }
     val routeMarkers = remember { mutableListOf<Marker>() }
     val routeSegmentPayloads = remember { mutableMapOf<String, RouteSegmentPolylinePayload>() }
     var lastRenderedRouteKey by remember { mutableStateOf<String?>(null) }
+    val currentDeviceLocation by rememberUpdatedState(deviceLocation)
+    val currentRangeSelectionMode by rememberUpdatedState(rangeSelectionMode)
+    val currentRouteGeneration by rememberUpdatedState(routeGeneration)
+    val currentOnManualRangeVertexAdded by rememberUpdatedState(onManualRangeVertexAdded)
     val mapView = remember {
         MapView(context).apply {
             onCreate(Bundle())
@@ -106,13 +116,15 @@ internal fun AMapCanvas(
                 aMap.uiSettings.isZoomControlsEnabled = false
                 aMap.uiSettings.isCompassEnabled = false
                 aMap.uiSettings.isScaleControlsEnabled = true
-                currentLocationMarker = aMap.addMarker(
-                    MarkerOptions()
-                        .position(currentLocation)
-                        .anchor(0.5f, 0.5f)
-                        .icon(createCurrentLocationIcon(context))
-                        .zIndex(10f)
-                )
+                currentDeviceLocation?.let { location ->
+                    currentLocationMarker = aMap.addMarker(
+                        MarkerOptions()
+                            .position(location)
+                            .anchor(0.5f, 0.5f)
+                            .icon(createCurrentLocationIcon(context))
+                            .zIndex(10f)
+                    )
+                }
                 aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLocation, 14f))
                 aMap.setOnMarkerClickListener { marker ->
                     val payload = marker.`object` as? RouteStopMarkerPayload
@@ -126,17 +138,44 @@ internal fun AMapCanvas(
                 aMap.setOnPolylineClickListener { polyline ->
                     routeSegmentPayloads[polyline.id]?.let(onRouteSegmentClick)
                 }
+                aMap.setOnMapClickListener { location ->
+                    if (currentRouteGeneration == null && currentRangeSelectionMode == RangeSelectionMode.Manual) {
+                        currentOnManualRangeVertexAdded(location)
+                    }
+                }
                 onMapReady(aMap)
             }
         },
         update = {
-            currentLocationMarker?.position = currentLocation
             val aMap = mapView.map
+            val deviceMarker = currentLocationMarker
+            when {
+                deviceLocation == null && deviceMarker != null -> {
+                    deviceMarker.remove()
+                    currentLocationMarker = null
+                }
+                deviceLocation != null && deviceMarker == null -> {
+                    currentLocationMarker = aMap.addMarker(
+                        MarkerOptions()
+                            .position(deviceLocation)
+                            .anchor(0.5f, 0.5f)
+                            .icon(createCurrentLocationIcon(context))
+                            .zIndex(10f)
+                    )
+                }
+                deviceLocation != null -> {
+                    deviceMarker?.position = deviceLocation
+                }
+            }
             val routes = routeGeneration?.routes.orEmpty()
             if (routeGeneration == null) {
                 if (rangeSelectionMode == RangeSelectionMode.Auto) {
                     previewAreaPolygon?.remove()
                     previewAreaPolygon = null
+                    manualRangePolyline?.remove()
+                    manualRangePolyline = null
+                    manualRangeMarkers.forEach { marker -> marker.remove() }
+                    manualRangeMarkers.clear()
                     val circle = previewAreaCircle
                     if (circle == null) {
                         previewAreaCircle = aMap.addCircle(
@@ -155,19 +194,57 @@ internal fun AMapCanvas(
                 } else {
                     previewAreaCircle?.remove()
                     previewAreaCircle = null
-                    val polygonPoints = manualRangePreviewPoints(currentLocation, previewRadiusMeters)
-                    val polygon = previewAreaPolygon
-                    if (polygon == null) {
-                        previewAreaPolygon = aMap.addPolygon(
-                            PolygonOptions()
-                                .addAll(polygonPoints)
-                                .strokeColor(AndroidColor.argb(230, 19, 115, 230))
-                                .fillColor(AndroidColor.argb(38, 19, 115, 230))
-                                .strokeWidth(5f)
-                                .zIndex(2f)
-                        )
+                    if (manualRangeVertices.size >= MIN_MANUAL_POLYGON_VERTEX_COUNT) {
+                        val polygon = previewAreaPolygon
+                        if (polygon == null) {
+                            previewAreaPolygon = aMap.addPolygon(
+                                PolygonOptions()
+                                    .addAll(manualRangeVertices)
+                                    .strokeColor(AndroidColor.argb(230, 19, 115, 230))
+                                    .fillColor(AndroidColor.argb(38, 19, 115, 230))
+                                    .strokeWidth(5f)
+                                    .zIndex(2f)
+                            )
+                        } else {
+                            polygon.points = manualRangeVertices
+                        }
                     } else {
-                        polygon.points = polygonPoints
+                        previewAreaPolygon?.remove()
+                        previewAreaPolygon = null
+                    }
+                    if (manualRangeVertices.size >= 2) {
+                        val polyline = manualRangePolyline
+                        if (polyline == null) {
+                            manualRangePolyline = aMap.addPolyline(
+                                PolylineOptions()
+                                    .addAll(manualRangeVertices)
+                                    .color(AndroidColor.argb(230, 19, 115, 230))
+                                    .width(5f)
+                                    .zIndex(3f)
+                            )
+                        } else {
+                            polyline.points = manualRangeVertices
+                        }
+                    } else {
+                        manualRangePolyline?.remove()
+                        manualRangePolyline = null
+                    }
+                    manualRangeMarkers.forEach { marker -> marker.remove() }
+                    manualRangeMarkers.clear()
+                    manualRangeVertices.forEach { vertex ->
+                        manualRangeMarkers.add(
+                            aMap.addMarker(
+                                MarkerOptions()
+                                    .position(vertex)
+                                    .anchor(0.5f, 1f)
+                                    .icon(
+                                        BitmapDescriptorFactory.defaultMarker(
+                                            BitmapDescriptorFactory.HUE_AZURE
+                                        )
+                                    )
+                                    .zIndex(4f)
+                            )
+                        )
                     }
                 }
             } else {
@@ -175,6 +252,10 @@ internal fun AMapCanvas(
                 previewAreaCircle = null
                 previewAreaPolygon?.remove()
                 previewAreaPolygon = null
+                manualRangePolyline?.remove()
+                manualRangePolyline = null
+                manualRangeMarkers.forEach { marker -> marker.remove() }
+                manualRangeMarkers.clear()
             }
             val renderKey = "${routeGeneration?.requestId}:$selectedRouteIndex:${visibleRouteIndexes.sorted().joinToString(",")}:$previewRadiusMeters:$rangeSelectionMode:${currentLocation.latitude}:${currentLocation.longitude}"
             if (renderKey == lastRenderedRouteKey) {
