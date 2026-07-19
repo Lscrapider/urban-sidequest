@@ -239,7 +239,7 @@ requestFeature v1 不提供独立打分列。
 
 | 字段 | 角色 | 去向 |
 | --- | --- | --- |
-| `routeGoal(STEADY/CLASSIC/LOCAL/LOW_BUDGET/NIGHT/PHOTO)` | `Delta selector` | 切 W |
+| `routeGoal(STEADY/QUIET/CLASSIC/LOCAL/LOW_BUDGET/NIGHT/PHOTO)` | `Delta selector` | 切 W |
 | `transportProfile(WALK_ONLY/WALK_SUBWAY/WALK_BUS/WALK_TRANSIT/BIKE_SUBWAY/WALK_TAXI)` | `Delta selector + basis` | 切 W + `searchRadius / poiDistanceRef / walkingFatigueRef` |
 | `budgetLevel(LOW/NORMAL/FLEXIBLE)` | `Delta selector + basis` | 切 `W_budget` + `budgetCap` |
 | `interestTags(List<String>)` | `derivedFeature input` | -> `interestMatchRatio(POI.poiTagHits)`；`poiTagHits` 由语义映射表按 `typecode/keytag/rectag/name/category` 规约得到 |
@@ -697,14 +697,10 @@ affinityNorm     = Σ tagAffinity    # userInterestAffinity 归一分母(按用�
 > 都是**批量级**(`loadTransitPoints` 抛异常或 `!isAvailable()` 时整批返回),故 v1 的 `FAILED` 等同请求级
 > 失效;单 POI 局部失败是未来 provider 支持逐点查询后才出现的情形,届时才走"失败 POI 中性降级、其余保真"。
 >
-> **落地前置依赖(当前代码缺,实现 Linear Ranker 前必须补):**
-> [`AmapTransitPoiDetailProvider`](../backend/src/main/java/com/urbansidequest/backend/provider/route/AmapTransitPoiDetailProvider.java)
-> 现有四个出口(`!isAvailable()` 未配置 / `catch RestClientException` 异常 / `transitPoints.isEmpty()` 真无站 /
-> 正常增强)目前都直接返回原 `candidates`,只靠 `addWarning` 文案区分,下游拿不到状态。需:
-> 1. POI 级 `transitLookupStatus`(SUCCESS / SUCCESS_EMPTY)写入 `PoiCandidateDTO`,用于 transit 列分流;
-> 2. 请求级 `transportSignalAvailable`(false ⟸ UNAVAILABLE 或批量 FAILED)写入 `RouteGenerationContext`
->    /增强结果,用于跨行 transit mask(关 W_transport 的交通列 + W_personalization 的 personalizedTransitPressure);
-> 3. 规约层据此分流,不再依赖 warning 文案或空 `nearestTransit` 列表。
+> **当前落地状态:** POI 级 `transitLookupStatus`、请求级 `transportSignalAvailable` 字段和 extractor
+> 跨行 transit mask 已实现，`SUCCESS_EMPTY` 也已按事实性差分流。但增强链路尚未在 `UNAVAILABLE` /
+> 批量 `FAILED` 时调用 `setTransportSignalAvailable(false)`；该字段当前默认 `true`，因此 provider 批量失败
+> 尚不能自动触发请求级 mask。
 
 #### W_risk(POI 自身列)
 
@@ -796,7 +792,7 @@ training feature**,不在"进入 X 的字段规约"范围内,这里不给取值/
 
 ### 3.5 X 特征向量契约与示例
 
-后续 POI 预筛训练、离线评估和样本回放都应复用同一套 X 规约逻辑。这里的 X 专指 POI Linear Ranker 的单 POI 特征向量，不是路线偏好模型的四块 `routeInput`；路线偏好模型只读取 `stop_matrix_json`、`segment_matrix_json`、`route_derived_vector_json`、`context_cross_vector_json`。
+后续 POI 预筛训练、离线评估和样本回放都应复用同一套 X 规约逻辑。这里的 X 专指 POI Linear Ranker 的单 POI 特征向量，不是路线偏好模型的五块 `routeInput`；路线偏好模型读取 `stop_matrix_json`、`segment_matrix_json`、`route_derived_vector_json`、`context_cross_vector_json`、`intra_set_vector_json`，`context_json` 只作为元数据。
 线上代码当前用 `PoiLinearFeatures` record 表达 X,而不是直接暴露 `double[]`。
 如果导出训练样本,应显式写出 `featureSchemaVersion + featureNames + featureValues`,
 并保证 `featureNames` 顺序与线上 `PoiLinearFeatures` 字段顺序一致。
@@ -1329,6 +1325,7 @@ M_final =
 | routeGoal | 调整(列 += 增量) | 说明 |
 | --- | --- | --- |
 | `STEADY` | isQuiet +0.04, isHiddenGem +0.01 | 平稳休闲,偏安静 |
+| `QUIET` | isQuiet +0.07, isNightFriendly −0.02 | 安静优先,略压夜游友好 |
 | `CLASSIC` | isClassic +0.06, isHiddenGem −0.02 | 经典优先,压小众 |
 | `LOCAL` | isLocal +0.06, isHiddenGem +0.02, isClassic −0.02 | 本地优先,略压地标 |
 | `LOW_BUDGET` | (v1 no-op) | 预算交 `Delta_budget`,**本枚举不重复调 W_budget**(见 §2.2 职责边界) |
@@ -1343,18 +1340,17 @@ M_final =
 > 注:有效半径差异已在 `distanceNorm` 的分母 `effectiveRadius`(§3.2)体现;这里只调**权重敏感度**,
 > 不重复表达半径。距离列为负权,"更负"=加负增量,"更不敏感"=加正增量(往 0 收)。
 
-| transportProfile | 调整(列 += 增量) | 说明 |
-| --- | --- | --- |
-| `WALK_ONLY` | distanceNorm −0.06, isolatedDistanceNorm −0.03, distanceFatiguePressure −0.03, clusterConnectivity +0.02, transitHigh −0.05, **nearestTransitDistanceNorm +0.05, transitLow +0.03**, walkingAccessibility +0.03 | 纯步行,距离/体力最敏感,也最需要 POI 成片可串联;**把公交站距/无站惩罚收回到 ≈0**(步行不依赖公交,不该因离站远扣分) |
-| `WALK_SUBWAY` | transitHigh +0.03, nearestTransitDistanceNorm −0.02, distanceNorm +0.02 | 地铁延展可达,看重近站,略松距离;密集奖励使用 base 净 +0.03 |
-| `WALK_BUS` | nearestTransitDistanceNorm −0.01, distanceNorm +0.01, clusterConnectivity +0.01 | 公交接驳扩展中短距离,只认公交站;无公交站即交通可达性差,不让地铁兜底;近公交只吃 base 加分,不额外抬高 `transitHigh` |
-| `WALK_TRANSIT` | transitHigh +0.01, nearestTransitDistanceNorm −0.01, distanceNorm +0.01 | 混合交通,公交/地铁都可作为可达性信号;相比公交专用档只保留轻量近站偏好,避免过度奖励近公交 |
-| `BIKE_SUBWAY` | distanceNorm +0.04, distanceFatiguePressure +0.02, clusterConnectivity −0.01, transitHigh +0.02 | 骑行扩大范围,距离/体力最不敏感,对点位密集依赖降低 |
-| `WALK_TAXI` | distanceNorm +0.05, isolatedDistanceNorm +0.04, distanceFatiguePressure +0.03, clusterConnectivity −0.02, transitHigh −0.03, **nearestTransitDistanceNorm +0.05, transitLow +0.03** | 打车解距离约束,几乎不看孤立/公交,对密集片区奖励最低;**站距/无站惩罚同样收回 ≈0** |
+| transportProfile | distanceNorm | isolatedDistanceNorm | distanceFatiguePressure |
+| --- | ---: | ---: | ---: |
+| `WALK_ONLY` | −0.06 | −0.03 | −0.03 |
+| `WALK_SUBWAY` | +0.04 | +0.02 | +0.02 |
+| `WALK_BUS` | +0.02 | +0.01 | +0.01 |
+| `WALK_TRANSIT` | +0.04 | +0.02 | +0.02 |
+| `BIKE_SUBWAY` | +0.06 | +0.03 | +0.04 |
+| `WALK_TAXI` | +0.08 | +0.06 | +0.05 |
 
-> WALK_ONLY/WALK_TAXI 的 `nearestTransitDistanceNorm +0.05`(抵消 base −0.05)与 `transitLow +0.03`
-> (抵消 base −0.03)把"离站远"的负权净化到 ≈0——否则只降 transitHigh 仍会让纯步行/打车点因站距被扣。
-> `transportSignalAvailable=false`(transit mask)时,涉及 transit 的增量列同样随该列被关闭,不单独生效。
+> 当前 transport delta 只配置这三列；`transitHigh`、`transitLow`、`nearestTransitDistanceNorm`、
+> `walkingAccessibility` 和 `clusterConnectivity` 等未配置列的增量均为 0。
 
 ### 7.3 Delta_budget(budgetLevel)— 调 W_budget
 
@@ -1385,19 +1381,16 @@ M_final =
 ```text
 B′. 强命中 + CLASSIC + WALK_SUBWAY + 老用户(在 §6.3-B base≈+0.727 上叠 Delta):
     Delta_goal=CLASSIC:  isClassic +0.06                                → +0.06
-    Delta_transport=WALK_SUBWAY: transitHigh +0.03, distanceNorm +0.02(distNorm0.4→+0.008)
-                                                                         → ≈ +0.038
-    linearScore ≈ 0.727 + 0.06 + 0.038 ≈ +0.825      ✓ < 1.0，仍留出满命中逼近 1.0 的余量
+    Delta_transport=WALK_SUBWAY: distanceNorm +0.04(distNorm0.4→+0.016) → +0.016
+    linearScore ≈ 0.727 + 0.06 + 0.016 ≈ +0.803      ✓ < 1.0，仍留出满命中逼近 1.0 的余量
 
 C′. 不合适 + WALK_ONLY + night(在 §6.3-C base≈−0.81 上叠 Delta;交通信号可用、站距 cap1.5):
-    Delta_transport=WALK_ONLY 交通中和: transitLow +0.03(×1→+0.03), nearestTransitDistanceNorm +0.05(×1.5→+0.075)
-                               → 抵消 §6.3-C base 的交通罚 ≈ +0.105
-    Delta_transport=WALK_ONLY 距离加重: distanceNorm −0.06(×1.5→−0.09), isolated −0.03(×1.2→−0.036),
+    Delta_transport=WALK_ONLY: distanceNorm −0.06(×1.5→−0.09), isolated −0.03(×1.2→−0.036),
                                fatigue −0.03(×1→−0.03)                  → ≈ −0.156
     Delta_time=night:    distanceNorm −0.04(×1.5→−0.06), isolated −0.03(×1.2→−0.036),
                          nearestTransitDistanceNorm −0.03(×1.5→−0.045)  → ≈ −0.141
-    linearScore ≈ −0.81 + 0.105 − 0.156 − 0.141 ≈ −1.00 → clamp 到 −1.0    ✓ 触底,符合"明显不合适"
-    (若该坏点交通信号不可用,nearestTransitDistanceNorm/transitLow 走 transit mask 全关,结果同样触底)
+    linearScore ≈ −0.81 − 0.156 − 0.141 ≈ −1.107 → clamp 到 −1.0          ✓ 触底,符合"明显不合适"
+    (若该坏点交通信号不可用,nearestTransitDistanceNorm 走 transit mask 关闭,其余距离增量仍生效)
 ```
 
 > 极端坏样例叠满 Delta 会略微越过 −1.0,由最终 clamp 收口(§8);这是有意的——差点本就该贴地板。
@@ -1498,7 +1491,7 @@ linearScore
 3. LinearScoreConstants 规约化常量。
 4. PoiLinearFeatureExtractor / PoiLinearScorer / PoiLinearRanker。
 5. budgetLevel、routeTimeStructure、天气环境和用户画像的输入口径。
-6. LinearPoiPoolSelector 写入 PoiLinearTraceDTO，供路线级特征提取追溯和派生使用；它不直接替代路线偏好模型的四块 `routeInput`。
+6. LinearPoiPoolSelector 写入 PoiLinearTraceDTO，供路线级特征提取追溯和派生使用；它不直接替代路线偏好模型的五块 `routeInput`。
 ```
 
 后续主要是校准，不是重定义 schema：

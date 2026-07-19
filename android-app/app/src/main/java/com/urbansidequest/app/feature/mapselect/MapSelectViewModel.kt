@@ -50,6 +50,35 @@ internal class MapSelectViewModel : ViewModel() {
             it.copy(
                 generationPanelMode = MapGenerationPanelMode.Range,
                 generationPanelMessage = null
+            ).resetRangeSheet()
+        }
+    }
+
+    fun resetRangeSheet() {
+        mutableUiState.update { it.resetRangeSheet() }
+    }
+
+    fun dragRangeSheet(drag: Float) {
+        mutableUiState.update { state ->
+            state.copy(
+                rangeSheetHiddenProgress = (
+                    state.rangeSheetHiddenProgress + drag / ROUTE_SHEET_HIDE_DRAG_RANGE_PX
+                    ).coerceIn(0f, 1f),
+                rangeSheetDragOffset = state.rangeSheetDragOffset + drag
+            )
+        }
+    }
+
+    fun settleRangeSheet() {
+        mutableUiState.update { state ->
+            val shouldCollapse = when {
+                state.rangeSheetDragOffset > ROUTE_SHEET_COLLAPSE_DRAG_PX -> true
+                state.rangeSheetDragOffset < -ROUTE_SHEET_COLLAPSE_DRAG_PX -> false
+                else -> state.rangeSheetHiddenProgress >= ROUTE_SHEET_SNAP_THRESHOLD
+            }
+            state.copy(
+                rangeSheetHiddenProgress = if (shouldCollapse) 1f else 0f,
+                rangeSheetDragOffset = 0f
             )
         }
     }
@@ -91,7 +120,7 @@ internal class MapSelectViewModel : ViewModel() {
                     ?.let { adcode -> RouteCityInfo(request.anchor.routeCityName, adcode) },
                 manualRangeVertices = emptyList(),
                 hasExplicitExploreAnchor = true
-            )
+            ).resetRangeSheet()
         }
     }
 
@@ -365,6 +394,8 @@ internal data class MapSelectUiState(
     val generationPanelMode: MapGenerationPanelMode = MapGenerationPanelMode.Range,
     val rangeSelectionMode: RangeSelectionMode = RangeSelectionMode.Auto,
     val generationPanelMessage: String? = null,
+    val rangeSheetHiddenProgress: Float = 0f,
+    val rangeSheetDragOffset: Float = 0f,
     val currentLocation: LatLng = DefaultMapCenter,
     val deviceLocation: LatLng? = null,
     val routeCityInfo: RouteCityInfo? = null,
@@ -385,6 +416,13 @@ internal data class MapSelectUiState(
     val dismissedCheckInStopId: String? = null,
     val routeIdentity: String? = null
 ) {
+    fun resetRangeSheet(): MapSelectUiState {
+        return copy(
+            rangeSheetHiddenProgress = 0f,
+            rangeSheetDragOffset = 0f
+        )
+    }
+
     fun resetRouteSheet(): MapSelectUiState {
         return copy(
             routeSheetProgress = 0f,

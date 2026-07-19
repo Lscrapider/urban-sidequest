@@ -17,7 +17,7 @@ X = stopMatrix + segmentMatrix + routeDerivedVector + contextCrossVector + intra
 - 前四块是逐路线可算的输入；第五块 `intraSetVector` 是同一 candidate set 内组级相对输入，见 §8。
 - §1–§6 描述前四块；§8 描述 v5 新增的维度分和第五块。
 - raw snapshot（见 §6）和 judgment 里的 `ranking / accepted / rejected / reasonCodes / confidence` **都不进 X**——前者只做审计和补 k，后者是训练标签 Y。
-- 版本号存为 `route_pref_v5`，若本次记录了 LLM 编排模型则后缀成 `route_pref_v5@<modelId>`；训练侧按 `@` 前的基础版本归并，不同基础版本不能混训。
+- 当前 feature schema version 固定存为 `route_pref_v5`；Java extractor 与 Python 训练侧均按该完整版本匹配，当前未实现追加 LLM 模型后缀或按 `@` 归并。
 
 **矩阵 padding：** `stopMatrix` 最多 8 行（`MAX_STOPS`），`segmentMatrix` 最多 7 行（`MAX_SEGMENTS = MAX_STOPS - 1`），不足补零行。空位靠行内 `isLastStop`、`segmentEstimateMissing` 等标志识别。
 

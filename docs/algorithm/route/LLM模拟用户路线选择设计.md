@@ -107,24 +107,15 @@ judgments             : 模拟或真实的偏好判断，是后续训练的监�
 
 - `SaveRoutePreferenceTrainingSamplesStep`：路线生成后写 MinIO candidate-set ingest，保留产品路线历史写入。
 - `POST /api/route-preferences/judgments`：保存一次评价时写 MinIO judgment ingest。
-- Python dataset builder：读取 ready marker 和 judgment ingest，写出下一版 `datasets/{datasetVersion}`，校验 manifest 后删除已处理 ingest 对象。
+- Python dataset builder：读取 ready marker 和 judgment ingest，写出下一版 `datasets/{datasetVersion}` 和 manifest 后删除已处理 ingest 对象。
 - Python training：只读取指定 `ROUTE_PREF_DATASET_VERSION`，不直接读产品 PostgreSQL。
 - dataset version 不属于线上写入参数；它只属于离线冻结训练集。已有 dataset 追加 judgment 时，用 `ROUTE_PREF_BASE_DATASET_VERSION` 指向上一版，再生成新的 `ROUTE_PREF_DATASET_VERSION`。
 
 ## 2.1 LLM 调用主路径（New API）
 
-当前 Python LLM judge 客户端使用 OpenAI-compatible chat completions 请求。主路径配置为 New API 单入口：
+当前 Python LLM judge 使用 OpenAI-compatible chat completions。`config.json` 只保存 `judge` 策略参数；连接、模型和 API key 从运行环境读取。单模型配置要求 `ROUTE_LLM_BASE_URL` 和 `NEW_API_KEY`，`ROUTE_LLM_PROVIDER` 默认 `new-api`，`ROUTE_LLM_MODEL` 当前默认 `urben-mock-user`，`ROUTE_LLM_COMPLETIONS_PATH` 默认 `/chat/completions`。
 
-```text
-endpoint = http://localhost:3000/v1/chat/completions
-request.model = urban-mock-user   # New API 路由模型名，可按环境调整
-```
-
-`request.model` 是 New API 的路由标识，不等同于数据库里的 `judge_model`。保存 judgment 时应优先使用 New API 响应 JSON 顶层的 `model` / `modelId` / `model_id`，例如 `kimi-k2.6`、`qwen3.6-flash`；只有响应缺少模型字段时，才 fallback 到配置标识（例如 `new-api:urban-mock-user`）。
-
-API key 可以直接写在本地 `config.json` 的 `apiKey` / `apikey` / `api_key` 中，也可以使用 `apiKeyEnv` 从环境变量读取。本地真实配置不提交，示例配置只放占位 key。
-
-`llmPool` 仍被当前代码支持，并且当前解析优先级仍是 `llmPool` > `newApi` > `llm` > 裸 LLM 配置 > 默认 New API。文档主路径按 New API 写；`llmPool` 只作为 legacy / advanced / optional fallback，用于多供应商轮询、全量评价和 fallback 实验，不再作为推荐的默认配置形态。
+配置 `ROUTE_LLM_POOL_JSON` 时使用该模型池，否则使用上述单模型配置。保存 judgment 时优先采用响应顶层 `model` / `modelId` / `model_id`，缺失时回退到 `provider:model`。
 
 ## 3. 输入来源（流程内，全部来自内存）
 
@@ -495,12 +486,12 @@ persona P 的画像 -> 喂 POI Linear 选点、生成路线
 
 ## 10. 样本权重
 
-不同来源的判断不能同权。每条 judgment 的权重由其 `judge_type` 决定。v1（方案 B）训练时由 Python 即时按 `judge_type` 算，不回填 `training_samples.sample_weight`（该列与 label 列一并留空）。当前后端常量（`RoutePreferenceTrainingServiceImpl`）：
+不同来源的判断不能同权。每条 judgment 的权重由其 `judge_type` 决定。v1（方案 B）训练时由 Python 即时按 `judge_type` 算，不回填 `training_samples.sample_weight`（该列与 label 列一并留空）。当前 Python 训练常量（`training/schema.py`）：
 
 ```text
 REAL_USER         1.00
 HUMAN_ANNOTATOR   0.70
-LLM_SIM_USER      0.60
+LLM_SIM_USER      1.00
 HEURISTIC_JUDGE   0.10
 ```
 
@@ -548,16 +539,17 @@ confidence ∈ [0,1]。
    0 < current < target -> PARTIAL_JUDGED
 
 当前代码已实现的最小闭环：
-1. 路线生成后，training_samples 落 N 行（X）。
-2. 外部调用 `/api/route-preferences/judgments` 保存 1 次 judgment。
-3. 后端当前会整批回填 training_samples 的 label/weight 并置为 TRAIN_READY。
+1. 路线生成后，后端写一个 candidate-set JSON.GZ 和 ready marker，其中包含 N 条 X。
+2. 外部调用 `/api/route-preferences/judgments`；每次 judgment 独立追加一个 MinIO JSON.GZ。
+3. 后端不回填 X，也不更新 training_samples 的 label/weight 或维护 TRAIN_READY 计数状态。
+4. Python dataset builder 合并 candidate-set ingest 与 judgment ingest，生成版本化 dataset。
 ```
 
 要点：
 
 - 线上用户请求（`generation_source=ONLINE_USER`）**不走** LLM 评价，只生成并返回；评价交给离线 / 异步批处理，不阻塞用户拿路线。
 - 路线生成和 LLM judge 可以分离线程池执行。当前 runner 使用路线生成线程池和 judge 线程池；主流程会等待所有 judgment 保存成功或失败后再返回统计，不会在 LLM 还没返回时退出。
-- LLM timeout 默认 300 秒，不应随意降低；请求已经产生 token 成本，过早超时只会放大浪费。
+- LLM timeout 由 `config.json` 的必填项 `judge.timeoutSeconds` 指定；当前仓库配置为 5000 秒，代码不提供 300 秒默认值。
 - 候选路线少于 2 条时跳过 LLM judge 并记录原因，不生成 judgment。
 - 多家可并行调用提速；每个 judgment 各自独立事务 + 原子自增计数，避免覆盖 / 漂移。
 - `judge_prompt_version` 改动即升版本，便于 Python 按版本切片 / 隔离。
@@ -598,7 +590,7 @@ Route Judge（路线级裁判 MLP，见《路线裁判与软拒绝设计》）�
    `personalReview` 仅用于人工检查和 dry-run；candidateSetId/judgeType/judgeModel/judgePromptVersion 由编排层注入。
 5. reasonCodes 固定为 9 个，落库前白名单校验；未知 code 判失败或由训练脚本显式跳过该 judgment 并记录原因。
 6. 每条评价的权重按 judge_type 决定；judgments 一次评价一个对象 append，互不覆盖。
-7. MinIO ingest 是写入区；versioned dataset 是训练读取区。dataset builder 成功写出并校验 manifest 后，只删除已处理 ingest 对象。
+7. MinIO ingest 是写入区；versioned dataset 是训练读取区。dataset builder 成功写出 manifest 后，只删除已处理 ingest 对象。
 8. Python 训练时直接读 `judgments.parquet` 当 Y，按 candidate_set_id + route_code 关联 X；不再有 PG label/weight 回填路径。
 ```
 

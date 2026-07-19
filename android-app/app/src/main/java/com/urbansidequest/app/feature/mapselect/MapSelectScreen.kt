@@ -113,6 +113,7 @@ internal fun MapSelectScreen(
     val generationPanelMode = mapUiState.generationPanelMode
     val rangeSelectionMode = mapUiState.rangeSelectionMode
     val generationPanelMessage = mapUiState.generationPanelMessage
+    val rangeSheetHiddenProgress = mapUiState.rangeSheetHiddenProgress
     val currentLocation = mapUiState.currentLocation
     val deviceLocation = mapUiState.deviceLocation
     val manualRangeVertices = mapUiState.manualRangeVertices
@@ -383,17 +384,6 @@ internal fun MapSelectScreen(
                 focusManager.clearFocus()
             }
         )
-
-        if (routes.isEmpty() && !isSearchActive) {
-            MapShortcutRow(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(start = 20.dp, top = 72.dp, end = 20.dp),
-                onOpenRoutes = onOpenRoutes,
-                onOpenFavorites = onOpenRoutes
-            )
-        }
 
         if (routes.isNotEmpty() && !isSearchActive && !isRouteExecutionMode) {
             RouteSwitcher(
@@ -680,37 +670,48 @@ internal fun MapSelectScreen(
                             )
                         }
                         else -> {
-                            MapRangeSheet(
-                                uiState = routeConfigUiState,
-                                rangeSelectionMode = rangeSelectionMode,
-                                manualVertexCount = manualRangeVertices.size,
-                                previewAreaText = previewAreaText,
-                                message = generationPanelMessage,
-                                isSubmitting = isRouteGenerationSubmitting,
-                                onOpenConditions = {
-                                    if (rangeSelectionMode == RangeSelectionMode.Manual &&
-                                        manualRangeVertices.size < MIN_MANUAL_POLYGON_VERTEX_COUNT
-                                    ) {
-                                        mapSelectViewModel.setGenerationPanelMessage(
-                                            "请至少绘制 ${MIN_MANUAL_POLYGON_VERTEX_COUNT} 个顶点"
-                                        )
-                                    } else {
-                                        mapSelectViewModel.showConditionsPanel()
-                                    }
-                                },
-                                onSelectAutoRange = {
-                                    mapSelectViewModel.selectAutoRange()
-                                },
-                                onSelectManualRange = {
-                                    mapSelectViewModel.selectManualRange()
-                                },
-                                onUndoManualPoint = {
-                                    mapSelectViewModel.undoManualRangeVertex()
-                                },
-                                onResetManualRange = {
-                                    mapSelectViewModel.resetManualRangeVertices()
-                                }
-                            )
+                            if (rangeSheetHiddenProgress >= 0.99f) {
+                                MapRangeCollapsedStrip(
+                                    onExpand = mapSelectViewModel::resetRangeSheet,
+                                    onDrag = mapSelectViewModel::dragRangeSheet,
+                                    onDragEnd = mapSelectViewModel::settleRangeSheet
+                                )
+                            } else {
+                                MapRangeSheet(
+                                    uiState = routeConfigUiState,
+                                    rangeSelectionMode = rangeSelectionMode,
+                                    manualVertexCount = manualRangeVertices.size,
+                                    previewAreaText = previewAreaText,
+                                    message = generationPanelMessage,
+                                    isSubmitting = isRouteGenerationSubmitting,
+                                    hiddenProgress = rangeSheetHiddenProgress,
+                                    onOpenConditions = {
+                                        if (rangeSelectionMode == RangeSelectionMode.Manual &&
+                                            manualRangeVertices.size < MIN_MANUAL_POLYGON_VERTEX_COUNT
+                                        ) {
+                                            mapSelectViewModel.setGenerationPanelMessage(
+                                                "请至少绘制 ${MIN_MANUAL_POLYGON_VERTEX_COUNT} 个顶点"
+                                            )
+                                        } else {
+                                            mapSelectViewModel.showConditionsPanel()
+                                        }
+                                    },
+                                    onSelectAutoRange = {
+                                        mapSelectViewModel.selectAutoRange()
+                                    },
+                                    onSelectManualRange = {
+                                        mapSelectViewModel.selectManualRange()
+                                    },
+                                    onUndoManualPoint = {
+                                        mapSelectViewModel.undoManualRangeVertex()
+                                    },
+                                    onResetManualRange = {
+                                        mapSelectViewModel.resetManualRangeVertices()
+                                    },
+                                    onDrag = mapSelectViewModel::dragRangeSheet,
+                                    onDragEnd = mapSelectViewModel::settleRangeSheet
+                                )
+                            }
                         }
                     }
                 }
