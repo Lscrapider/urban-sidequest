@@ -16,6 +16,9 @@ internal data class UrbanSidequestUiState(
     val mapInitialRouteCode: String? = null,
     val routeHistoryGroups: List<RouteHistoryGroup> = emptyList(),
     val isRouteHistoryLoading: Boolean = false,
+    val isRouteHistoryLoadingMore: Boolean = false,
+    val hasMoreRouteHistory: Boolean = false,
+    val nextRouteHistoryPage: Int = FIRST_ROUTE_HISTORY_PAGE,
     val routeHistoryError: String? = null,
     val selectedCenter: GeoPoint? = null,
     val discoverMapLaunchRequest: DiscoverMapLaunchRequest? = null,
@@ -46,3 +49,5 @@ internal data class UrbanSidequestUiState(
         }
     }
 }
+
+internal const val FIRST_ROUTE_HISTORY_PAGE = 1

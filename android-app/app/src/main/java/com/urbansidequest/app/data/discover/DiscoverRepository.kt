@@ -12,7 +12,7 @@ import com.amap.api.services.weather.WeatherSearchQuery
 import com.urbansidequest.app.data.region.RegionRepository
 import com.urbansidequest.app.data.route.RouteRepository
 import com.urbansidequest.app.domain.model.DEFAULT_DISCOVER_CITY_NAME
-import com.urbansidequest.app.domain.model.DEFAULT_DISCOVER_WEATHER_TEXT
+import com.urbansidequest.app.domain.model.DISCOVER_WEATHER_UNAVAILABLE_TEXT
 import com.urbansidequest.app.domain.model.DiscoverAnchor
 import com.urbansidequest.app.domain.model.DiscoverAnchorSource
 import com.urbansidequest.app.domain.model.DiscoverCityWeather
@@ -64,9 +64,7 @@ class DiscoverRepository(
         return locateDeviceLocation().getOrThrow()
     }
 
-    /**
-     * 天气缓存以地区编码为键。无论成功或降级，均写入本次查询时间，确保同一地区两小时内最多发起一次天气请求。
-     */
+    /** 天气缓存以地区编码为键，仅在成功查询到有效天气时刷新。 */
     suspend fun loadCityWeather(anchor: DiscoverAnchor): DiscoverCityWeather {
         return weatherRequestMutex.withLock {
             val nowMillis = System.currentTimeMillis()
@@ -74,23 +72,30 @@ class DiscoverRepository(
                 return@withLock cached.copy(cityName = anchor.cityName)
             }
             val staleWeather = localStore.readStaleWeather(anchor.weatherCacheKey)
-            val weather = withTimeoutOrNull(DISCOVER_WEATHER_QUERY_TIMEOUT_MILLIS) {
+            val freshWeather = withTimeoutOrNull(DISCOVER_WEATHER_QUERY_TIMEOUT_MILLIS) {
                 queryWeather(
                     cityQuery = anchor.cityAdcode.orEmpty()
                         .ifBlank { anchor.routeCityAdcode.orEmpty() }
                         .ifBlank { anchor.cityName },
                     cityName = anchor.cityName
                 ).getOrNull()
-            } ?: staleWeather ?: DiscoverCityWeather(
-                cityName = anchor.cityName,
-                weatherText = DEFAULT_DISCOVER_WEATHER_TEXT
-            )
-            val cachedWeather = weather.copy(
-                cityName = anchor.cityName,
-                fetchedAtMillis = nowMillis
-            )
-            localStore.saveWeather(anchor.weatherCacheKey, cachedWeather)
-            cachedWeather
+            }
+            when {
+                freshWeather != null -> {
+                    val cachedWeather = freshWeather.copy(
+                        cityName = anchor.cityName,
+                        fetchedAtMillis = nowMillis
+                    )
+                    localStore.saveWeather(anchor.weatherCacheKey, cachedWeather)
+                    cachedWeather
+                }
+
+                staleWeather != null -> staleWeather.copy(cityName = anchor.cityName)
+                else -> DiscoverCityWeather(
+                    cityName = anchor.cityName,
+                    weatherText = DISCOVER_WEATHER_UNAVAILABLE_TEXT
+                )
+            }
         }
     }
 
@@ -162,14 +167,17 @@ class DiscoverRepository(
                         } else {
                             null
                         }
+                        val weatherText = weather.toDiscoverWeatherText()
                         if (continuation.isActive) {
                             continuation.resume(
-                                Result.success(
-                                    DiscoverCityWeather(
-                                        cityName = cityName,
-                                        weatherText = weather.toDiscoverWeatherText()
+                                weatherText?.let {
+                                    Result.success(
+                                        DiscoverCityWeather(
+                                            cityName = cityName,
+                                            weatherText = it
+                                        )
                                     )
-                                )
+                                } ?: Result.failure(IllegalStateException("天气数据不可用"))
                             )
                         }
                     }
@@ -195,7 +203,7 @@ class DiscoverRepository(
     }
 }
 
-private fun LocalWeatherLive?.toDiscoverWeatherText(): String {
+private fun LocalWeatherLive?.toDiscoverWeatherText(): String? {
     val weather = this?.weather.orEmpty()
     val temperature = this?.temperature.orEmpty()
     if (weather.isNotBlank() && temperature.isNotBlank()) {
@@ -205,7 +213,7 @@ private fun LocalWeatherLive?.toDiscoverWeatherText(): String {
         weather.contains("雨") || weather.contains("雪") || weather.contains("沙") || weather.contains("霾") -> {
             "天气不太适合长时间步行"
         }
-        weather.isBlank() -> DEFAULT_DISCOVER_WEATHER_TEXT
+        weather.isBlank() -> null
         else -> weather
     }
 }

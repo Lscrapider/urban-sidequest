@@ -11,6 +11,8 @@ import com.urbansidequest.app.data.map.resolveRouteCityInfo
 import com.urbansidequest.app.data.profile.AVATAR_JPEG_CONTENT_TYPE
 import com.urbansidequest.app.data.profile.ProfileAvatarImageEncoder
 import com.urbansidequest.app.data.route.RouteErrorMapper
+import com.urbansidequest.app.data.route.RouteExecutionProgressKey
+import com.urbansidequest.app.data.route.RouteExecutionProgressStore
 import com.urbansidequest.app.data.route.RouteRepository
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.DiscoverMapLaunchRequest
@@ -19,6 +21,9 @@ import com.urbansidequest.app.domain.model.RouteInteractionState
 import com.urbansidequest.app.domain.model.RouteReaction
 import com.urbansidequest.app.domain.model.onlyRoute
 import com.urbansidequest.app.feature.profile.ExplorationPreferenceAnswers
+import com.urbansidequest.app.feature.profile.ExplorationPreferenceStore
+import com.urbansidequest.app.feature.profile.ExplorationStreakStore
+import com.urbansidequest.app.feature.profile.toUserPreferenceProfileOverride
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,7 +38,14 @@ internal class UrbanSidequestViewModel(
     private val routeRepository: RouteRepository
 ) : ViewModel() {
 
+    private companion object {
+        private const val ROUTE_HISTORY_PAGE_SIZE = 20
+    }
+
     private val appContext = context.applicationContext
+    private val explorationPreferenceStore = ExplorationPreferenceStore(appContext)
+    private val explorationStreakStore = ExplorationStreakStore(appContext)
+    private val routeExecutionProgressStore = RouteExecutionProgressStore(appContext)
     private val mutableUiState = MutableStateFlow(
         UrbanSidequestUiState(isLoggedIn = authRepository.isLoggedIn())
     )
@@ -70,6 +82,10 @@ internal class UrbanSidequestViewModel(
         mutableUiState.update {
             it.clearMapSelectionState().copy(
                 routeHistoryGroups = emptyList(),
+                isRouteHistoryLoading = false,
+                isRouteHistoryLoadingMore = false,
+                hasMoreRouteHistory = false,
+                nextRouteHistoryPage = FIRST_ROUTE_HISTORY_PAGE,
                 routeShareNotice = null,
                 currentUser = null,
                 routeInteractions = emptyMap(),
@@ -92,6 +108,8 @@ internal class UrbanSidequestViewModel(
     }
 
     fun onLoggedIn() {
+        restoreExplorationPreferenceAnswers()
+        restoreExplorationStreak()
         viewModelScope.launch {
             refreshCurrentUser()
             refreshRouteInteractions()
@@ -211,6 +229,12 @@ internal class UrbanSidequestViewModel(
         }
     }
 
+    fun requestMoreRouteHistory() {
+        viewModelScope.launch {
+            loadMoreRouteHistory()
+        }
+    }
+
     fun openHistoryOnMap(requestId: String, routeCode: String?) {
         viewModelScope.launch {
             mutableUiState.update { it.copy(routeHistoryError = null) }
@@ -288,6 +312,7 @@ internal class UrbanSidequestViewModel(
             runCatching {
                 routeRepository.completeActiveRoute(requestId, routeCode)
             }.onSuccess { routeGeneration ->
+                routeExecutionProgressStore.clear(RouteExecutionProgressKey(requestId, routeCode))
                 mutableUiState.update {
                     it.copy(
                         latestRouteGeneration = routeGeneration,
@@ -310,7 +335,7 @@ internal class UrbanSidequestViewModel(
         viewModelScope.launch {
             mutableUiState.update { it.copy(isRouteGenerationSubmitting = true) }
             runCatching {
-                routeRepository.generateRoute(enrichRouteCityInfo(request))
+                routeRepository.generateRoute(enrichRouteGenerationRequest(request))
             }.onSuccess { routeGeneration ->
                 mutableUiState.update {
                     it.copy(
@@ -350,6 +375,9 @@ internal class UrbanSidequestViewModel(
     }
 
     fun saveProfileQuestionnaire(answers: ExplorationPreferenceAnswers) {
+        authRepository.currentUserId()?.let { userId ->
+            explorationPreferenceStore.save(userId, answers)
+        }
         mutableUiState.update {
             it.copy(
                 explorationPreferenceAnswers = answers,
@@ -429,6 +457,13 @@ internal class UrbanSidequestViewModel(
                 lastProfileVisitDate = today
             )
         }
+        authRepository.currentUserId()?.let { userId ->
+            explorationStreakStore.save(
+                userId = userId,
+                streakDays = nextStreakDays,
+                lastVisitDate = today
+            )
+        }
     }
 
     private fun handleRouteFailure(throwable: Throwable, fallbackMessage: String) {
@@ -439,21 +474,48 @@ internal class UrbanSidequestViewModel(
         }
     }
 
-    private suspend fun enrichRouteCityInfo(request: RouteGenerateRequest): RouteGenerateRequest {
-        if (!request.routeCityName.isNullOrBlank() || !request.routeCityAdcode.isNullOrBlank()) {
-            return request
+    private suspend fun enrichRouteGenerationRequest(request: RouteGenerateRequest): RouteGenerateRequest {
+        val requestWithCity = if (!request.routeCityName.isNullOrBlank() || !request.routeCityAdcode.isNullOrBlank()) {
+            request
+        } else {
+            val routeCityInfo = resolveRouteCityInfo(
+                context = appContext,
+                location = LatLng(request.center.latitudeGcj02, request.center.longitudeGcj02)
+            )
+            request.copy(
+                routeCityName = routeCityInfo?.cityName,
+                routeCityAdcode = routeCityInfo?.cityAdcode
+            )
         }
-        val routeCityInfo = resolveRouteCityInfo(
-            context = appContext,
-            location = LatLng(request.center.latitudeGcj02, request.center.longitudeGcj02)
-        )
-        return request.copy(
-            routeCityName = routeCityInfo?.cityName,
-            routeCityAdcode = routeCityInfo?.cityAdcode
+        return requestWithCity.copy(
+            userPreferenceProfileOverride = mutableUiState.value.explorationPreferenceAnswers
+                .toUserPreferenceProfileOverride()
+                ?: requestWithCity.userPreferenceProfileOverride
         )
     }
 
+    private fun restoreExplorationPreferenceAnswers() {
+        val userId = authRepository.currentUserId() ?: return
+        mutableUiState.update { state ->
+            state.copy(explorationPreferenceAnswers = explorationPreferenceStore.read(userId))
+        }
+    }
+
+    private fun restoreExplorationStreak() {
+        val userId = authRepository.currentUserId() ?: return
+        val progress = explorationStreakStore.read(userId)
+        mutableUiState.update { state ->
+            state.copy(
+                explorationStreakDays = progress.streakDays,
+                lastProfileVisitDate = progress.lastVisitDate
+            )
+        }
+    }
+
     private suspend fun refreshRouteHistory() {
+        if (mutableUiState.value.isRouteHistoryLoading) {
+            return
+        }
         mutableUiState.update {
             it.copy(
                 isRouteHistoryLoading = true,
@@ -461,13 +523,58 @@ internal class UrbanSidequestViewModel(
             )
         }
         runCatching {
-            routeRepository.fetchRouteHistory()
+            routeRepository.fetchRouteHistory(
+                pageNum = FIRST_ROUTE_HISTORY_PAGE,
+                pageSize = ROUTE_HISTORY_PAGE_SIZE
+            )
         }.onSuccess { groups ->
-            mutableUiState.update { it.copy(routeHistoryGroups = groups) }
+            mutableUiState.update {
+                it.copy(
+                    routeHistoryGroups = groups.distinctBy { group -> group.requestId },
+                    hasMoreRouteHistory = groups.size >= ROUTE_HISTORY_PAGE_SIZE,
+                    nextRouteHistoryPage = FIRST_ROUTE_HISTORY_PAGE + 1
+                )
+            }
         }.onFailure { throwable ->
             handleRouteFailure(throwable, RouteErrorMapper.ROUTE_LOAD_FAILED_MESSAGE)
         }
         mutableUiState.update { it.copy(isRouteHistoryLoading = false) }
+    }
+
+    private suspend fun loadMoreRouteHistory() {
+        val currentState = mutableUiState.value
+        if (
+            currentState.isRouteHistoryLoading ||
+            currentState.isRouteHistoryLoadingMore ||
+            !currentState.hasMoreRouteHistory
+        ) {
+            return
+        }
+        val nextPage = currentState.nextRouteHistoryPage
+        mutableUiState.update {
+            it.copy(
+                isRouteHistoryLoadingMore = true,
+                routeHistoryError = null
+            )
+        }
+        runCatching {
+            routeRepository.fetchRouteHistory(
+                pageNum = nextPage,
+                pageSize = ROUTE_HISTORY_PAGE_SIZE
+            )
+        }.onSuccess { groups ->
+            mutableUiState.update { state ->
+                state.copy(
+                    routeHistoryGroups = (state.routeHistoryGroups + groups)
+                        .distinctBy { group -> group.requestId },
+                    hasMoreRouteHistory = groups.size >= ROUTE_HISTORY_PAGE_SIZE,
+                    nextRouteHistoryPage = nextPage + 1
+                )
+            }
+        }.onFailure { throwable ->
+            handleRouteFailure(throwable, RouteErrorMapper.ROUTE_LOAD_FAILED_MESSAGE)
+        }
+        mutableUiState.update { it.copy(isRouteHistoryLoadingMore = false) }
     }
 
     private suspend fun refreshRouteInteractions() {

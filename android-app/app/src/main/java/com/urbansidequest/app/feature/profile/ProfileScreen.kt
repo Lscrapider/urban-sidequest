@@ -35,9 +35,7 @@ import androidx.compose.material.icons.outlined.BusinessCenter
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PowerSettingsNew
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.urbansidequest.app.BuildConfig
 import com.urbansidequest.app.R
 import com.urbansidequest.app.domain.model.ProfileLevel
 import com.urbansidequest.app.domain.model.ProfileStats
@@ -119,6 +118,7 @@ fun ProfileScreen(
     }
     val achievements = remember(stats) { buildAchievements(stats) }
     val level = remember(stats) { resolveProfileLevel(stats) }
+    var expandedMenuSection by remember { mutableStateOf<ProfileMenuSection?>(null) }
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -140,7 +140,6 @@ fun ProfileScreen(
                 .padding(start = 16.dp, top = 18.dp, end = 16.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            ProfileTopActions()
             ProfileHeaderCard(
                 nickname = nickname,
                 avatarUrl = avatarUrl,
@@ -154,8 +153,12 @@ fun ProfileScreen(
             )
 
             ProfileMenuCard(
-                earnedAchievements = achievements.count { it.earned },
-                totalAchievements = achievements.size,
+                achievements = achievements,
+                stats = stats,
+                expandedSection = expandedMenuSection,
+                onToggleSection = { section ->
+                    expandedMenuSection = if (expandedMenuSection == section) null else section
+                },
                 onOpenAssets = onOpenRoutes,
                 onOpenRoutes = onOpenFavoriteRoutes
             )
@@ -175,43 +178,10 @@ fun ProfileScreen(
     }
 }
 
-@Composable
-private fun ProfileTopActions() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ProfileTopIcon(
-            imageVector = Icons.Outlined.Notifications,
-            contentDescription = "通知"
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        ProfileTopIcon(
-            imageVector = Icons.Outlined.Settings,
-            contentDescription = "设置"
-        )
-    }
-}
-
-@Composable
-private fun ProfileTopIcon(
-    imageVector: ImageVector,
-    contentDescription: String
-) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clickable(onClick = {}),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = imageVector,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(25.dp),
-            tint = Color(0xFF121B23)
-        )
-    }
+private enum class ProfileMenuSection {
+    Achievements,
+    Feedback,
+    Help
 }
 
 @Composable
@@ -432,11 +402,14 @@ private fun PreferenceSurveyCard(
 
 @Composable
 private fun ProfileMenuCard(
-    earnedAchievements: Int,
-    totalAchievements: Int,
+    achievements: List<AchievementSpec>,
+    stats: ProfileStats,
+    expandedSection: ProfileMenuSection?,
+    onToggleSection: (ProfileMenuSection) -> Unit,
     onOpenAssets: () -> Unit,
     onOpenRoutes: () -> Unit
 ) {
+    val earnedAchievements = achievements.count { it.earned }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -447,37 +420,126 @@ private fun ProfileMenuCard(
             ProfileMenuRow(
                 icon = Icons.Outlined.EmojiEvents,
                 title = "成就墙",
-                trailingText = "$earnedAchievements / $totalAchievements"
+                trailingText = "$earnedAchievements / ${achievements.size}",
+                onClick = { onToggleSection(ProfileMenuSection.Achievements) }
             )
+            if (expandedSection == ProfileMenuSection.Achievements) {
+                ProfileMenuDetailSlot {
+                    AchievementCollectionCard(achievements = achievements)
+                }
+            }
             ProfileDivider()
             ProfileMenuRow(
                 icon = Icons.Outlined.BusinessCenter,
-                title = "城市资产",
-                subtitle = "地图选区 · 打卡点 · 笔记",
+                title = "路线库",
+                subtitle = "生成、查看与继续一条路线",
                 onClick = onOpenAssets
             )
             ProfileDivider()
             ProfileMenuRow(
                 icon = Icons.AutoMirrored.Outlined.Assignment,
-                title = "我的路线",
-                subtitle = "已保存和收藏的路线",
+                title = "收藏路线",
+                subtitle = "已收藏的路线",
                 onClick = onOpenRoutes
             )
             ProfileDivider()
             ProfileMenuRow(
                 icon = Icons.Outlined.ChatBubbleOutline,
                 title = "我的反馈",
-                subtitle = "帮助我们做得更好"
+                subtitle = "喜欢 ${stats.likedRoutes} · 不喜欢 ${stats.dislikedRoutes}",
+                onClick = { onToggleSection(ProfileMenuSection.Feedback) }
             )
+            if (expandedSection == ProfileMenuSection.Feedback) {
+                ProfileMenuDetailSlot {
+                    FeedbackSummaryCard(stats = stats)
+                }
+            }
             ProfileDivider()
             ProfileMenuRow(
                 icon = Icons.AutoMirrored.Outlined.HelpOutline,
-                title = "帮助与反馈"
+                title = "使用帮助",
+                onClick = { onToggleSection(ProfileMenuSection.Help) }
             )
+            if (expandedSection == ProfileMenuSection.Help) {
+                ProfileMenuDetailSlot {
+                    ProfileHelpCard()
+                }
+            }
             ProfileDivider()
             ProfileMenuRow(
                 icon = Icons.Outlined.Info,
-                title = "关于城市副本"
+                title = "关于城市副本",
+                trailingText = "v${BuildConfig.VERSION_NAME}"
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileMenuDetailSlot(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun FeedbackSummaryCard(stats: ProfileStats) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = AppSurfaceMuted,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = "已记录的路线反馈",
+                color = AppText,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "喜欢 ${stats.likedRoutes} 条 · 不喜欢 ${stats.dislikedRoutes} 条 · 收藏 ${stats.favoriteRoutes} 条",
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = "在路线详情中标记喜欢或不喜欢，下一次生成会作为偏好参考。",
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileHelpCard() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = AppSurfaceMuted,
+        border = BorderStroke(1.dp, AppBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = "快速使用",
+                color = AppText,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "地图页可选择自动范围或点选顶点手绘范围；生成后在路线库查看、收藏或继续路线。",
+                color = AppTextMuted,
+                style = MaterialTheme.typography.bodySmall
             )
         }
     }
@@ -554,12 +616,14 @@ private fun ProfileMenuRow(
                 fontWeight = FontWeight.SemiBold
             )
         }
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = Color(0xFF738092)
-        )
+        if (onClick != null) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = Color(0xFF738092)
+            )
+        }
     }
 }
 
@@ -691,7 +755,7 @@ fun ProfileQuestionnaireScreen(
                 )
                 UrbanPrimaryButton(
                     modifier = Modifier.weight(1f),
-                    text = "保存画像",
+                    text = "保存偏好",
                     onClick = {
                         onSave(
                             ExplorationPreferenceAnswers(
@@ -780,7 +844,7 @@ private fun AchievementCollectionCard(achievements: List<AchievementSpec>) {
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                UrbanBadge(text = "更多", style = UrbanBadgeStyle.Reward)
+                UrbanBadge(text = "已解锁 $earnedCount", style = UrbanBadgeStyle.Reward)
             }
             Row(
                 modifier = Modifier

@@ -21,6 +21,10 @@ class AuthSessionStore(context: Context) {
         return !sharedPreferences.getString(KEY_ACCESS_TOKEN, null).isNullOrBlank()
     }
 
+    fun currentUserId(): String? {
+        return sharedPreferences.getString(KEY_USER_ID, null)
+    }
+
     fun clear() {
         sharedPreferences.edit().clear().apply()
     }

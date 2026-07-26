@@ -93,12 +93,18 @@ private val RouteBlueBorder = Color(0xFF78A9FF)
 @Composable
 internal fun RoutesScreen(
     historyGroups: List<RouteHistoryGroup> = emptyList(),
+    routeInteractions: Map<String, RouteInteractionState> = emptyMap(),
+    routeInteractionKey: (String, String) -> String = { candidateSetId, routeCode -> "$candidateSetId:$routeCode" },
     isLoading: Boolean = false,
+    isLoadingMore: Boolean = false,
+    hasMoreHistory: Boolean = false,
     errorMessage: String? = null,
     onOpenHistoryGroup: (String) -> Unit = {},
     onOpenHistoryRoute: (String, String) -> Unit = { _, _ -> },
+    onToggleRouteFavorite: (String, String, String) -> Unit = { _, _, _ -> },
     onShareWalkedRoute: (String, String, String) -> Unit = { _, _, _ -> },
     onRefreshHistory: () -> Unit = {},
+    onLoadMoreHistory: () -> Unit = {},
     onOpenDiscover: () -> Unit = {},
     onOpenMap: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
@@ -156,14 +162,14 @@ internal fun RoutesScreen(
                 RouteLibraryHeader()
             }
 
-            if (isLoading) {
+            if (isLoading && historyGroups.isEmpty()) {
                 item {
                     EmptyState(
                         title = "正在加载路线历史",
                         description = "正在同步你已生成的城市副本路线。"
                     )
                 }
-            } else if (errorMessage != null) {
+            } else if (errorMessage != null && historyGroups.isEmpty()) {
                 item {
                     EmptyState(
                         title = "路线历史加载失败",
@@ -183,6 +189,24 @@ internal fun RoutesScreen(
                     UrbanPrimaryButton(text = "去地图选点", onClick = onOpenMap)
                 }
             } else {
+                if (isLoading) {
+                    item {
+                        Text(
+                            text = "正在刷新路线历史…",
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                if (errorMessage != null) {
+                    item {
+                        Text(
+                            text = errorMessage,
+                            color = WarningAmber,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
                 if (activeGroup != null) {
                     item(key = "active_${activeGroup.requestId}") {
                         ActiveRoutePanel(
@@ -229,7 +253,17 @@ internal fun RoutesScreen(
                             WalkedRouteRow(
                                 group = group,
                                 route = route,
+                                isFavorite = routeInteractions[
+                                    routeInteractionKey(group.candidateSetId, route.routeCode)
+                                ]?.isFavorite == true,
                                 onOpenRoute = { onOpenHistoryRoute(group.requestId, route.routeCode) },
+                                onToggleFavorite = {
+                                    onToggleRouteFavorite(
+                                        group.requestId,
+                                        group.candidateSetId,
+                                        route.routeCode
+                                    )
+                                },
                                 onShareRoute = {
                                     routesViewModel.openShareDialog(
                                         WalkedShareTarget(group.requestId, route.routeCode, route.title)
@@ -237,9 +271,6 @@ internal fun RoutesScreen(
                                 }
                             )
                         }
-                    }
-                    item {
-                        MoreWalkedRoutesButton(onClick = onRefreshHistory)
                     }
                 } else {
                     latestGeneratedGroup?.let { group ->
@@ -281,6 +312,23 @@ internal fun RoutesScreen(
                                 }
                             },
                             onOpenRoute = { routeCode -> onOpenHistoryRoute(group.requestId, routeCode) }
+                        )
+                    }
+                }
+                if (isLoading || isLoadingMore) {
+                    item {
+                        Text(
+                            text = "正在加载更多路线…",
+                            modifier = Modifier.fillMaxWidth(),
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                } else if (hasMoreHistory) {
+                    item {
+                        UrbanSecondaryButton(
+                            text = "加载更多路线",
+                            onClick = onLoadMoreHistory
                         )
                     }
                 }
@@ -409,9 +457,12 @@ fun FavoriteRoutesScreen(
     routeInteractions: Map<String, RouteInteractionState> = emptyMap(),
     routeInteractionKey: (String, String) -> String = { candidateSetId, routeCode -> "$candidateSetId:$routeCode" },
     isLoading: Boolean = false,
+    isLoadingMore: Boolean = false,
+    hasMoreHistory: Boolean = false,
     errorMessage: String? = null,
     onOpenFavoriteRoute: (String, String) -> Unit = { _, _ -> },
     onRefreshHistory: () -> Unit = {},
+    onLoadMoreHistory: () -> Unit = {},
     onOpenDiscover: () -> Unit = {},
     onOpenMap: () -> Unit = {},
     onOpenRoutes: () -> Unit = {},
@@ -457,14 +508,14 @@ fun FavoriteRoutesScreen(
                 )
             }
 
-            if (isLoading) {
+            if (isLoading && historyGroups.isEmpty()) {
                 item {
                     EmptyState(
                         title = "正在加载收藏路线",
                         description = "正在同步你收藏过的路线。"
                     )
                 }
-            } else if (errorMessage != null) {
+            } else if (errorMessage != null && historyGroups.isEmpty()) {
                 item {
                     EmptyState(
                         title = "收藏路线加载失败",
@@ -473,33 +524,61 @@ fun FavoriteRoutesScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     UrbanPrimaryButton(text = "重新加载", onClick = onRefreshHistory)
                 }
-            } else if (favoriteGroups.isEmpty()) {
-                item {
-                    EmptyState(
-                        title = "还没有收藏路线",
-                        description = "收藏后的路线会单独沉淀到这里，之后可以直接回到地图查看。",
-                        illustrationResId = R.drawable.illustration_empty_routes
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    UrbanPrimaryButton(text = "查看生成路线", onClick = onOpenRoutes)
-                }
             } else {
-                item {
-                    SectionHeader(title = "已收藏路线", trailingText = "$favoriteRouteCount 条")
+                if (errorMessage != null) {
+                    item {
+                        Text(
+                            text = errorMessage,
+                            color = WarningAmber,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
-                items(
-                    items = favoriteGroups,
-                    key = { "favorite_${it.requestId}_${it.routes.joinToString("_") { route -> route.routeCode }}" }
-                ) { group ->
-                    RouteHistoryGroupRow(
-                        group = group,
-                        onOpenGroup = {
-                            group.routes.firstOrNull()?.let { route ->
-                                onOpenFavoriteRoute(group.requestId, route.routeCode)
-                            }
-                        },
-                        onOpenRoute = { routeCode -> onOpenFavoriteRoute(group.requestId, routeCode) }
-                    )
+                if (favoriteGroups.isEmpty()) {
+                    item {
+                        EmptyState(
+                            title = "还没有收藏路线",
+                            description = "收藏后的路线会单独沉淀到这里，之后可以直接回到地图查看。",
+                            illustrationResId = R.drawable.illustration_empty_routes
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        UrbanPrimaryButton(text = "查看生成路线", onClick = onOpenRoutes)
+                    }
+                } else {
+                    item {
+                        SectionHeader(title = "已收藏路线", trailingText = "$favoriteRouteCount 条")
+                    }
+                    items(
+                        items = favoriteGroups,
+                        key = { "favorite_${it.requestId}_${it.routes.joinToString("_") { route -> route.routeCode }}" }
+                    ) { group ->
+                        RouteHistoryGroupRow(
+                            group = group,
+                            onOpenGroup = {
+                                group.routes.firstOrNull()?.let { route ->
+                                    onOpenFavoriteRoute(group.requestId, route.routeCode)
+                                }
+                            },
+                            onOpenRoute = { routeCode -> onOpenFavoriteRoute(group.requestId, routeCode) }
+                        )
+                    }
+                }
+                if (isLoading || isLoadingMore) {
+                    item {
+                        Text(
+                            text = "正在加载更多路线…",
+                            modifier = Modifier.fillMaxWidth(),
+                            color = AppTextMuted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                } else if (hasMoreHistory) {
+                    item {
+                        UrbanSecondaryButton(
+                            text = "加载更多路线",
+                            onClick = onLoadMoreHistory
+                        )
+                    }
                 }
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -831,12 +910,6 @@ private fun LatestGeneratedGroupCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         UrbanBadge(text = formatHistoryStatus(group), style = historyStatusBadgeStyle(group))
-                        RouteLibraryImageIcon(
-                            iconRes = R.drawable.icon_routes_more,
-                            contentDescription = "更多生成组操作",
-                            modifier = Modifier.size(22.dp),
-                            tint = AppText
-                        )
                     }
                 }
                 Row(
@@ -894,8 +967,7 @@ private fun GenerationStatusRow(
             statusText = if (generatingCount > 0) "等待中" else "空闲",
             iconRes = R.drawable.icon_routes_generated,
             accent = RouteBlue,
-            showProgress = generatingCount > 0,
-            onClick = {}
+            showProgress = generatingCount > 0
         )
         GenerationMiniStatusCard(
             modifier = Modifier.weight(1f),
@@ -917,13 +989,13 @@ private fun GenerationMiniStatusCard(
     @DrawableRes iconRes: Int,
     accent: Color,
     showProgress: Boolean = false,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier
             .height(102.dp)
-            .clickable(onClick = onClick),
+            .then(if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)),
         shape = RoundedCornerShape(12.dp),
         color = AppSurface,
         border = BorderStroke(1.dp, accent.copy(alpha = 0.30f))

@@ -16,6 +16,18 @@ data class ProfileLevel(
     val nextHint: String
 )
 
+/** 发送给路线生成服务的问卷画像，字段与既有 userPreferenceProfileOverride 契约一致。 */
+data class UserPreferenceProfileOverride(
+    val distanceSensitivity: Double,
+    val budgetSensitivity: Double,
+    val transferSensitivity: Double,
+    val hiddenGemAffinity: Double,
+    val profileConfidence: Double,
+    val questionnaireVersion: String,
+    val isNewUser: Boolean,
+    val tagAffinities: Map<String, Double>
+)
+
 fun resolveProfileLevel(stats: ProfileStats): ProfileLevel {
     val kilometer = stats.travelDistanceMeters / 1000.0
     return when {

@@ -43,6 +43,7 @@ internal val RouteSwitcherShape = RoundedCornerShape(14.dp)
 internal val RouteSwitcherSegmentShape = RoundedCornerShape(12.dp)
 internal val RouteSwitcherSegmentWidth = 42.dp
 internal val RouteSwitcherSegmentHeight = 24.dp
+internal val RouteSwitcherTouchTargetSize = 48.dp
 internal val RoutePoiRailWidth = 24.dp
 internal val RoutePoiRailTouchSize = 24.dp
 internal val RoutePoiRailDotSize = 12.dp

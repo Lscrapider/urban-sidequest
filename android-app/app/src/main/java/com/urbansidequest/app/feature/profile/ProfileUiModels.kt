@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import com.urbansidequest.app.domain.model.ProfileStats
 import com.urbansidequest.app.domain.model.RouteInteractionState
 import com.urbansidequest.app.domain.model.RouteReaction
+import com.urbansidequest.app.domain.model.UserPreferenceProfileOverride
 import kotlin.math.floor
 
 data class ExplorationPreferenceAnswers(
@@ -126,6 +127,46 @@ internal fun ExplorationPreferenceAnswers?.profileConfidence(): Double {
     }
 }
 
+/**
+ * 将问卷选项映射到服务端既有的 0～1 偏好强度契约。
+ * 没有有效回答时不覆盖服务端已有画像，避免一次空保存抹掉历史偏好。
+ */
+internal fun ExplorationPreferenceAnswers?.toUserPreferenceProfileOverride(): UserPreferenceProfileOverride? {
+    val answers = this ?: return null
+    val confidence = answers.profileConfidence()
+    if (confidence == NO_PROFILE_CONFIDENCE) {
+        return null
+    }
+    return UserPreferenceProfileOverride(
+        distanceSensitivity = sensitivityValue(answers.distanceSensitivityCode),
+        budgetSensitivity = sensitivityValue(answers.budgetSensitivityCode),
+        transferSensitivity = sensitivityValue(answers.transferSensitivityCode),
+        hiddenGemAffinity = hiddenGemValue(answers.hiddenGemCode),
+        profileConfidence = confidence,
+        questionnaireVersion = EXPLORATION_QUESTIONNAIRE_VERSION,
+        isNewUser = false,
+        tagAffinities = answers.interestCodes.associateWith { SELECTED_INTEREST_AFFINITY }
+    )
+}
+
+private fun sensitivityValue(code: String?): Double {
+    return when (code) {
+        "MEDIUM" -> MEDIUM_SENSITIVITY
+        "HIGH" -> HIGH_SENSITIVITY
+        "STRICT" -> MAX_SENSITIVITY
+        else -> NO_SENSITIVITY
+    }
+}
+
+private fun hiddenGemValue(code: String?): Double {
+    return when (code) {
+        "LOW" -> LOW_HIDDEN_GEM_AFFINITY
+        "HIGH" -> HIGH_SENSITIVITY
+        "MAX" -> MAX_SENSITIVITY
+        else -> NO_SENSITIVITY
+    }
+}
+
 internal fun profileSummary(answers: ExplorationPreferenceAnswers?, confidence: Double): String {
     if (answers == null || confidence == 0.0) {
         return "完成 5 组题后，会得到兴趣、距离、预算、换乘和小众探索偏好。"
@@ -186,3 +227,12 @@ internal val HiddenGemOptions = listOf(
     QuestionnaireOption("HIGH", "比较喜欢"),
     QuestionnaireOption("MAX", "很喜欢")
 )
+
+private const val EXPLORATION_QUESTIONNAIRE_VERSION = "v1"
+private const val NO_PROFILE_CONFIDENCE = 0.0
+private const val NO_SENSITIVITY = 0.0
+private const val MEDIUM_SENSITIVITY = 0.5
+private const val HIGH_SENSITIVITY = 0.75
+private const val MAX_SENSITIVITY = 1.0
+private const val LOW_HIDDEN_GEM_AFFINITY = 0.25
+private const val SELECTED_INTEREST_AFFINITY = 1.0

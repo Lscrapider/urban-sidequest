@@ -20,9 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GpsFixed
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
@@ -105,8 +102,8 @@ internal fun MapTopBar(
                 } else {
                     null
                 },
-                trailingIcon = {
-                    if (isSearchActive && searchText.isNotBlank()) {
+                trailingIcon = if (isSearchActive && searchText.isNotBlank()) {
+                    {
                         IconButton(onClick = { onSearchTextChange("") }) {
                             Icon(
                                 imageVector = Icons.Filled.Close,
@@ -114,13 +111,9 @@ internal fun MapTopBar(
                                 tint = AppTextMuted
                             )
                         }
-                    } else if (!isSearchActive) {
-                        Icon(
-                            imageVector = Icons.Filled.Mic,
-                            contentDescription = "语音搜索",
-                            tint = AppText
-                        )
                     }
+                } else {
+                    null
                 }
             )
         }
@@ -242,9 +235,7 @@ internal fun MapLocationButton(
 @Composable
 internal fun MapExecutionControlStack(
     modifier: Modifier = Modifier,
-    onCurrentLocation: () -> Unit,
-    onLayers: () -> Unit,
-    onMore: () -> Unit
+    onCurrentLocation: () -> Unit
 ) {
     Column(
         modifier = modifier,
@@ -258,28 +249,6 @@ internal fun MapExecutionControlStack(
             Icon(
                 modifier = Modifier.size(22.dp),
                 imageVector = Icons.Filled.GpsFixed,
-                contentDescription = null,
-                tint = AppText
-            )
-        }
-        MapRoundIconButton(
-            contentDescription = "切换地图图层",
-            onClick = onLayers
-        ) {
-            Icon(
-                modifier = Modifier.size(22.dp),
-                imageVector = Icons.Filled.Layers,
-                contentDescription = null,
-                tint = AppText
-            )
-        }
-        MapRoundIconButton(
-            contentDescription = "更多地图操作",
-            onClick = onMore
-        ) {
-            Icon(
-                modifier = Modifier.size(22.dp),
-                imageVector = Icons.Filled.MoreHoriz,
                 contentDescription = null,
                 tint = AppText
             )
@@ -335,33 +304,39 @@ internal fun RouteSwitcher(
                 val visible = index in visibleRouteIndexes
                 val selected = index == selectedRouteIndex
                 val color = routeColor(index).toComposeColor()
-                Surface(
+                Box(
                     modifier = Modifier
-                        .width(RouteSwitcherSegmentWidth)
-                        .height(RouteSwitcherSegmentHeight)
+                        .size(RouteSwitcherTouchTargetSize)
                         .semantics {
                             role = Role.Tab
                             this.selected = selected
                         }
                         .clickable { onSelectRoute(index) },
-                    shape = RouteSwitcherSegmentShape,
-                    color = when {
-                        selected && visible -> color.copy(alpha = 0.18f)
-                        visible -> color.copy(alpha = 0.10f)
-                        else -> Color.Transparent
-                    },
-                    border = BorderStroke(
-                        1.dp,
-                        if (visible) color.copy(alpha = 0.86f) else Color.Transparent
-                    )
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = route.routeCode,
-                            color = if (visible) color else AppTextMuted,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
+                    Surface(
+                        modifier = Modifier
+                            .width(RouteSwitcherSegmentWidth)
+                            .height(RouteSwitcherSegmentHeight),
+                        shape = RouteSwitcherSegmentShape,
+                        color = when {
+                            selected && visible -> color.copy(alpha = 0.18f)
+                            visible -> color.copy(alpha = 0.10f)
+                            else -> Color.Transparent
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (visible) color.copy(alpha = 0.86f) else Color.Transparent
                         )
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = route.routeCode,
+                                color = if (visible) color else AppTextMuted,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

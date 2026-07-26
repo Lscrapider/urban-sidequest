@@ -60,6 +60,7 @@ import com.urbansidequest.app.R
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
 import com.urbansidequest.app.data.map.searchAmapInputTips
 import com.urbansidequest.app.data.api.RouteGenerateRequest
+import com.urbansidequest.app.data.route.RouteExecutionProgressStore
 import com.urbansidequest.app.domain.model.DiscoverMapLaunchRequest
 import com.urbansidequest.app.domain.model.GeoPoint
 import com.urbansidequest.app.domain.model.RouteGeneration
@@ -105,6 +106,9 @@ internal fun MapSelectScreen(
     mapSelectViewModel: MapSelectViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val routeExecutionProgressStore = remember(context.applicationContext) {
+        RouteExecutionProgressStore(context.applicationContext)
+    }
     val routeConfigUiState by routeConfigViewModel.uiState.collectAsStateWithLifecycle()
     val mapUiState by mapSelectViewModel.uiState.collectAsStateWithLifecycle()
     val configSubmitScope = rememberCoroutineScope()
@@ -128,6 +132,7 @@ internal fun MapSelectScreen(
     val selectedStopPayload = mapUiState.selectedStopPayload
     val selectedSegmentPayload = mapUiState.selectedSegmentPayload
     val completedStopIds = mapUiState.completedStopIds
+    val skippedStopIds = mapUiState.skippedStopIds
     val dismissedCheckInStopId = mapUiState.dismissedCheckInStopId
     val routes = routeGeneration?.routes.orEmpty()
     val selectedCenter = GeoPoint(
@@ -146,7 +151,9 @@ internal fun MapSelectScreen(
     val selectedRoute = selectedRoutePosition?.let { routes.getOrNull(it) }
     val selectedRouteStops = selectedRoute?.stops.orEmpty().sortedBy(RouteStop::order)
     val currentTargetStop = if (isRouteExecutionMode) {
-        selectedRouteStops.firstOrNull { stop -> stop.id !in completedStopIds }
+        selectedRouteStops.firstOrNull { stop ->
+            stop.id !in completedStopIds && stop.id !in skippedStopIds
+        }
     } else {
         null
     }
@@ -199,10 +206,14 @@ internal fun MapSelectScreen(
         mapSelectViewModel.focusSegment(payload)
     }
 
-    fun checkInStop(stop: RouteStop) {
-        val nextCompletedStopIds = completedStopIds + stop.id
-        mapSelectViewModel.completeStop(stop)
-        if (selectedRouteStops.lastOrNull()?.id == stop.id) {
+    fun advanceRouteAfterStop(stop: RouteStop, skipped: Boolean) {
+        val handledStopIds = completedStopIds + skippedStopIds + stop.id
+        if (skipped) {
+            mapSelectViewModel.skipStop(stop, routeExecutionProgressStore)
+        } else {
+            mapSelectViewModel.completeStop(stop, routeExecutionProgressStore)
+        }
+        if (selectedRouteStops.all { routeStop -> routeStop.id in handledStopIds }) {
             routeGeneration?.requestId?.let { requestId ->
                 selectedRoute?.routeCode?.let { routeCode ->
                     onCompleteRoute(requestId, routeCode)
@@ -210,13 +221,21 @@ internal fun MapSelectScreen(
             }
         } else {
             val nextStop = selectedRouteStops.firstOrNull { routeStop ->
-                routeStop.id != stop.id && routeStop.id !in nextCompletedStopIds
+                routeStop.id !in handledStopIds
             }
             if (nextStop != null && selectedRoutePosition != null) {
                 mapSelectViewModel.selectRoute(selectedRoutePosition)
                 moveMapCenter(nextStop.location.toLatLng(), 16f)
             }
         }
+    }
+
+    fun checkInStop(stop: RouteStop) {
+        advanceRouteAfterStop(stop = stop, skipped = false)
+    }
+
+    fun skipStop(stop: RouteStop) {
+        advanceRouteAfterStop(stop = stop, skipped = true)
     }
 
     fun requestCurrentLocation() {
@@ -307,7 +326,14 @@ internal fun MapSelectScreen(
         }
     }
 
-    LaunchedEffect(routeGeneration?.requestId, routes.size, initialVisibleRouteCode, activeRouteIndex, isRouteExecutionMode) {
+    LaunchedEffect(
+        routeGeneration?.requestId,
+        routeGeneration?.activeRouteCode,
+        routes.size,
+        initialVisibleRouteCode,
+        activeRouteIndex,
+        isRouteExecutionMode
+    ) {
         val initialRouteIndex = initialVisibleRouteCode
             ?.let { routeCode -> routes.indexOfFirst { route -> route.routeCode == routeCode } }
             ?.takeIf { it >= 0 }
@@ -316,7 +342,8 @@ internal fun MapSelectScreen(
         mapSelectViewModel.syncRouteGeneration(
             routeGeneration = routeGeneration,
             routeCount = routes.size,
-            initialRouteIndex = initialRouteIndex
+            initialRouteIndex = initialRouteIndex,
+            progressStore = routeExecutionProgressStore
         )
     }
 
@@ -411,9 +438,7 @@ internal fun MapSelectScreen(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .padding(end = 18.dp),
-                onCurrentLocation = ::locateWithPermission,
-                onLayers = {},
-                onMore = {}
+                onCurrentLocation = ::locateWithPermission
             )
         }
 
@@ -474,6 +499,7 @@ internal fun MapSelectScreen(
                                 currentStop = currentTargetStop,
                                 selectedStop = selectedStop,
                                 completedStopIds = completedStopIds,
+                                skippedStopIds = skippedStopIds,
                                 distanceMeters = executionLegDistance(selectedRouteStops, selectedStop),
                                 durationMinutes = executionLegDuration(selectedRouteStops, selectedStop),
                                 canCheckIn = selectedStop.id == currentTargetStop.id && shouldShowCheckInPrompt,
@@ -496,12 +522,13 @@ internal fun MapSelectScreen(
                                 route = selectedRoute,
                                 stop = currentTargetStop,
                                 completedStopIds = completedStopIds,
+                                skippedStopIds = skippedStopIds,
                                 distanceMeters = executionLegDistance(selectedRouteStops, currentTargetStop),
                                 durationMinutes = executionLegDuration(selectedRouteStops, currentTargetStop),
                                 canCheckIn = shouldShowCheckInPrompt,
                                 onShowDetail = { focusStop(selectedRoutePosition, currentTargetStop) },
                                 onCheckIn = { checkInStop(currentTargetStop) },
-                                onUnableToArrive = { mapSelectViewModel.dismissCheckIn(currentTargetStop.id) },
+                                onUnableToArrive = { skipStop(currentTargetStop) },
                                 onFinishEarly = finishActiveRoute,
                                 onSelectStop = { stop -> focusStop(selectedRoutePosition, stop) },
                                 onSelectSegment = { originStop, destinationStop ->

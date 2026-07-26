@@ -14,6 +14,7 @@ import com.urbansidequest.app.domain.model.RouteSegment
 import com.urbansidequest.app.domain.model.RouteShare
 import com.urbansidequest.app.domain.model.RouteStep
 import com.urbansidequest.app.domain.model.RouteStop
+import com.urbansidequest.app.domain.model.UserPreferenceProfileOverride
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,9 +30,16 @@ import java.nio.charset.StandardCharsets
 
 class RouteApi {
 
-    suspend fun fetchRouteHistory(authorizationHeader: String): List<RouteHistoryGroup> = withContext(Dispatchers.IO) {
+    suspend fun fetchRouteHistory(
+        pageNum: Int,
+        pageSize: Int,
+        authorizationHeader: String
+    ): List<RouteHistoryGroup> = withContext(Dispatchers.IO) {
         try {
-            val endpoint = URL("${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history")
+            val endpoint = URL(
+                "${BuildConfig.BACKEND_BASE_URL.trimEnd('/')}/api/routes/history" +
+                    "?pageNum=$pageNum&pageSize=$pageSize"
+            )
             val connection = endpoint.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
@@ -668,7 +676,8 @@ data class RouteGenerateRequest(
     val budgetLevel: String,
     val interestTags: List<String>,
     val mealWindows: List<String>,
-    val mustVisitPoints: List<MustVisitPointRequest>
+    val mustVisitPoints: List<MustVisitPointRequest>,
+    val userPreferenceProfileOverride: UserPreferenceProfileOverride? = null
 ) {
 
     fun toJson(): JSONObject {
@@ -689,6 +698,10 @@ data class RouteGenerateRequest(
             .put("interestTags", JSONArray(interestTags))
             .put("mealWindows", JSONArray(mealWindows))
             .put("mustVisitPoints", JSONArray(mustVisitPoints.map { it.toJson() }))
+            .put(
+                "userPreferenceProfileOverride",
+                userPreferenceProfileOverride?.toJson() ?: JSONObject.NULL
+            )
     }
 }
 
@@ -718,6 +731,18 @@ private fun GeoPoint.toJson(): JSONObject {
     return JSONObject()
         .put("longitudeGcj02", longitudeGcj02)
         .put("latitudeGcj02", latitudeGcj02)
+}
+
+private fun UserPreferenceProfileOverride.toJson(): JSONObject {
+    return JSONObject()
+        .put("distanceSensitivity", distanceSensitivity)
+        .put("budgetSensitivity", budgetSensitivity)
+        .put("transferSensitivity", transferSensitivity)
+        .put("hiddenGemAffinity", hiddenGemAffinity)
+        .put("profileConfidence", profileConfidence)
+        .put("questionnaireVersion", questionnaireVersion)
+        .put("newUser", isNewUser)
+        .put("tagAffinities", JSONObject(tagAffinities))
 }
 
 private fun List<GeoPoint>.toGeoPointArray(): JSONArray {

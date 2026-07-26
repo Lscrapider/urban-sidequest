@@ -40,6 +40,10 @@ class AuthRepository(
         return authSessionStore.hasAccessToken()
     }
 
+    fun currentUserId(): String? {
+        return authSessionStore.currentUserId()
+    }
+
     fun clearSession() {
         authSessionStore.clear()
     }

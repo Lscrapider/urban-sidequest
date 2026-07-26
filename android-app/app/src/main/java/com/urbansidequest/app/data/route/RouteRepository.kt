@@ -21,9 +21,13 @@ class RouteRepository(
         )
     }
 
-    suspend fun fetchRouteHistory(): List<RouteHistoryGroup> {
+    suspend fun fetchRouteHistory(pageNum: Int, pageSize: Int): List<RouteHistoryGroup> {
         val authorizationHeader = authSessionStore.requireAuthorizationHeader()
-        return routeApi.fetchRouteHistory(authorizationHeader = authorizationHeader)
+        return routeApi.fetchRouteHistory(
+            pageNum = pageNum,
+            pageSize = pageSize,
+            authorizationHeader = authorizationHeader
+        )
     }
 
     suspend fun fetchRouteShares(): List<RouteShare> {

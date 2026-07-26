@@ -49,7 +49,9 @@ import com.urbansidequest.app.ui.theme.AppTextMuted
 internal fun WalkedRouteRow(
     group: RouteHistoryGroup,
     route: RouteHistoryRouteSummary,
+    isFavorite: Boolean,
     onOpenRoute: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onShareRoute: () -> Unit
 ) {
     Surface(
@@ -114,8 +116,8 @@ internal fun WalkedRouteRow(
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                         WalkedRouteAction(
                             iconRes = R.drawable.icon_routes_star,
-                            label = "收藏",
-                            onClick = {}
+                            label = if (isFavorite) "已收藏" else "收藏",
+                            onClick = onToggleFavorite
                         )
                         WalkedRouteAction(
                             iconRes = R.drawable.icon_routes_share,

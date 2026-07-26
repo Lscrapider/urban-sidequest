@@ -48,6 +48,7 @@ import com.urbansidequest.app.ui.theme.AppSurfaceMuted
 import com.urbansidequest.app.ui.theme.AppText
 import com.urbansidequest.app.ui.theme.AppTextMuted
 import com.urbansidequest.app.ui.theme.RouteTeal
+import com.urbansidequest.app.ui.theme.WarningAmber
 
 private val ExecutionStopBadgeSize = 34.dp
 private val ExecutionProgressNodeSize = 24.dp
@@ -57,6 +58,7 @@ internal fun RouteExecutionPanel(
     route: GeneratedRoute,
     stop: RouteStop,
     completedStopIds: Set<String>,
+    skippedStopIds: Set<String>,
     distanceMeters: Int?,
     durationMinutes: Int?,
     canCheckIn: Boolean,
@@ -240,6 +242,7 @@ internal fun RouteExecutionPanel(
                 route = route,
                 routeColor = routeColor,
                 completedStopIds = completedStopIds,
+                skippedStopIds = skippedStopIds,
                 currentStopId = stop.id,
                 onSelectStop = onSelectStop,
                 onSelectSegment = onSelectSegment
@@ -254,6 +257,7 @@ internal fun RouteExecutionCompactPanel(
     currentStop: RouteStop,
     selectedStop: RouteStop,
     completedStopIds: Set<String>,
+    skippedStopIds: Set<String>,
     distanceMeters: Int?,
     durationMinutes: Int?,
     canCheckIn: Boolean,
@@ -274,6 +278,7 @@ internal fun RouteExecutionCompactPanel(
         isCurrentStop && canCheckIn -> "你已进入 ${CHECK_IN_RADIUS_METERS} 米范围，确认后记录这一站。"
         isCurrentStop && legText.isNotBlank() -> "$legText，抵达后确认这一站。"
         isCurrentStop -> "抵达后确认这一站。"
+        selectedStop.id in skippedStopIds -> "这一站已跳过，可继续查看路线进度。"
         selectedStop.id in completedStopIds -> "这一站已记录，可继续查看路线进度。"
         else -> "当前下一站是${currentStop.name}，可在地图上查看其他站点。"
     }
@@ -352,6 +357,7 @@ internal fun RouteExecutionCompactPanel(
                 route = route,
                 routeColor = RouteTeal,
                 completedStopIds = completedStopIds,
+                skippedStopIds = skippedStopIds,
                 currentStopId = currentStop.id,
                 compact = true,
                 onSelectStop = onSelectStop,
@@ -459,6 +465,7 @@ private fun RouteExecutionProgressTimeline(
     route: GeneratedRoute,
     routeColor: Color,
     completedStopIds: Set<String>,
+    skippedStopIds: Set<String>,
     currentStopId: String,
     compact: Boolean = false,
     onSelectStop: (RouteStop) -> Unit,
@@ -475,7 +482,8 @@ private fun RouteExecutionProgressTimeline(
     ) {
         stops.forEachIndexed { index, stop ->
             val active = index == currentIndex
-            val completed = stop.id in completedStopIds || index < currentIndex
+            val skipped = stop.id in skippedStopIds
+            val completed = stop.id in completedStopIds || (index < currentIndex && !skipped)
             val nodeSize = ExecutionProgressNodeSize
             Column(
                 modifier = Modifier
@@ -543,12 +551,17 @@ private fun RouteExecutionProgressTimeline(
                         shape = CircleShape,
                         color = when {
                             active -> routeColor
+                            skipped -> WarningAmber.copy(alpha = 0.18f)
                             completed -> routeColor.copy(alpha = 0.18f)
                             else -> AppSurface
                         },
                         border = BorderStroke(
                             width = if (active) 2.dp else 1.2.dp,
-                            color = if (active || completed) routeColor else AppBorder
+                            color = when {
+                                active || completed -> routeColor
+                                skipped -> WarningAmber
+                                else -> AppBorder
+                            }
                         )
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -556,7 +569,13 @@ private fun RouteExecutionProgressTimeline(
                                 Box(
                                     modifier = Modifier
                                         .size(8.dp)
-                                        .background(Color.White, CircleShape)
+                                    .background(Color.White, CircleShape)
+                                )
+                            } else if (skipped) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(WarningAmber, CircleShape)
                                 )
                             }
                         }

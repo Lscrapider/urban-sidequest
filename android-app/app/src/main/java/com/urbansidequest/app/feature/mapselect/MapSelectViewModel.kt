@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import com.amap.api.maps.model.LatLng
 import com.urbansidequest.app.data.map.PlaceSearchSuggestion
 import com.urbansidequest.app.data.map.RouteCityInfo
+import com.urbansidequest.app.data.route.RouteExecutionProgress
+import com.urbansidequest.app.data.route.RouteExecutionProgressKey
+import com.urbansidequest.app.data.route.RouteExecutionProgressStore
 import com.urbansidequest.app.domain.model.DiscoverAnchorSource
 import com.urbansidequest.app.domain.model.DiscoverMapLaunchRequest
 import com.urbansidequest.app.domain.model.DiscoverMapRangeMode
@@ -345,34 +348,45 @@ internal class MapSelectViewModel : ViewModel() {
         }
     }
 
-    fun completeStop(stop: RouteStop) {
-        mutableUiState.update {
-            it.copy(
-                completedStopIds = it.completedStopIds + stop.id,
-                dismissedCheckInStopId = null,
-                selectedStopPayload = null,
-                selectedSegmentPayload = null
-            )
+    fun completeStop(stop: RouteStop, progressStore: RouteExecutionProgressStore) {
+        updateExecutionProgress(progressStore) { progress ->
+            progress.copy(completedStopIds = progress.completedStopIds + stop.id)
         }
     }
 
-    fun dismissCheckIn(stopId: String) {
-        mutableUiState.update { it.copy(dismissedCheckInStopId = stopId) }
+    fun skipStop(stop: RouteStop, progressStore: RouteExecutionProgressStore) {
+        updateExecutionProgress(progressStore) { progress ->
+            progress.copy(skippedStopIds = progress.skippedStopIds + stop.id)
+        }
     }
 
     fun syncRouteGeneration(
         routeGeneration: RouteGeneration?,
         routeCount: Int,
-        initialRouteIndex: Int?
+        initialRouteIndex: Int?,
+        progressStore: RouteExecutionProgressStore
     ) {
-        val routeIdentity = "${routeGeneration?.requestId}:${routeGeneration?.activeRouteCode}"
+        val routeProgressKey = routeGeneration
+            ?.takeIf { generation -> generation.executionStatus == "IN_PROGRESS" }
+            ?.let { generation ->
+                generation.activeRouteCode?.let { routeCode ->
+                    RouteExecutionProgressKey(generation.requestId, routeCode)
+                }
+            }
+        val routeIdentity = routeProgressKey?.let { key -> "${key.requestId}:${key.routeCode}" }
         mutableUiState.update { state ->
             val shouldResetExecution = state.routeIdentity != routeIdentity
+            val storedProgress = if (shouldResetExecution && routeProgressKey != null) {
+                progressStore.read(routeProgressKey)
+            } else {
+                null
+            }
             val resolvedInitialRouteIndex = initialRouteIndex ?: DEFAULT_VISIBLE_ROUTE_INDEX
             val nextState = state.copy(
                 routeIdentity = routeIdentity,
-                completedStopIds = if (shouldResetExecution) emptySet() else state.completedStopIds,
-                dismissedCheckInStopId = if (shouldResetExecution) null else state.dismissedCheckInStopId,
+                routeProgressKey = routeProgressKey,
+                completedStopIds = storedProgress?.completedStopIds ?: if (shouldResetExecution) emptySet() else state.completedStopIds,
+                skippedStopIds = storedProgress?.skippedStopIds ?: if (shouldResetExecution) emptySet() else state.skippedStopIds,
                 selectedRouteIndex = if (routeCount > 0) resolvedInitialRouteIndex else null,
                 visibleRouteIndexes = if (routeCount > 0) setOf(resolvedInitialRouteIndex) else emptySet(),
                 selectedStopPayload = null,
@@ -386,6 +400,37 @@ internal class MapSelectViewModel : ViewModel() {
                 }
             ).resetRouteSheet()
             nextState
+        }
+    }
+
+    private fun updateExecutionProgress(
+        progressStore: RouteExecutionProgressStore,
+        update: (RouteExecutionProgress) -> RouteExecutionProgress
+    ) {
+        var keyToSave: RouteExecutionProgressKey? = null
+        var progressToSave: RouteExecutionProgress? = null
+        mutableUiState.update { state ->
+            val routeProgressKey = state.routeProgressKey ?: return@update state
+            val nextProgress = update(
+                RouteExecutionProgress(
+                    completedStopIds = state.completedStopIds,
+                    skippedStopIds = state.skippedStopIds
+                )
+            )
+            keyToSave = routeProgressKey
+            progressToSave = nextProgress
+            state.copy(
+                completedStopIds = nextProgress.completedStopIds,
+                skippedStopIds = nextProgress.skippedStopIds,
+                dismissedCheckInStopId = null,
+                selectedStopPayload = null,
+                selectedSegmentPayload = null
+            )
+        }
+        val key = keyToSave
+        val progress = progressToSave
+        if (key != null && progress != null) {
+            progressStore.save(key, progress)
         }
     }
 }
@@ -413,8 +458,10 @@ internal data class MapSelectUiState(
     val selectedStopPayload: RouteStopMarkerPayload? = null,
     val selectedSegmentPayload: RouteSegmentPolylinePayload? = null,
     val completedStopIds: Set<String> = emptySet(),
+    val skippedStopIds: Set<String> = emptySet(),
     val dismissedCheckInStopId: String? = null,
-    val routeIdentity: String? = null
+    val routeIdentity: String? = null,
+    val routeProgressKey: RouteExecutionProgressKey? = null
 ) {
     fun resetRangeSheet(): MapSelectUiState {
         return copy(
