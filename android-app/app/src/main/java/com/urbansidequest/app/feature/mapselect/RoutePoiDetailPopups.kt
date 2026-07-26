@@ -279,13 +279,6 @@ internal fun PoiDetailPopup(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            if (!stop.reason.isNullOrBlank()) {
-                Text(
-                    text = stop.reason,
-                    color = AppTextMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
             if (!stop.riskNote.isNullOrBlank()) {
                 Text(
                     text = stop.riskNote,
