@@ -424,7 +424,7 @@ class RouteApi {
             val connection = endpoint.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
-            connection.readTimeout = ROUTE_GENERATION_READ_TIMEOUT_MILLIS
+            connection.readTimeout = READ_TIMEOUT_MILLIS
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Authorization", authorizationHeader)
@@ -640,7 +640,6 @@ class RouteApi {
     private companion object {
         private const val CONNECT_TIMEOUT_MILLIS = 10_000
         private const val READ_TIMEOUT_MILLIS = 20_000
-        private const val ROUTE_GENERATION_READ_TIMEOUT_MILLIS = 5 * 60 * 1000
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_FORBIDDEN = 403
         private val HTTP_SUCCESS_RANGE = 200..299

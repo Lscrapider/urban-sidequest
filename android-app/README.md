@@ -40,8 +40,34 @@ minio.image.base.url=http://10.0.2.2:9000
 amap.api.key=你的高德 Android Key
 ```
 
-Gradle 读取优先级：
+`debug` 包的服务地址读取优先级：
 
 ```text
-BACKEND_BASE_URL / MINIO_IMAGE_BASE_URL / AMAP_API_KEY 环境变量 > local.properties.dev > local.properties > 构建默认值
+BACKEND_BASE_URL / MINIO_IMAGE_BASE_URL 环境变量 > local.properties.dev > local.properties > 构建默认值
 ```
+
+`release` 包固定使用以下线上地址：
+
+```text
+backend.base.url=https://urban.scrapider.cloud/urban-api
+minio.image.base.url=https://urban.scrapider.cloud/images/
+```
+
+高德 Key 在两个构建类型中共用，读取优先级为：
+
+```text
+AMAP_API_KEY 环境变量 > local.properties.dev > local.properties > 空值
+```
+
+## 发布签名
+
+`release` 构建必须使用本机的 `keystore.properties`。该文件和 keystore 均被 Git 忽略，不能提交或分享：
+
+```properties
+storeFile=keystore/urban-sidequest-release.jks
+storePassword=本机保存的密钥库密码
+keyAlias=urban-sidequest
+keyPassword=本机保存的私钥密码
+```
+
+丢失 release keystore 或密码后，无法继续为同一应用签发更新包；请将它们备份到安全位置。

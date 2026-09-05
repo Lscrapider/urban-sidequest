@@ -13,6 +13,8 @@ import com.urbansidequest.backend.service.RouteInteractionService;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,11 +44,12 @@ public class RouteGenerationController {
     }
 
     @PostMapping("/requests")
-    public RouteGenerationVO generate(
+    public ResponseEntity<RouteGenerationVO> generate(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @Valid @RequestBody RouteGenerateParam generateParam
     ) {
-        return this.routeGenerationService.generate(authenticatedUser, generateParam);
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(this.routeGenerationService.generate(authenticatedUser, generateParam));
     }
 
     @GetMapping("/history")

@@ -69,6 +69,28 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
             """)
     int upsertRoute(@Param("history") RouteGenerationHistoryPO history);
 
+    @Insert("""
+            INSERT INTO route_generation_history (
+                candidate_set_id,
+                user_id,
+                area_label,
+                route_count,
+                generation_status,
+                generation_stage,
+                generation_json
+            )
+            VALUES (
+                #{history.candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
+                #{history.userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
+                #{history.areaLabel},
+                #{history.routeCount},
+                #{history.generationStatus},
+                #{history.generationStage},
+                CAST(#{history.generationJson} AS JSONB)
+            )
+            """)
+    int insertPendingHistory(@Param("history") RouteGenerationHistoryPO history);
+
     @Update("""
             UPDATE route_generation_history
             SET user_id = #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler},
@@ -92,15 +114,29 @@ public interface RouteGenerationHistoryMapper extends BaseMapper<RouteGeneration
             <script>
             DELETE FROM route_generation_history
             WHERE candidate_set_id = #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
-              AND route_code NOT IN
-              <foreach collection="routeCodes" item="routeCode" open="(" separator="," close=")">
-                  #{routeCode}
-              </foreach>
+              AND (
+                  route_code IS NULL
+                  OR route_code NOT IN
+                  <foreach collection="routeCodes" item="routeCode" open="(" separator="," close=")">
+                      #{routeCode}
+                  </foreach>
+              )
             </script>
             """)
     int deleteRoutesNotIn(
             @Param("candidateSetId") UUID candidateSetId,
             @Param("routeCodes") List<String> routeCodes
+    );
+
+    @Delete("""
+            DELETE FROM route_generation_history
+            WHERE candidate_set_id = #{candidateSetId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+              AND user_id = #{userId,typeHandler=com.urbansidequest.backend.config.PostgresUuidTypeHandler}
+              AND route_code IS NULL
+            """)
+    int deletePendingHistory(
+            @Param("candidateSetId") UUID candidateSetId,
+            @Param("userId") UUID userId
     );
 
     @Select("""

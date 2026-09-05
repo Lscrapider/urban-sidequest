@@ -336,12 +336,10 @@ internal class UrbanSidequestViewModel(
             mutableUiState.update { it.copy(isRouteGenerationSubmitting = true) }
             runCatching {
                 routeRepository.generateRoute(enrichRouteGenerationRequest(request))
-            }.onSuccess { routeGeneration ->
+            }.onSuccess {
                 mutableUiState.update {
                     it.copy(
-                        latestRouteGeneration = routeGeneration,
-                        mapInitialRouteCode = null,
-                        routeGenerationNotice = RouteGenerationNotice.Completed(routeGeneration)
+                        routeGenerationNotice = RouteGenerationNotice.Submitted
                     )
                 }
                 refreshRouteHistory()

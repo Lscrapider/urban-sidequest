@@ -12,9 +12,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,86 +60,95 @@ internal fun WalkedRouteRow(
     onToggleFavorite: () -> Unit,
     onShareRoute: () -> Unit
 ) {
-    Surface(
+    val routeAccent = routeChipAccentColor(route.routeCode)
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpenRoute),
-        shape = RoundedCornerShape(12.dp),
-        color = AppSurface,
-        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.82f))
+            .clickable(role = Role.Button, onClick = onOpenRoute)
+            .padding(top = 2.dp)
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
-            WalkedRouteMapThumbnail(
-                modifier = Modifier.size(width = 118.dp, height = 96.dp),
-                route = route
-            )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Surface(
+                        shape = CircleShape,
+                        color = routeAccent.copy(alpha = 0.10f),
+                        border = BorderStroke(1.dp, routeAccent.copy(alpha = 0.24f))
                     ) {
                         Text(
-                            text = route.title,
-                            color = AppText,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${formatCreatedDate(group.createdAt)} 完成",
-                            color = AppTextMuted,
-                            style = MaterialTheme.typography.bodySmall
+                            text = "路线 ${route.routeCode}",
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                            color = routeAccent,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                     UrbanBadge(text = "已完成", style = UrbanBadgeStyle.Area)
                 }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RouteMetaItem(iconRes = R.drawable.icon_routes_location, text = formatCompactDistance(route.totalDistanceMeters))
-                    RouteMetaItem(iconRes = R.drawable.icon_routes_clock, text = formatDuration(route.totalDurationMinutes))
-                    RouteMetaItem(iconRes = R.drawable.icon_routes_flag, text = formatStopCount(route.stopCount))
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                        WalkedRouteAction(
-                            iconRes = R.drawable.icon_routes_star,
-                            label = if (isFavorite) "已收藏" else "收藏",
-                            onClick = onToggleFavorite
-                        )
-                        WalkedRouteAction(
-                            iconRes = R.drawable.icon_routes_share,
-                            label = "分享",
-                            onClick = onShareRoute
-                        )
-                    }
-                    RouteLibraryImageIcon(
-                        iconRes = R.drawable.icon_routes_chevron_right,
-                        contentDescription = "查看路线详情",
-                        modifier = Modifier.size(22.dp),
-                        tint = AppText
-                    )
-                }
+                Text(
+                    text = route.title,
+                    color = AppText,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${formatCreatedDate(group.createdAt)} 完成",
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
+            RouteMapSnapshot(
+                modifier = Modifier.size(width = 96.dp, height = 68.dp),
+                route = route
+            )
         }
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RouteMetaItem(iconRes = R.drawable.icon_routes_location, text = formatCompactDistance(route.totalDistanceMeters))
+            RouteMetaItem(iconRes = R.drawable.icon_routes_clock, text = formatDuration(route.totalDurationMinutes))
+            RouteMetaItem(iconRes = R.drawable.icon_routes_flag, text = formatStopCount(route.stopCount))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                WalkedRouteAction(
+                    iconRes = R.drawable.icon_routes_star,
+                    label = if (isFavorite) "已收藏" else "收藏",
+                    onClick = onToggleFavorite
+                )
+                WalkedRouteAction(
+                    iconRes = R.drawable.icon_routes_share,
+                    label = "分享",
+                    onClick = onShareRoute
+                )
+            }
+            RouteLibraryImageIcon(
+                iconRes = R.drawable.icon_routes_chevron_right,
+                contentDescription = "查看路线详情",
+                modifier = Modifier.size(22.dp),
+                tint = AppText
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider(color = AppBorder.copy(alpha = 0.58f))
     }
 }
 
@@ -144,56 +159,42 @@ internal fun WalkedRoutesSummaryCard(groups: List<RouteHistoryGroup>) {
     val totalDurationMinutes = walkedRoutes.sumOf { route -> route.totalDurationMinutes }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = AppSurface,
-        border = BorderStroke(1.dp, AppBorder.copy(alpha = 0.70f))
+        shape = RoundedCornerShape(10.dp),
+        color = AppSurfaceMuted
     ) {
-        Box {
-            Image(
-                painter = painterResource(R.drawable.route_walked_summary_bg),
-                contentDescription = null,
-                modifier = Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(AppSurface.copy(alpha = 0.72f))
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalAlignment = Alignment.CenterVertically
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1.15f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Column(
-                    modifier = Modifier.weight(1.15f),
-                    verticalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Text(
-                        text = "走过路线",
-                        color = AppText,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "${walkedRoutes.size} 条已完成",
-                        color = AppTextMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                WalkedSummaryMetric(
-                    modifier = Modifier.weight(0.92f),
-                    value = formatCompactDistance(totalDistanceMeters),
-                    label = "总距离"
+                Text(
+                    text = "走过 ${walkedRoutes.size} 条路线",
+                    color = AppText,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
                 )
-                WalkedSummaryMetric(
-                    modifier = Modifier.weight(0.92f),
-                    value = formatHourDecimal(totalDurationMinutes),
-                    label = "总时间"
+                Text(
+                    text = "每条记录保留路线快照",
+                    color = AppTextMuted,
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
+            WalkedSummaryMetric(
+                modifier = Modifier.weight(0.92f),
+                value = formatCompactDistance(totalDistanceMeters),
+                label = "总距离"
+            )
+            WalkedSummaryMetric(
+                modifier = Modifier.weight(0.92f),
+                value = formatHourDecimal(totalDurationMinutes),
+                label = "总时间"
+            )
         }
     }
 }
@@ -212,23 +213,24 @@ private fun WalkedSummaryMetric(
         Text(
             text = value,
             color = AppText,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         Text(
             text = label,
             color = AppTextMuted,
-            style = MaterialTheme.typography.labelSmall
+            style = MaterialTheme.typography.labelMedium
         )
     }
 }
 
 @Composable
-private fun WalkedRouteMapThumbnail(
+internal fun RouteMapSnapshot(
     route: RouteHistoryRouteSummary,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentDescription: String? = "路线${route.routeCode}地图缩略图"
 ) {
     val snapshotUrl = route.mapSnapshotUrl
     val resolvedSnapshotUrl = remember(snapshotUrl) {
@@ -261,14 +263,14 @@ private fun WalkedRouteMapThumbnail(
         if (bitmap != null) {
             Image(
                 bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = "路线${route.routeCode}地图缩略图",
+                contentDescription = contentDescription,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
         } else {
             Image(
                 painter = painterResource(R.drawable.route_thumb_placeholder),
-                contentDescription = "路线${route.routeCode}地图缩略图",
+                contentDescription = contentDescription,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
@@ -303,7 +305,7 @@ private fun RouteMetaItem(
         Text(
             text = text,
             color = AppText,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.bodySmall,
             maxLines = 1
         )
     }
@@ -316,7 +318,10 @@ private fun WalkedRouteAction(
     onClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

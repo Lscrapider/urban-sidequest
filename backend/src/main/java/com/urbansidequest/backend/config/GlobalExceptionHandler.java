@@ -4,6 +4,7 @@ import com.urbansidequest.backend.domain.vo.ErrorVO;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import org.springframework.dao.DataAccessException;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.slf4j.Logger;
@@ -17,6 +18,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(TaskRejectedException.class)
+    public ResponseEntity<ErrorVO> handleTaskRejectedException(
+            TaskRejectedException exception,
+            HttpServletRequest request
+    ) {
+        LOGGER.warn("路线生成任务被拒绝：{}", request.getRequestURI(), exception);
+        return this.buildResponse(HttpStatus.SERVICE_UNAVAILABLE, "路线生成任务繁忙，请稍后重试", request);
+    }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorVO> handleValidationException(

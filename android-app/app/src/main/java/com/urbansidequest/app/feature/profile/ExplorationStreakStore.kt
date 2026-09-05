@@ -3,6 +3,7 @@ package com.urbansidequest.app.feature.profile
 import android.content.Context
 import android.util.Base64
 import java.time.LocalDate
+import androidx.core.content.edit
 
 /** 按登录用户保存连续探索天数，避免应用重启后丢失已获得的进度。 */
 internal class ExplorationStreakStore(context: Context) {
@@ -26,10 +27,10 @@ internal class ExplorationStreakStore(context: Context) {
 
     fun save(userId: String, streakDays: Int, lastVisitDate: LocalDate) {
         val prefix = keyPrefix(userId)
-        sharedPreferences.edit()
-            .putInt("${prefix}_$KEY_STREAK_DAYS", streakDays.coerceAtLeast(0))
-            .putLong("${prefix}_$KEY_LAST_VISIT_EPOCH_DAY", lastVisitDate.toEpochDay())
-            .apply()
+        sharedPreferences.edit {
+            putInt("${prefix}_$KEY_STREAK_DAYS", streakDays.coerceAtLeast(0))
+                .putLong("${prefix}_$KEY_LAST_VISIT_EPOCH_DAY", lastVisitDate.toEpochDay())
+        }
     }
 
     private fun keyPrefix(userId: String): String {

@@ -8,6 +8,7 @@ import com.urbansidequest.app.ui.theme.InfoCyan
 import com.urbansidequest.app.ui.theme.RouteTeal
 import com.urbansidequest.app.ui.theme.WarningAmber
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -19,9 +20,9 @@ internal fun formatDuration(minutes: Int): String {
     val hours = minutes / 60
     val restMinutes = minutes % 60
     return when {
-        hours > 0 && restMinutes > 0 -> "${hours}小时${restMinutes}分钟"
-        hours > 0 -> "${hours}小时"
-        else -> "${minutes}分钟"
+        hours > 0 && restMinutes > 0 -> "$hours 小时 $restMinutes 分"
+        hours > 0 -> "$hours 小时"
+        else -> "$minutes 分"
     }
 }
 
@@ -59,6 +60,7 @@ internal fun formatExecutionStatus(status: String): String {
         "IN_PROGRESS" -> "进行中"
         "COMPLETED" -> "已完成"
         "ABANDONED" -> "已中止"
+        "GENERATED" -> "未开始"
         else -> "已生成"
     }
 }
@@ -158,9 +160,16 @@ internal fun formatCreatedAt(createdAt: String): String {
         return "刚刚生成"
     }
     return runCatching {
-        DateTimeFormatter
-            .ofPattern("yyyy-MM-dd HH:mm:ss")
-            .format(Instant.parse(createdAt).atZone(ROUTE_HISTORY_ZONE))
+        val createdDateTime = Instant.parse(createdAt).atZone(ROUTE_HISTORY_ZONE)
+        val createdDate = createdDateTime.toLocalDate()
+        val today = LocalDate.now(ROUTE_HISTORY_ZONE)
+        val dateLabel = when {
+            createdDate == today -> "今天"
+            createdDate == today.minusDays(1) -> "昨天"
+            createdDate.year == today.year -> ROUTE_HISTORY_MONTH_DAY_FORMATTER.format(createdDateTime)
+            else -> ROUTE_HISTORY_YEAR_MONTH_DAY_FORMATTER.format(createdDateTime)
+        }
+        "$dateLabel ${ROUTE_HISTORY_TIME_FORMATTER.format(createdDateTime)}"
     }.getOrElse {
         createdAt
             .substringBefore(".")
@@ -191,6 +200,12 @@ internal const val DEFAULT_SHARE_TEXT = "这条路线走下来很顺，适合直
 internal const val MAX_SHARE_TEXT_LENGTH = 240
 
 private val ROUTE_HISTORY_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
+
+private val ROUTE_HISTORY_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+private val ROUTE_HISTORY_MONTH_DAY_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("M月d日")
+
+private val ROUTE_HISTORY_YEAR_MONTH_DAY_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy年M月d日")
 
 internal enum class RouteLibraryTab(
     val label: String,

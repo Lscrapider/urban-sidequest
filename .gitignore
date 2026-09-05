@@ -42,6 +42,8 @@ target/
 # Android local config / build outputs
 local.properties
 android-app/local.properties.dev
+android-app/keystore.properties
+android-app/keystore/
 android-app/.gradle/
 android-app/**/build/
 

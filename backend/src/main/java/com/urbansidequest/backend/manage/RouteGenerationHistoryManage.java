@@ -25,6 +25,18 @@ public class RouteGenerationHistoryManage extends ServiceImpl<RouteGenerationHis
     }
 
     @Transactional
+    public void createPendingHistory(RouteGenerationVO routeGeneration) {
+        this.baseMapper.insertPendingHistory(
+                RouteGenerationHistoryPO.fromPendingGeneration(routeGeneration, this.objectMapper)
+        );
+    }
+
+    @Transactional
+    public void deletePendingHistory(UUID candidateSetId, UUID userId) {
+        this.baseMapper.deletePendingHistory(candidateSetId, userId);
+    }
+
+    @Transactional
     public void upsertHistory(RouteGenerationVO routeGeneration) {
         List<RouteGenerationHistoryPO> histories = RouteGenerationHistoryPO.fromRouteGeneration(routeGeneration, this.objectMapper);
         if (histories.isEmpty()) {

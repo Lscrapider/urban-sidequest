@@ -83,6 +83,21 @@ public class RouteGenerationHistoryPO {
                 .toList();
     }
 
+    public static RouteGenerationHistoryPO fromPendingGeneration(
+            RouteGenerationVO routeGeneration,
+            ObjectMapper objectMapper
+    ) {
+        RouteGenerationHistoryPO po = new RouteGenerationHistoryPO();
+        po.setCandidateSetId(routeGeneration.candidateSetId());
+        po.setUserId(routeGeneration.userId());
+        po.setAreaLabel(routeGeneration.area().areaLabel());
+        po.setRouteCount(0);
+        po.setGenerationStatus(routeGeneration.status());
+        po.setGenerationStage(routeGeneration.generationStage());
+        po.setGenerationJson(writeJson(objectMapper, routeGeneration));
+        return po;
+    }
+
     public RouteGenerationVO toRouteGenerationVO(ObjectMapper objectMapper) {
         return toRouteGenerationVO(List.of(this), objectMapper);
     }
